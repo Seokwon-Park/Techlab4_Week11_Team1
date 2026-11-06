@@ -52,6 +52,11 @@ private:
 	const TArray<FBoneInfo>* RefSkeleton = nullptr;
 };
 
+struct FAnimationInitializeContext
+{
+
+};
+
 // 모든 노드의 뿌리. 프레임마다 Update -> Evaluate 순서로 불린다.
 // UE의 Update_AnyThread / Evaluate_AnyThread에 해당한다.
 struct FAnimNode_Base
@@ -61,6 +66,7 @@ struct FAnimNode_Base
 	virtual void Update(const FAnimationUpdateContext& Context) {}
 	// 출력은 항상 Output.Pose의 모든 본을 채운다. Rotation은 단위 쿼터니언이어야 한다.
 	virtual void Evaluate(FPoseContext& Output) { Output.ResetToRefPose(); }
+	virtual void Initialize(const FAnimationInitializeContext& Context) {}
 };
 
 // 다른 노드로 이어지는 입력 핀. 연결이 없으면 바인드 포즈를 낸다.
@@ -80,6 +86,12 @@ struct FPoseLink
 			LinkedNode->Evaluate(Output);
 		else
 			Output.ResetToRefPose();
+	}
+
+	void Initialize(const FAnimationInitializeContext& Context)
+	{
+		if (LinkedNode)
+			LinkedNode->Initialize(Context);
 	}
 
 private:
