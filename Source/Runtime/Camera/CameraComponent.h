@@ -59,6 +59,7 @@ public:
 	float GetWheelSpeed() const { return WheelSpeed; }
 	void SetWheelSpeed(float InWheelSpeed) { WheelSpeed = InWheelSpeed; }
 	// 외부 ViewportLayout가 View별 입력을 처리할 때 기본 카메라의 중복 입력 갱신을 끈다.
+
 	void SetExternalInputManaged(bool bValue) { bExternalInputManaged = bValue; }
 	bool IsExternalInputManaged() const { return bExternalInputManaged; }
 
@@ -79,6 +80,8 @@ protected:
 	float MoveSpeed = 10.0f;
 	float MouseSensitivity = 0.05f;
 	float WheelSpeed = 0.1f;
+
+	UPROPERTY(EditAnywhere)
 	bool bExternalInputManaged = false;
 
 };

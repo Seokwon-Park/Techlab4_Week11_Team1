@@ -17,6 +17,8 @@ public:
 	void PossessedBy(APlayerController* NewController) { Controller = NewController; }
 	void UnPossessed() { Controller = nullptr; }
 	APlayerController* GetController() const { return Controller; }
+
+	virtual FVector GetVelocity() const { return FVector::ZeroVector; }
 private:
 	APlayerController* Controller = nullptr;
 };
