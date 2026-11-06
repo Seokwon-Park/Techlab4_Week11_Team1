@@ -140,7 +140,7 @@ void FEditorControlsPanel::OnRender()
 			if (Bone < 0) continue;
 
 			FTransform Local = Comp->GetBoneLocalTransform(Bone);
-			Local.Rotation = FRotator(Bone1Pitch, 0.0f, 0.0f);
+			Local.Rotation = FRotator(Bone1Pitch, 0.0f, 0.0f).Quaternion();
 			Comp->SetBoneLocalTransform(Bone, Local);
 			Comp->RefreshBoneTransformsNow();   // 에디터 월드에서 Tick이 안 돌아도 바로 반영
 		}

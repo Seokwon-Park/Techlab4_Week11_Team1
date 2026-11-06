@@ -34,8 +34,10 @@ void UCameraComponent::UpdateRotation(float DeltaTime)
 {
     if (!FInputSystem::IsMouseDown(EMouseButton::Right)) return;
 
-    Transform.Rotation.Pitch += FInputSystem::GetMouseDeltaY() * MouseSensitivity;
-    Transform.Rotation.Yaw += FInputSystem::GetMouseDeltaX() * MouseSensitivity;
+    FRotator Rotation = GetRelativeRotation();
+    Rotation.Pitch += FInputSystem::GetMouseDeltaY() * MouseSensitivity;
+    Rotation.Yaw += FInputSystem::GetMouseDeltaX() * MouseSensitivity;
+    SetRelativeRotation(Rotation);
 }
 
 // 휠 입력으로 원근 이동 또는 직교 폭을 조절한다.

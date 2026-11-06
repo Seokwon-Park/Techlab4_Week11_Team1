@@ -301,7 +301,7 @@ FQuat FSkeletalMeshEditor::GetBoneWorldRotation(int32 BoneIndex) const
 	const TArray<FBoneInfo>& Bones = Mesh->GetRefSkeleton();
 	while (BoneIndex >= 0)
 	{
-		Rotation = MeshComponent->GetBoneLocalTransform(BoneIndex).Rotation.Quaternion() * Rotation;
+		Rotation = MeshComponent->GetBoneLocalTransform(BoneIndex).Rotation * Rotation;
 		BoneIndex = Bones[BoneIndex].ParentIndex;
 	}
 
@@ -560,7 +560,7 @@ void FSkeletalMeshEditor::ApplyBoneGizmoTransform()
 		break;
 	case EGizmoMode::Rotation:
 		Local.Rotation = (DragParentRotation.Inverse() *
-			BoneGizmoTarget->GetRelativeRotation().Quaternion()).Normalized().ToFRotator();
+			BoneGizmoTarget->GetRelativeRotation().Quaternion()).Normalized();
 		break;
 	case EGizmoMode::Scale:
 		Local.Scale = DragStartBoneTransform.Scale * BoneGizmoTarget->GetRelativeScale3D();

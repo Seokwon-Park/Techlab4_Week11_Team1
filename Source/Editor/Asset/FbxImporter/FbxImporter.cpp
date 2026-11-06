@@ -732,7 +732,7 @@ bool FFbxImporter::ReadSkeletonData(TArray<FString>& OutWarnings, FString& OutEr
 		FbxAMatrix EngineRotation;
 		EngineRotation.SetQ(Rotation);
 		const FbxVector4 Euler = EngineRotation.GetR();
-		Bone.LocalBindPose.Rotation = FRotator(static_cast<float>(Euler[1]), static_cast<float>(Euler[2]), static_cast<float>(Euler[0]));
+		Bone.LocalBindPose.Rotation = FRotator(static_cast<float>(Euler[1]), static_cast<float>(Euler[2]), static_cast<float>(Euler[0])).Quaternion();
 		const FMatrix LocalMatrix = Bone.LocalBindPose.GetLocalMatrix();
 		const double LocalDeterminant = LocalMatrix.Determinant();
 		if (!std::isfinite(LocalDeterminant) || LocalDeterminant == 0) { OutError = "FBX: non-finite/zero-scale Bind Local: " + Bone.Name; return false; }

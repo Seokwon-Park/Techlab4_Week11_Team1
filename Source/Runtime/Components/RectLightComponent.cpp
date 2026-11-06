@@ -37,7 +37,7 @@ void URectLightComponent::DrawDebug(FLineBatcher* LineBatcher) const
 
 	FTransform WorldTransform;
 	WorldTransform.Location = GetWorldLocation();
-	WorldTransform.Rotation = GetWorldRotation();
+	WorldTransform.Rotation = GetWorldRotation().Quaternion();
 
 	const FVector Center = WorldTransform.Location;
 	const FVector Forward = WorldTransform.GetForward();   // +X, 빛이 나가는 방향

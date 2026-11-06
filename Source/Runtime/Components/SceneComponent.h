@@ -36,10 +36,10 @@ public:
 	}
 
 
-	const FRotator& GetRelativeRotation() const { return Transform.Rotation; }
+	const FRotator& GetRelativeRotation() const { return RelativeRotationCache.QuatToRotator(Transform.Rotation); }
 	void SetRelativeRotation(const FRotator& InRotation) 
 	{
-		Transform.Rotation = InRotation; 
+		Transform.Rotation = RelativeRotationCache.RotatorToQuat(InRotation);
 		MarkTransformDirty();
 	}
 	void SetRelativeLocationAndRotation(const FVector& NewLocation, const FRotator& NewRotation);
@@ -110,6 +110,7 @@ protected:
 	bool bTransformDirty;
 	UPROPERTY(EditAnywhere)
 	FTransform Transform;
+	mutable FRotationConversionCache RelativeRotationCache;
 
 	USceneComponent* AttachParent = nullptr; // Attach 부모 정보
 	TArray<USceneComponent*> AttachChildren;

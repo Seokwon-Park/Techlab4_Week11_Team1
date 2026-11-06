@@ -13,9 +13,9 @@ FQuat::FQuat(float InX, float InY, float InZ, float InW)
 	X = InX; Y = InY; Z = InZ; W = InW;
 }
 
-FQuat::FQuat(FRotator InRoatator)
+FQuat::FQuat(FRotator InRotator)
 {
-	// TODO
+	*this = InRotator.Quaternion();
 }
 
 /* Functions */
@@ -150,13 +150,15 @@ FRotator FQuat::ToFRotator() const
 	// Gimbal Lock 방지를 위해 [-1, 1] 범위로 Clamp
 	const float ClampedSinPitch = FMath::Clamp(SinPitch, -1.0f, 1.0f);
 
-	ResultRotator.Pitch = asinf(ClampedSinPitch);
+	ResultRotator.Pitch = atan2f(ClampedSinPitch, hypotf(2.0f * (W * X + Y * Z), 1.0f - 2.0f * (X * X + Y * Y))); // asin은 ±1 근처에서 오차가 커서 90도가 89.97도로 나온다
 
 	// Roll
-	ResultRotator.Roll = atan2f( 2.0f * (W * X + Y * Z), 1.0f - 2.0f * (X * X + Y * Y));
+	const bool bGimbalLock = fabsf(ClampedSinPitch) > 0.999999f;
+	ResultRotator.Roll = bGimbalLock ? 0.0f : atan2f( 2.0f * (W * X + Y * Z), 1.0f - 2.0f * (X * X + Y * Y));
 
 	// Yaw
-	ResultRotator.Yaw = atan2f( 2.0f * (W * Z + X * Y), 1.0f - 2.0f * (Y * Y + Z * Z));
+	// Pitch가 ±90도면 Roll과 Yaw가 한 축으로 합쳐져 위 식이 atan2(0, 0)이 된다. Roll을 0으로 두고 전부 Yaw로 표현한다.
+	ResultRotator.Yaw = bGimbalLock ? atan2f(2.0f * Z * W, W * W - Z * Z) : atan2f( 2.0f * (W * Z + X * Y), 1.0f - 2.0f * (Y * Y + Z * Z));
 
 	// Radian -> Degree
 	ResultRotator.Pitch = FMath::RadiansToDegrees(ResultRotator.Pitch);

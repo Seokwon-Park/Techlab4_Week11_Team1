@@ -5,12 +5,19 @@ FTransform::FTransform(FVector InL, FVector InS, FRotator InR)
 {
 	Location = InL;
 	Scale = InS;
+	Rotation = InR.Quaternion();
+}
+
+FTransform::FTransform(FVector InL, FVector InS, const FQuat& InR)
+{
+	Location = InL;
+	Scale = InS;
 	Rotation = InR;
 }
 
 FMatrix FTransform::GetLocalMatrix() const
 {
-    FMatrix RotationMatrix = Rotation.Quaternion().ToFMatrix();
+    FMatrix RotationMatrix = Rotation.ToFMatrix();
 
     FMatrix WorldMatrix = FMatrix(
         RotationMatrix[0][0] * Scale.X, RotationMatrix[0][1] * Scale.X, RotationMatrix[0][2] * Scale.X, 0.0f,
@@ -41,7 +48,7 @@ FVector FTransform::GetRight() const
 
 FQuat FTransform::GetOrientation() const
 {
-    return FQuat::MakeFromEuler(FMath::DegreesToRadians(Rotation.Roll), FMath::DegreesToRadians(Rotation.Pitch), FMath::DegreesToRadians(Rotation.Yaw));
+    return Rotation;
 }
 
 FTransform FTransform::Identity = FTransform(FVector(0, 0, 0), FVector(1, 1, 1), FRotator(0, 0, 0));
