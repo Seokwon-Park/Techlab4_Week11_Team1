@@ -88,8 +88,8 @@ void UAnimInstance::NativeInitializeAnimation()
 	if (!SequenceB)
 		SequenceB = NewObject<UTestAnimSequence>(this);
 
-	SequenceA->MaxOffset = FVector(10, 0, 0); // X 방향
-	SequenceB->MaxOffset = FVector(0, 0, 10); // Z 방향
+	SequenceA->MaxOffset = FVector(1, 0, 0); // X 방향
+	SequenceB->MaxOffset = FVector(0, 0, 1); // Z 방향
 
 	PlayerA.Sequence = SequenceA;
 	PlayerB.Sequence = SequenceB;

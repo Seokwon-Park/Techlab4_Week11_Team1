@@ -23,4 +23,7 @@ ASkeletalMeshActor::ASkeletalMeshActor()
     SkeletalMeshComponent = CreateDefaultSubobject<USkeletalMeshComponent>("USkeletalMeshComponent");
     SkeletalMeshComponent->SetupAttachment(GetRootComponent());
     SkeletalMeshComponent->SetSkeletalMesh(GetTestBoneStickMesh());
+
+    SkeletalMeshComponent->SetAnimInstance(NewObject<UAnimInstance>(SkeletalMeshComponent));
+    SkeletalMeshComponent->SetEnableAnimation(true);
 }

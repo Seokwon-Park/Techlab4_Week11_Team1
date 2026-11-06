@@ -61,7 +61,6 @@ bool UEngine::Init()
 		float Alpha = 0.0f;
 
 		const bool bFound = BlendSpace->GetSamples(300.0f, A, B, Alpha);
-		HTR_LOG(Warning, "[BlendSpaceTest] Found={}, Alpha={}", bFound, Alpha);
 	}
 
  	return true;

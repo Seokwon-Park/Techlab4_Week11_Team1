@@ -4,16 +4,25 @@
 #include "Animation/BonePose.h"
 #include "Animation/AnimNodeBase.h"
 
-
 void USkeletalMeshComponent::SetAnimInstance(UAnimInstance* InInstance)
 {
 	AnimInstance = InInstance;
 	if (AnimInstance) AnimInstance->InitializeAnimation();
 }
 
+void USkeletalMeshComponent::BeginPlay()
+{
+	Super::BeginPlay();
+
+	if (AnimInstance)
+	{
+		AnimInstance->InitializeAnimation();
+	}
+}
+
 void USkeletalMeshComponent::TickComponent(float DeltaTime)
 {
-	if (AnimInstance && GetSkeletalMesh())
+	if (bEnableAnimation && AnimInstance && GetSkeletalMesh())
 	{
 		AnimInstance->UpdateAnimation(DeltaTime);
 		FPoseContext Pose(AnimInstance, GetBones());
@@ -137,4 +146,9 @@ void USkeletalMeshComponent::OnSkeletalMeshChanged()
 	BoneSpaceTransforms.Reset();
 	for (const FBoneInfo& Bone : GetBones())
 		BoneSpaceTransforms.Add(Bone.LocalBindPose);
+}
+
+void USkeletalMeshComponent::SetEnableAnimation(const bool EnableAnimation)
+{
+	bEnableAnimation = EnableAnimation;
 }

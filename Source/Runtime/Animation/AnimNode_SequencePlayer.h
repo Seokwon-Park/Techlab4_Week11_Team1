@@ -10,7 +10,7 @@ struct FAnimNode_SequencePlayer : public FAnimNode_Base
 	UTestAnimSequence* Sequence = nullptr;
 
 	float CurrentTime = 0.0f;
-	float PlayRate = 1.0f;
+	float PlayRate = 0.5f;
 
 	bool bLoop = false;
 

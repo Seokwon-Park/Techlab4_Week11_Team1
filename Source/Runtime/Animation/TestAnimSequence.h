@@ -17,5 +17,5 @@ public:
         FCompactPose& OutPose,
         const TArray<FBoneInfo>& RefSkeleton) const;
 
-    FVector MaxOffset = FVector(10, 0, 0);
+    FVector MaxOffset = FVector(1, 0, 0);
 };
