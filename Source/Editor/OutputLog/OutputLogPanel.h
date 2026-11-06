@@ -4,12 +4,24 @@
 #include "Editor/EditorUI/EditorPanel.h"
 #include "Core/EngineLog.h"
 
+#include <functional>
+
+
 struct FEditorSettings;
 
 struct FLogData
 {
 	FString message;
 	ImVec4 Color;
+};
+
+using FConsoleHandler = std::function<bool(const TArray<FString>& Args, const FString& Line)>;
+
+struct FConsoleCommand
+{
+	FString Name;
+	FString Usage;
+	FConsoleHandler Handler;
 };
 
 class FOutputLogPanel : public IEditorPanel, public ILogSink
@@ -33,8 +45,12 @@ public:
 	int TextEditCallback(ImGuiInputTextCallbackData* data);
 	void SetEditorSettings(FEditorSettings* InSettings) { EditorSettings = InSettings; }
 private:
+	void RegisterCommands();
+	void AddToHistory(const FString& CommandLine);
+
 	char                  InputBuf[256];
 	TArray<FLogData>       Items;
+	TArray<FConsoleCommand> ConsoleCommands;
 	TArray<FString>		  Commands;
 	TArray<FString>       History;
 	int                   HistoryPos;

@@ -101,6 +101,8 @@ bool FStatOverlay::ExecCommand(const FString& CommandLine, FString& OutMessage)
 		Target = EStatFlags::Light;
 	else if (EqualsIgnoreCase(Arg, "decal"))
 		Target = EStatFlags::Decal;
+	else if (EqualsIgnoreCase(Arg, "skinning"))
+		Target = EStatFlags::Skinning;
 
 
 	if (Target == EStatFlags::None)

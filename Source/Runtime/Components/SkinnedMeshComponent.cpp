@@ -4,6 +4,7 @@
 #include "Engine/SkeletalMeshSceneProxy.h"
 #include "Engine/Scene.h"
 #include "Collision/Ray.h"
+#include <UObject/UObjectIterator.h>
 
 #include <cfloat>
 
@@ -101,6 +102,16 @@ void USkinnedMeshComponent::UpdateBoneTransformsNow()
 	if (!SkeletalMesh || !MeshObject) return;
 	RefreshBoneTransforms();
 	SendRenderDynamicData();
+}
+
+void USkinnedMeshComponent::SetGPUSkinningEnabled(bool bEnable)
+{
+	if (bUseGPUSkinning == bEnable) return;
+	bUseGPUSkinning = bEnable;
+	for (TObjectIterator<USkinnedMeshComponent> It; It; ++It)
+	{
+		It->RefreshSkinningMode();
+	}
 }
 
 void USkinnedMeshComponent::RefreshBoneTransforms()
