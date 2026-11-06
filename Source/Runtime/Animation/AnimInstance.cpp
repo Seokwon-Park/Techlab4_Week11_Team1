@@ -21,6 +21,11 @@ void UAnimInstance::InitializeAnimation()
 {
 	RootNode = nullptr;
 	NativeInitializeAnimation();
+	if (RootNode)
+	{
+		FAnimationInitializeContext InitContext;
+		RootNode->Initialize(InitContext);
+	}
 }
 
 void UAnimInstance::UpdateAnimation(float DeltaSeconds)

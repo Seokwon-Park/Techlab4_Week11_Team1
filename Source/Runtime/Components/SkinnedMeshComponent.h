@@ -37,6 +37,8 @@ public:
 	void MarkBoneTransformsDirty() { bBoneTransformsDirty = true; }
 	void UpdateBoneTransformsNow();
 
+	static void SetGPUSkinningEnabled(bool bEnable);
+
 	const TArray<FMatrix>& GetComponentSpaceTransform() const { return ComponentSpaceTransforms; }
 
 	using Super::Serialize;

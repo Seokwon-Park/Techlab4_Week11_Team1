@@ -1,6 +1,7 @@
 #pragma once
 
 #include "SkinnedMeshComponent.h"
+#include "Animation/AnimInstance.h"
 #include "SkeletalMeshComponent.generated.h"
 
 class UAnimInstance;
@@ -9,10 +10,10 @@ UCLASS()
 class USkeletalMeshComponent : public USkinnedMeshComponent
 {
 	GENERATED_BODY()
-
 public:
-	virtual ~USkeletalMeshComponent() override;
-	
+
+	void SetAnimInstance(UAnimInstance* InInstance);
+	UAnimInstance* GetAnimInstance() const { return AnimInstance; }
 	void TickComponent(float DeltaTime) override;
 
 	const TArray<FBoneInfo>& GetBones() const;
@@ -37,6 +38,9 @@ protected:
 	void OnSkeletalMeshChanged() override;
 
 private:
+	UPROPERTY()
+	UAnimInstance* AnimInstance = nullptr;
+
 	TArray<FTransform> BoneSpaceTransforms;
 	UAnimInstance* AnimInstance = nullptr;
 };
