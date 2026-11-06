@@ -33,6 +33,9 @@ public:
 	using Super::Serialize;
 	virtual void Serialize(FStructuredArchive::FRecord Record) override;
 
+	UPROPERTY(EditAnywhere)
+	float BlendSpaceInput = 300.0f;
+
 protected:
 	void RefreshBoneTransforms() override;
 	void OnSkeletalMeshChanged() override;

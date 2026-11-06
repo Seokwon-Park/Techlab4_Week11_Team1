@@ -3,6 +3,7 @@
 #include "UObject/Object.h"
 #include "AnimNode_SequencePlayer.h"
 #include "AnimNode_TwoWayBlend.h"
+#include "AnimNode_BlendSpacePlayer.h"
 
 #include "AnimInstance.generated.h"
 
@@ -32,6 +33,7 @@ public:
 	APawn* TryGetPawnOwner() const;
 
 	FAnimNode_Base* GetRootNode() const { return RootNode; }
+	void SetBlendSpaceInput(float Value) { BlendSpacePlayer.X = Value; }
 
 protected:
 	virtual void NativeInitializeAnimation();
@@ -42,8 +44,6 @@ protected:
 	FAnimNode_Base* RootNode = nullptr;
 
 private:
-	UTestAnimSequence* SequenceAsset = nullptr;
-
 	UTestAnimSequence* SequenceA = nullptr;
 	UTestAnimSequence* SequenceB = nullptr;
 
@@ -51,4 +51,6 @@ private:
 	FAnimNode_SequencePlayer PlayerB;
 
 	FAnimNode_TwoWayBlend Blend;
+	UBlendSpace1D* BlendSpace = nullptr;
+	FAnimNode_BlendSpacePlayer BlendSpacePlayer;
 };

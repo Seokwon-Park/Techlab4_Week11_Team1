@@ -24,6 +24,7 @@ void USkeletalMeshComponent::TickComponent(float DeltaTime)
 {
 	if (bEnableAnimation && AnimInstance && GetSkeletalMesh())
 	{
+		AnimInstance->SetBlendSpaceInput(BlendSpaceInput);
 		AnimInstance->UpdateAnimation(DeltaTime);
 		FPoseContext Pose(AnimInstance, GetBones());
 		AnimInstance->EvaluateAnimation(Pose);

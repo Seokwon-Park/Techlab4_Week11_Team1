@@ -9,12 +9,15 @@
 
 UAnimInstance::~UAnimInstance()
 {
+	RootNode = nullptr;
 	PlayerA.Sequence = nullptr;
 	PlayerB.Sequence = nullptr;
-	RootNode = nullptr;
+	BlendSpacePlayer.BlendSpace = nullptr;
 
-	delete SequenceAsset;
-	SequenceAsset = nullptr;
+	// NewObject 객체는 엔진의 전역 종료 정리에서 삭제
+	BlendSpace = nullptr;
+	SequenceA = nullptr;
+	SequenceB = nullptr;
 }
 
 void UAnimInstance::InitializeAnimation()
@@ -88,8 +91,8 @@ void UAnimInstance::NativeInitializeAnimation()
 	if (!SequenceB)
 		SequenceB = NewObject<UTestAnimSequence>(this);
 
-	SequenceA->MaxOffset = FVector(1, 0, 0); // X 방향
-	SequenceB->MaxOffset = FVector(0, 0, 1); // Z 방향
+	SequenceA->MaxOffset = FVector(0, 1, 0);
+	SequenceB->MaxOffset = FVector(0, 0, 1);
 
 	PlayerA.Sequence = SequenceA;
 	PlayerB.Sequence = SequenceB;
@@ -104,5 +107,17 @@ void UAnimInstance::NativeInitializeAnimation()
 	Blend.B.SetLinkNode(&PlayerB);
 	Blend.Alpha = 0.5f;
 
-	RootNode = &Blend;
+	if (!BlendSpace)
+	{
+		BlendSpace = NewObject<UBlendSpace1D>(this);
+
+		BlendSpace->AddSample(SequenceA, FVector(200, 0, 0));
+		BlendSpace->AddSample(SequenceB, FVector(600, 0, 0));
+	}
+
+	BlendSpacePlayer.BlendSpace = BlendSpace;
+	BlendSpacePlayer.X = 300.0f;
+	BlendSpacePlayer.Phase = 0.0f;
+
+	RootNode = &BlendSpacePlayer;
 }
