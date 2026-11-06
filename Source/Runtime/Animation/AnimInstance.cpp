@@ -1,9 +1,21 @@
 #include "EnginePCH.h"
 #include "AnimInstance.h"
 #include "AnimNodeBase.h"
+#include "TestAnimSequence.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/Pawn.h"
 #include "UObject/Casts.h"
+#include "UObject/UObjectGlobals.h"
+
+UAnimInstance::~UAnimInstance()
+{
+	PlayerA.Sequence = nullptr;
+	PlayerB.Sequence = nullptr;
+	RootNode = nullptr;
+
+	delete SequenceAsset;
+	SequenceAsset = nullptr;
+}
 
 void UAnimInstance::InitializeAnimation()
 {
@@ -61,4 +73,31 @@ AActor* UAnimInstance::GetOwningActor() const
 APawn* UAnimInstance::TryGetPawnOwner() const
 {
 	return Cast<APawn>(GetOwningActor());
+}
+
+void UAnimInstance::NativeInitializeAnimation()
+{
+	if (!SequenceA)
+		SequenceA = NewObject<UTestAnimSequence>(this);
+
+	if (!SequenceB)
+		SequenceB = NewObject<UTestAnimSequence>(this);
+
+	SequenceA->MaxOffset = FVector(10, 0, 0); // X 방향
+	SequenceB->MaxOffset = FVector(0, 0, 10); // Z 방향
+
+	PlayerA.Sequence = SequenceA;
+	PlayerB.Sequence = SequenceB;
+
+	PlayerA.CurrentTime = 0.0f;
+	PlayerB.CurrentTime = 0.0f;
+
+	PlayerA.bLoop = true;
+	PlayerB.bLoop = true;
+
+	Blend.A.SetLinkNode(&PlayerA);
+	Blend.B.SetLinkNode(&PlayerB);
+	Blend.Alpha = 0.5f;
+
+	RootNode = &Blend;
 }

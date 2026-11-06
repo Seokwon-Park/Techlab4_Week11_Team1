@@ -1,6 +1,9 @@
 #pragma once
 
 #include "UObject/Object.h"
+#include "AnimNode_SequencePlayer.h"
+#include "AnimNode_TwoWayBlend.h"
+
 #include "AnimInstance.generated.h"
 
 struct FAnimNode_Base;
@@ -16,6 +19,8 @@ class UAnimInstance : public UObject
 	GENERATED_BODY()
 
 public:
+	virtual ~UAnimInstance() override;
+
 	void InitializeAnimation();   
 	void UpdateAnimation(float DeltaSeconds);
 	void EvaluateAnimation(FPoseContext& Output);
@@ -29,10 +34,21 @@ public:
 	FAnimNode_Base* GetRootNode() const { return RootNode; }
 
 protected:
-	virtual void NativeInitializeAnimation() {} 
+	virtual void NativeInitializeAnimation();
 	virtual void NativeUpdateAnimation(float DeltaSeconds) {}
 	virtual void NativeUninitializeAnimation() {}
 
 protected:
 	FAnimNode_Base* RootNode = nullptr;
+
+private:
+	UTestAnimSequence* SequenceAsset = nullptr;
+
+	UTestAnimSequence* SequenceA = nullptr;
+	UTestAnimSequence* SequenceB = nullptr;
+
+	FAnimNode_SequencePlayer PlayerA;
+	FAnimNode_SequencePlayer PlayerB;
+
+	FAnimNode_TwoWayBlend Blend;
 };
