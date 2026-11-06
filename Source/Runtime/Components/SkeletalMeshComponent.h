@@ -3,12 +3,18 @@
 #include "SkinnedMeshComponent.h"
 #include "SkeletalMeshComponent.generated.h"
 
+class UAnimInstance;
+
 UCLASS()
 class USkeletalMeshComponent : public USkinnedMeshComponent
 {
 	GENERATED_BODY()
 
 public:
+	virtual ~USkeletalMeshComponent() override;
+	
+	void TickComponent(float DeltaTime) override;
+
 	const TArray<FBoneInfo>& GetBones() const;
 	int32 FindBoneIndex(const FString& Name) const;
 	FTransform GetBoneLocalTransform(int32 BoneIndex) const;
@@ -23,11 +29,14 @@ public:
 	using Super::Serialize;
 	virtual void Serialize(FStructuredArchive::FRecord Record) override;
 
+	UPROPERTY(EditAnywhere)
+	bool bEnableAnimation = false;
+
 protected:
 	void RefreshBoneTransforms() override;
 	void OnSkeletalMeshChanged() override;
 
 private:
 	TArray<FTransform> BoneSpaceTransforms;
-
+	UAnimInstance* AnimInstance = nullptr;
 };

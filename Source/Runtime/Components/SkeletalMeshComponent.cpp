@@ -2,6 +2,43 @@
 #include "SkeletalMeshComponent.h"
 #include "Serialization/MathSerialization.h"
 #include "Animation/BonePose.h"
+#include "Animation/AnimNode_TwoWayBlend.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimNodeBase.h"
+#include "UObject/UObjectGlobals.h"
+
+USkeletalMeshComponent::~USkeletalMeshComponent()
+{
+    if (AnimInstance)
+    {
+        AnimInstance->UninitializeAnimation();
+
+        delete AnimInstance;
+        AnimInstance = nullptr;
+    }
+}
+
+void USkeletalMeshComponent::TickComponent(float DeltaTime)
+{
+    if (bEnableAnimation && GetSkeletalMesh() && GetBones().Num() > 0)
+    {
+        if (!AnimInstance)
+        {
+            AnimInstance = NewObject<UAnimInstance>(this);
+            AnimInstance->InitializeAnimation();
+        }
+
+        AnimInstance->UpdateAnimation(DeltaTime);
+
+        FPoseContext Output(AnimInstance, GetBones());
+        AnimInstance->EvaluateAnimation(Output);
+
+        SetBoneSpaceTransforms(Output.Pose);
+    }
+
+    // 4. 부모 Tick에서 이번 포즈를 스키닝에 반영
+    Super::TickComponent(DeltaTime);
+}
 
 const TArray<FBoneInfo>& USkeletalMeshComponent::GetBones() const
 {

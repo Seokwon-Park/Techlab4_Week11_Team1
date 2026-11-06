@@ -13,6 +13,8 @@
 #include "Components/AudioComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/Actor/SkeletalMeshActor.h"
+#include "Animation/BlendSpace1D.h"
+#include "Animation/TestAnimSequence.h"
 
 #include "Tasks/Tasks.h"
 
@@ -41,6 +43,26 @@ bool UEngine::Init()
 	/*World = FObjectFactory::ConstructObject<UWorld>();
 
 	if (!World || !World->Init()) return false;*/
+
+	// 임시 BlendSpace 샘플 선택 테스트
+	{
+		UTestAnimSequence* IdleSequence = NewObject<UTestAnimSequence>();
+		UTestAnimSequence* WalkSequence = NewObject<UTestAnimSequence>();
+		UTestAnimSequence* RunSequence = NewObject<UTestAnimSequence>();
+
+		UBlendSpace1D* BlendSpace = NewObject<UBlendSpace1D>();
+
+		BlendSpace->AddSample(IdleSequence, FVector(0, 0, 0));
+		BlendSpace->AddSample(WalkSequence, FVector(200, 0, 0));
+		BlendSpace->AddSample(RunSequence, FVector(600, 0, 0));
+
+		FBlendSample A;
+		FBlendSample B;
+		float Alpha = 0.0f;
+
+		const bool bFound = BlendSpace->GetSamples(300.0f, A, B, Alpha);
+		HTR_LOG(Warning, "[BlendSpaceTest] Found={}, Alpha={}", bFound, Alpha);
+	}
 
  	return true;
 }
