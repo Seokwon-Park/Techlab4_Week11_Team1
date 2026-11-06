@@ -11,6 +11,12 @@
 #include <format>
 
 #include "Core/Stats/EditorStats.h"
+#include "UObject/UObjectIterator.h"
+#include "Render/GPUStats.h"
+#include "Render/SkinningStats.h"
+#include "Render/SkeletalMeshObject.h"
+#include "Components/SkinnedMeshComponent.h"
+
 
 namespace {
 constexpr float SplitterThickness = 6.0f;
@@ -479,7 +485,58 @@ const FRenderStats& Stats = RenderData.RenderStats;
 		Lines.Add({ std::format("  Decal Broad Tested {}", Stats.DecalBroadTests), ValueColor });
 		Lines.Add({ std::format("  Decal Narrow Tested {}", Stats.DecalNarrowTested), ValueColor });
 		Lines.Add({ std::format("  Decal OBBTree Tested {}", Stats.DecalOBBTreeTested), ValueColor });
-		Lines.Add({ std::format("  Decal GPU {:.3f} ms", Stats.DecalGPUMs), ValueColor });
+
+		const FCycleStatData* DecalGPU = FStatRegistry::FindGPU(GPUStats::STAT_GPU_Decal);
+		Lines.Add({ DecalGPU
+			? std::format("  Decal GPU {:.3f} ms (avg, max {:.3f})", DecalGPU->GetRecentAverageMs(), DecalGPU->GetMaxMs())
+			: FString("  Decal GPU -"), ValueColor });
+	}
+
+	if (FStatOverlay::IsEnabled(EStatFlags::Skinning)) {
+		uint32 NumCPU = 0, NumGPU = 0;
+		uint64 CPUVerts = 0, GPUVerts = 0, GPUBones = 0;
+		for (TObjectIterator<USkinnedMeshComponent> It; It; ++It) {
+			if (!It->IsRegistered()) continue;
+			const FSkeletalMeshObject* Obj = It->GetMeshObject();
+			const USkeletalMesh* Mesh = It->GetSkeletalMesh();
+			if (!Obj || !Mesh) continue;
+			const uint64 Verts = Mesh->GetRenderData().LODRenderData[0].BindVertices.Num();
+			if (Obj->GetBoneMatrixBuffer()) { ++NumGPU; GPUVerts += Verts; GPUBones += Mesh->GetNumBones(); }
+			else { ++NumCPU; CPUVerts += Verts; }
+		}
+		const double UploadKB = (CPUVerts * sizeof(FVertex) + GPUBones * sizeof(FMatrix)) / 1024.0;
+
+		Lines.Add({ std::format("Skinning [{}]{}", USkinnedMeshComponent::bUseGPUSkinning ? "GPU" : "CPU",
+								USkinnedMeshComponent::bForceSkinUpdate ? "  (force update)" : ""), TitleColor });
+		Lines.Add({ std::format("  Components  CPU {} / GPU {}", NumCPU, NumGPU), ValueColor });
+		Lines.Add({ std::format("  Vertices {}   Bones(GPU) {}", CPUVerts + GPUVerts, GPUBones), ValueColor });
+		Lines.Add({ std::format("  Upload {:.1f} KB/frame", UploadKB), ValueColor });
+
+		// CPU와 GPU를 같은 형식(Last/Avg/Max)으로 그린다. 찾는 함수만 다르다.
+		auto AddRows = [&](const char* Title, std::initializer_list<TStatId> Ids, auto Find) {
+			ProfileLines.Add({ Title, TitleColor, { "Last", "Avg", "Max" } });
+			for (TStatId Id : Ids) {
+				FProfileStatLine Line{ "  " + FString(Id.GetName()), ValueColor };
+				if (const FCycleStatData* D = Find(Id)) {
+					Line.Values[0] = std::format("{:.2f}", D->GetLastMs());
+					Line.Values[1] = std::format("{:.2f}", D->GetRecentAverageMs());
+					Line.Values[2] = std::format("{:.2f}", D->GetMaxMs());
+				}
+				else {
+					Line.Values[0] = Line.Values[1] = Line.Values[2] = "-";
+				}
+				ProfileLines.Add(Line);
+			}
+			};
+		AddRows("Skinning CPU (ms)",
+			{ SkinningStats::STAT_BoneTransforms, SkinningStats::STAT_CpuSkinning,
+			  SkinningStats::STAT_SkinUpload,     SkinningStats::STAT_BoneUpload,
+			  SkinningStats::STAT_CpuSkinningPicking },
+			[](TStatId Id) { return FStatRegistry::Find(Id); });
+		AddRows("Skinning GPU (ms, ~4 frames behind)",
+			{ GPUStats::STAT_GPU_ShadowDepths, GPUStats::STAT_GPU_DepthPrepass, GPUStats::STAT_GPU_ForwardOpaque },
+			[](TStatId Id) { return FStatRegistry::FindGPU(Id); });
+		Lines.Add({ std::format("  GPU dropped frames {}", FRealtimeGPUProfiler::GetDroppedFrames()), ValueColor });
 	}
 
 	if (Lines.Num() == 0 && ProfileLines.Num() == 0)
