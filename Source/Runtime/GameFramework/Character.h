@@ -15,7 +15,8 @@ class ACharacter : public APawn
 
 public:
 	ACharacter();
-	virtual void AddMovementInput(const FVector& WorldDirection, float ScaleValue) override;
+	virtual void AddControllerYawInput(float Value) override;
+	virtual void AddControllerPitchInput(float Value) override;
 
 	USkeletalMeshComponent* SkeletalMeshComponent = nullptr;
 	UCapsuleComponent* CapsuleComponent = nullptr;

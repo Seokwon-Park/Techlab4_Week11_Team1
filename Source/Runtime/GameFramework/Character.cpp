@@ -15,9 +15,20 @@ ACharacter::ACharacter()
 	CharacterMovementComponent = CreateDefaultSubobject<UCharacterMovementComponent>("CharacterMovementComponent");
 }
 
-void ACharacter::AddMovementInput(const FVector& WorldDirection, float ScaleValue)
+void ACharacter::AddControllerYawInput(float Value)
 {
-	CharacterMovementComponent->Velocity = WorldDirection * ScaleValue;
+	if (!GetRootComponent()) return;
+	FRotator Rotation = GetActorRotation();
+	Rotation.Yaw += Value;
+	GetRootComponent()->SetRelativeRotation(Rotation);
+}
+
+void ACharacter::AddControllerPitchInput(float Value)
+{
+	if (!GetRootComponent()) return;
+	FRotator Rotation = GetActorRotation();
+	Rotation.Pitch = FMath::Clamp(Rotation.Pitch + Value, -89.0f, 89.0f);
+	GetRootComponent()->SetRelativeRotation(Rotation);
 }
 
 FVector ACharacter::GetVelocity() const
