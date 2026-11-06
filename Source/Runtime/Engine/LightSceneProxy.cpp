@@ -43,7 +43,7 @@ void FDirectionalLightSceneProxy::GetLightShaderParameters(FLightRenderParameter
 	const UDirectionalLightComponent* Dir = static_cast<const UDirectionalLightComponent*>(LightComponent);
 
 	FTransform Transform;
-	Transform.Rotation = Dir->GetWorldRotation();
+	Transform.Rotation = Dir->GetWorldRotation().Quaternion();
 	const FLinearColor Color(Dir->GetLightColor());
 
 	Out = FLightRenderParameters{};
@@ -77,7 +77,7 @@ void FSpotLightSceneProxy::GetLightShaderParameters(FLightRenderParameters& Out)
 	const FLinearColor Color(SpotLightComponent->GetLightColor());
 
 	FTransform Transform;
-	Transform.Rotation = SpotLightComponent->GetWorldRotation();
+	Transform.Rotation = SpotLightComponent->GetWorldRotation().Quaternion();
 
 	const float Outer = FMath::Clamp(SpotLightComponent->GetOuterConeAngle(), 0.0f, 89.0f);
 	const float Inner = FMath::Clamp(SpotLightComponent->GetInnerConeAngle(), 0.0f, Outer);
@@ -102,7 +102,7 @@ void FRectLightSceneProxy::GetLightShaderParameters(FLightRenderParameters& Out)
 	const FLinearColor Color(RectLightComponent->GetLightColor());
 
 	FTransform Transform;
-	Transform.Rotation = RectLightComponent->GetWorldRotation();
+	Transform.Rotation = RectLightComponent->GetWorldRotation().Quaternion();
 
 	Out = FLightRenderParameters{};
 	Out.Type = static_cast<uint32>(ELightType::Rect);
@@ -292,7 +292,7 @@ FSphere FSpotLightSceneProxy::GetBoundingSphere() const
 	const float CosOuter = std::cos(FMath::DegreesToRadians(FMath::Clamp(Spot->GetOuterConeAngle(), 0.0f, 89.0f)));
 
 	FTransform Transform;
-	Transform.Rotation = Spot->GetWorldRotation();
+	Transform.Rotation = Spot->GetWorldRotation().Quaternion();
 
 	// 언리얼과 같은 근사: 원뿔 축 중간점에서 원뿔 가장자리 끝까지의 거리 (코사인 법칙)
 	const float BoundsRadius = std::sqrt(1.25f * Radius * Radius - Radius * Radius * CosOuter);

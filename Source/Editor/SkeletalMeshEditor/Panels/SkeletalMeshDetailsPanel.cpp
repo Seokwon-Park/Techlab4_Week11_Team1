@@ -32,7 +32,14 @@ void FSkeletalMeshDetailsPanel::DrawContent()
 	ImGui::PushID(BoneIndex);
 	bool bChanged = false;
 	bChanged |= ImGui::DragFloat3("Location", Transform.Location.V, 0.1f);
-	bChanged |= ImGui::DragFloat3("Rotation", Transform.Rotation.V, 0.5f);
+	// 드래그 중 값이 튀지 않도록 마지막 오일러 값을 기억한다
+	static FRotationConversionCache RotationCache;
+	FRotator Euler = RotationCache.QuatToRotator(Transform.Rotation);
+	if (ImGui::DragFloat3("Rotation", Euler.V, 0.5f))
+	{
+		Transform.Rotation = RotationCache.RotatorToQuat(Euler);
+		bChanged = true;
+	}
 	bChanged |= ImGui::DragFloat3("Scale", Transform.Scale.V, 0.01f);
 	ImGui::PopID();
 

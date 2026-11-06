@@ -85,7 +85,7 @@ void FGizmoRenderer::OnRender(
 		else
 		{
 			Transform.Location = GizmoLocation;
-			Transform.Rotation = AxisDataArray[i].Rotator;
+			Transform.Rotation = AxisDataArray[i].Rotator.Quaternion();
 			World = Transform.GetLocalMatrix();
 		}
 
@@ -102,7 +102,7 @@ void FGizmoRenderer::OnRender(
 	if (Gizmo.GetMode() != EGizmoMode::Rotation)
 	{
 		// 중앙 구
-		Transform.Rotation = FRotator(0.0f, 0.0f, 0.0f);
+		Transform.Rotation = FQuat::Identity();
 
 		FGizmoData SphereData{};
 		SphereData.World = Transform.GetLocalMatrix();

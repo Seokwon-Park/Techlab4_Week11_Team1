@@ -1,6 +1,7 @@
 #include "EnginePCH.h"
 #include "SkeletalMeshComponent.h"
 #include "Serialization/MathSerialization.h"
+#include "Animation/BonePose.h"
 
 const TArray<FBoneInfo>& USkeletalMeshComponent::GetBones() const
 {
@@ -23,6 +24,17 @@ void USkeletalMeshComponent::SetBoneLocalTransform(int32 BoneIndex, const FTrans
 {
     if (BoneIndex < 0 || BoneIndex >= BoneSpaceTransforms.Num()) return;
     BoneSpaceTransforms[BoneIndex] = Local;
+    MarkBoneTransformsDirty();
+}
+
+void USkeletalMeshComponent::SetBoneSpaceTransforms(const FCompactPose& Pose)
+{
+    if (Pose.GetNumBones() != GetBones().Num())
+    {
+        HTR_LOG(Warning, "SetBoneSpaceTransforms: pose has {} bones, mesh has {}.", Pose.GetNumBones(), GetBones().Num());
+        return;
+    }
+    BoneSpaceTransforms = Pose.GetBones();
     MarkBoneTransformsDirty();
 }
 

@@ -967,7 +967,15 @@ namespace
 
 			bool bChanged = false;
 			bChanged |= DrawVector3Controller("Location", Value.Location.V, 0.0f, 55.0f);
-			bChanged |= DrawRotatorAsXYZ("Rotation", Value.Rotation);
+			// 드래그 중 값이 튀지 않도록 프로퍼티마다 마지막 오일러 값을 기억한다
+			static TMap<const void*, FRotationConversionCache> RotationCaches;
+			FRotationConversionCache& RotationCache = RotationCaches[ValuePtr];
+			FRotator Euler = RotationCache.QuatToRotator(Value.Rotation);
+			if (DrawRotatorAsXYZ("Rotation", Euler))
+			{
+				Value.Rotation = RotationCache.RotatorToQuat(Euler);
+				bChanged = true;
+			}
 			bChanged |= DrawVector3Controller("Scale", Value.Scale.V, 1.0f, 55.0f);
 			return bChanged;
 		}

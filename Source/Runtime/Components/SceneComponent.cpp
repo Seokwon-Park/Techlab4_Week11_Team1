@@ -41,7 +41,7 @@ USceneComponent::~USceneComponent()
 void USceneComponent::SetRelativeLocationAndRotation(const FVector& NewLocation, const FRotator& NewRotation)
 {
 	Transform.Location = NewLocation;
-	Transform.Rotation = NewRotation;
+	Transform.Rotation = RelativeRotationCache.RotatorToQuat(NewRotation);
 	MarkTransformDirty();
 }
 
@@ -164,7 +164,7 @@ FRotator USceneComponent::GetWorldRotation() const
 		return (ParentQuat * LocalQuat).ToFRotator();
 	}
 
-	return Transform.Rotation;
+	return GetRelativeRotation();
 }
 
 FVector USceneComponent::GetWorldLocation() const
@@ -206,7 +206,7 @@ FMatrix USceneComponent::GetWorldMatrix() const
 	const FVector WorldScale =
 		Transform.Scale * AttachParent->GetWorldScale3D();
 
-	return FTransform(WorldRotation.ToFRotator(), WorldLocation, WorldScale).GetLocalMatrix();
+	return FTransform(WorldRotation, WorldLocation, WorldScale).GetLocalMatrix();
 }
 
 void USceneComponent::SetWorldTransform(const FMatrix& InWorldMatrix, bool bSweep)
@@ -239,7 +239,7 @@ void USceneComponent::SetWorldTransform(const FMatrix& InWorldMatrix, bool bSwee
 	RotationMatrix.SetAxis(1, YAxis);
 	RotationMatrix.SetAxis(2, ZAxis);
 
-	Transform.Rotation = MatrixToRotator(RotationMatrix);
+	Transform.Rotation = RelativeRotationCache.RotatorToQuat(MatrixToRotator(RotationMatrix));
 		
 	MarkTransformDirty();
 }

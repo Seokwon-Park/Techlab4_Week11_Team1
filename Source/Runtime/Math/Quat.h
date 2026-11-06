@@ -25,7 +25,7 @@ struct FQuat
 
 	FQuat();
 	FQuat(float InX, float InY, float InZ, float InW = 1.0f);
-	FQuat(FRotator InRotator);
+	explicit FQuat(FRotator InRotator);
 
 	/* Function */
 	FQuat operator * (const FQuat& Other) const;

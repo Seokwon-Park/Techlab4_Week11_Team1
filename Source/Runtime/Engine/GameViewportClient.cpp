@@ -162,12 +162,13 @@ namespace
 			if (!std::isfinite(Relative.Location.X) || !std::isfinite(Relative.Location.Y) ||
 				!std::isfinite(Relative.Location.Z)) return false;
 			Relative.Rotation = (Parent->GetWorldRotation().Quaternion().Inverse() *
-				Rotation.Quaternion()).ToFRotator();
+				Rotation.Quaternion()).Normalized();
 		}
 		else
 		{
-			Relative.Location = Location;
-			Relative.Rotation = Rotation;
+			// 부모가 없으면 입력 오일러 값을 그대로 보존한다
+			Camera.SetRelativeLocationAndRotation(Location, Rotation);
+			return true;
 		}
 		Camera.SetTransform(Relative);
 		return true;

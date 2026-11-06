@@ -13,6 +13,8 @@ public:
 	int32 FindBoneIndex(const FString& Name) const;
 	FTransform GetBoneLocalTransform(int32 BoneIndex) const;
 	void SetBoneLocalTransform(int32 BoneIndex, const FTransform& Local);
+	const TArray<FTransform>& GetBoneSpaceTransforms() const { return BoneSpaceTransforms; }
+	void SetBoneSpaceTransforms(const struct FCompactPose& Pose); // 애니메이션 평가 결과를 받는 입구
 	FMatrix GetBoneComponentMatrix(int32 BoneIndex) const;
 	FMatrix GetBoneWorldMatrix(int32 BoneIndex) const;
 	void ResetPose();

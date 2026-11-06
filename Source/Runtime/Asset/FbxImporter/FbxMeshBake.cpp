@@ -9,7 +9,8 @@ namespace
 {
 	constexpr uint32 Magic = 0x58424648; // HFBX, little endian
 	// 장면 전체의 축 변환으로 Bone Local 축과 Bind 행렬 표현이 달라져 기존 출력은 다시 굽는다.
-	constexpr uint32 Version = 4;
+	constexpr uint32 Version = 5;
+	constexpr uint32 EulerBoneRotationVersion = 4; // 본 회전을 FRotator로 저장한 마지막 버전. 그대로 읽어 변환한다
 	static_assert(sizeof(FVertex) == 64 && sizeof(FSkinWeight) == 20);
 	// 기존 Binary의 Section 배열을 그대로 읽도록 두 타입의 바이트 배치를 고정한다.
 	static_assert(std::is_trivially_copyable_v<FSkeletalMeshSection> && std::is_standard_layout_v<FSkeletalMeshSection>);
@@ -99,7 +100,7 @@ namespace
 		return true;
 	}
 
-	bool ReadPayload(FReader& In, FFbxBakedMesh& D)
+	bool ReadPayload(FReader& In, FFbxBakedMesh& D, uint32 FileVersion)
 	{
 		auto& Vertices = D.Kind == EFbxMeshKind::Static ? D.StaticMesh.Vertices : D.SkeletalMesh.BindVertices;
 		auto& Indices = D.Kind == EFbxMeshKind::Static ? D.StaticMesh.Indices : D.SkeletalMesh.Indices;
@@ -120,7 +121,17 @@ namespace
 			if (!In.Array(D.SkeletalMesh.SkinWeight) || !In.Count(N, sizeof(uint32) + sizeof(int32) + 25 * sizeof(float)) || N == 0 || N > 256) return false;
 			D.SkeletalMesh.Bones.SetNum(static_cast<int32>(N));
 			for (auto& B : D.SkeletalMesh.Bones)
-				if (!In.String(B.Name) || !In.Pod(B.ParentIndex) || !In.Pod(B.LocalBindPose.Location) || !In.Pod(B.LocalBindPose.Rotation) || !In.Pod(B.LocalBindPose.Scale) || !In.Pod(B.InverseBindPose.M)) return false;
+			{
+				if (!In.String(B.Name) || !In.Pod(B.ParentIndex) || !In.Pod(B.LocalBindPose.Location)) return false;
+				if (FileVersion == EulerBoneRotationVersion)
+				{
+					FRotator Euler;
+					if (!In.Pod(Euler)) return false;
+					B.LocalBindPose.Rotation = Euler.Quaternion();
+				}
+				else if (!In.Pod(B.LocalBindPose.Rotation)) return false;
+				if (!In.Pod(B.LocalBindPose.Scale) || !In.Pod(B.InverseBindPose.M)) return false;
+			}
 			D.SkeletalMesh.SourcePath = D.Source.Path;
 		}
 		return In.Remaining == 0;
@@ -149,7 +160,8 @@ namespace
 				if (!std::isfinite(W.Weight[I]) || W.Weight[I] < 0 || W.BoneIndex[I] >= D.SkeletalMesh.Bones.Num()) return false;
 			for (const auto& B : D.SkeletalMesh.Bones)
 			{
-				for (int I = 0; I < 3; ++I) if (!std::isfinite(B.LocalBindPose.Location[I]) || !std::isfinite(B.LocalBindPose.Rotation[I]) || !std::isfinite(B.LocalBindPose.Scale[I])) return false;
+				for (int I = 0; I < 3; ++I) if (!std::isfinite(B.LocalBindPose.Location[I]) || !std::isfinite(B.LocalBindPose.Scale[I])) return false;
+				for (int I = 0; I < 4; ++I) if (!std::isfinite(B.LocalBindPose.Rotation.V[I])) return false;
 				for (int R = 0; R < 4; ++R) for (int C = 0; C < 4; ++C) if (!std::isfinite(B.InverseBindPose.M[R][C])) return false;
 			}
 		}
@@ -174,7 +186,7 @@ bool FFbxMeshBake::Read(const FString& Path, FFbxBakedMesh& OutData, FString& Ou
 	FFbxBakedMesh D;
 	uint32 M = 0, V = 0;
 	if (!In.Pod(M) || M != Magic || !In.Pod(V)) { OutError = "FBX binary: invalid header: " + Path; return false; }
-	if (V != Version)
+	if (V != Version && V != EulerBoneRotationVersion)
 	{
 		OutError = "FBX binary: unsupported version " + std::to_string(V) + " (expected " + std::to_string(Version) + "); reimport the source FBX: " + Path;
 		return false;
@@ -188,7 +200,7 @@ bool FFbxMeshBake::Read(const FString& Path, FFbxBakedMesh& OutData, FString& Ou
 		OutError = "FBX binary: invalid header: " + Path;
 		return false;
 	}
-	if (!ReadPayload(In, D) || !FinitePayload(D)) { OutError = "FBX binary: invalid/truncated payload: " + Path; return false; }
+	if (!ReadPayload(In, D, V) || !FinitePayload(D)) { OutError = "FBX binary: invalid/truncated payload: " + Path; return false; }
 	if (D.Kind == EFbxMeshKind::Static ? !D.StaticMesh.Validate(OutError) : !D.SkeletalMesh.Validate(OutError)) return false;
 	OutData = std::move(D);
 	return true;
