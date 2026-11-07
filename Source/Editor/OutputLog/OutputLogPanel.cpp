@@ -382,6 +382,15 @@ void FOutputLogPanel::RegisterCommands()
 			FLog::Log(ELogVerbosity::Info, "r.GPUSkinning = {}", bOn ? 1 : 0);
 			return true;
 		});
+
+		Add("r.Skinning.ForceUpdate", "r.Skinning.ForceUpdate [0|1]", [](const TArray<FString>& Args, const FString&)
+			{
+				bool bOn = false;
+				if (!ParseToggle(Args, USkinnedMeshComponent::bForceSkinUpdate, bOn)) return false;
+				USkinnedMeshComponent::bForceSkinUpdate = bOn;
+				FLog::Log(ELogVerbosity::Info, "r.Skinning.ForceUpdate = {}", bOn ? 1 : 0);
+				return true;
+			});
 }
 
 void FOutputLogPanel::AddToHistory(const FString& CommandLine)

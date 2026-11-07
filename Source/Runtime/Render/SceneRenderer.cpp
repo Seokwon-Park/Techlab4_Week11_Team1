@@ -21,6 +21,7 @@
 #include "Render/DecalData.h"
 #include "Text/TextRenderer.h"
 #include "UObject/UObjectIterator.h"
+#include "Render/GPUStats.h"
 
 #include <cmath>
 #include <algorithm>
@@ -385,6 +386,7 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 		ShadowDepths.DepthAttachment = { AtlasRef, ERenderGraphLoadAction::Clear, 1.0f, 0 };   // 단계 8에서 Load로
 		if (!Graph.AddRasterPass(std::move(ShadowDepths), [this, Renderer, &Graph, AtlasRef]
 			{
+				SCOPED_GPU_STAT(GPUStats::STAT_GPU_ShadowDepths);
 				RenderShadowDepthMaps(Renderer, static_cast<FTexture2DArray*>(Graph.Resolve(AtlasRef)));
 			})) return false;
 	}
@@ -569,6 +571,7 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 						Batch.Pipeline = *DepthPipeline;
 						Batch.Pipeline.Shader = &Program;
 					}
+					SCOPED_GPU_STAT(GPUStats::STAT_GPU_DepthPrepass);
 					Renderer->DrawMeshes(DepthBatches);
 				})) return false;
 		}
@@ -631,6 +634,7 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 					Batch.Pipeline.DepthStencilState = EDepthStencilState::PrepassReadOnly;
 				}
 			}
+			SCOPED_GPU_STAT(GPUStats::STAT_GPU_ForwardOpaque);
 			Renderer->DrawMeshes(ForwardBatches);
 			UnbindForwardLighting(Renderer);
 		})) return false;
@@ -656,8 +660,7 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 					if (!DecalAdditivePipeline || !DecalAdditivePipeline->Shader) return;
 
 					// 여기부터 패스 끝까지가 GPU 측정 구간이다. 위의 조기 return은 잴 것이 없으므로 제외한다.
-					FScopedGPUTimer DecalGPUScope(RenderData.DecalGPUTimer);
-					RenderData.RenderStats.DecalGPUMs = RenderData.DecalGPUTimer.GetLastMs();
+					SCOPED_GPU_STAT(GPUStats::STAT_GPU_Decal);
 
 					FConstantBuffer* Constants = Renderer->GetDecalConstants();
 					TArray<FMeshDrawBatch> DecalBatches;
