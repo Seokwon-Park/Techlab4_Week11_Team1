@@ -1,13 +1,16 @@
 #pragma once
 
 #include <fbxsdk.h>
+#include "Animation/AnimDataModel.h"
 #include "Core/EngineString.h"
+#include "MovieScene/MovieSceneFrameTime.h"
 #include "Render/SkeletalMeshData.h"
 #include "Asset/FbxImporter/FbxMeshBake.h"
 
 struct FFbxImportResult
 {
 	TArray<FString> Paths;
+	FString AnimationPath;
 	TArray<FString> Warnings;
 	bool bSkipped = false;
 };
@@ -20,6 +23,14 @@ struct FFbxMeshNodeData
 	int32 RigidBoneIndex = -1; // Skin 없는 Mesh가 선택된 Bone 계층에 속하면 자기 Node의 Bone 번호
 	FStaticMeshData Geometry;
 	TArray<int32> ControlPointIndices; // Geometry.Vertices와 같은 순서/길이
+};
+
+struct FAnimationClipData
+{
+	FString Name;
+	FFrameRate FrameRate{0, 1};
+	float PlayLength = 0.0f; // 초 단위
+	TArray<FBoneAnimationTrack> BoneAnimationTracks;
 };
 
 // Manager와 Scene의 수명을 관리하며 한 번에 FBX 파일 하나를 보관한다.
@@ -47,7 +58,13 @@ public:
 	bool ReadSkeletonData(TArray<FString>& OutWarnings, FString& OutError);
 	// 다음 Skeleton/Mesh 재추출, Open/Close/소멸 전까지만 유효하다.
 	const TArray<FBoneInfo>& GetBones() const { return Bones; }
+	// ReadSkeletonData 성공 후 호출한다. 현재는 입력 유효성만 검사한다.
+	bool ReadAnimationData(int32 AnimStackIndex, FFrameRate SampleRate, FAnimationClipData& OutClip, FString& OutError);
 	// ReadSkeletonData 성공 후 호출한다. SDK 수명과 독립적인 Geometry/Weight/Bone 출력을 만든다.
+	void BuildAnimationSampleTimes(const FbxAnimStack& AnimStack, FFrameRate SampleRate, TArray<FbxTime>& OutSampleTimes) const;
+
+	void ReadBoneAnimationTracks(FbxAnimStack& AnimStack, const TArray<FbxTime>& SampleTimes, FAnimationClipData& OutClip);
+
 	bool BuildSkeletalMesh(FSkeletalMeshData& OutData, TArray<FString>& OutWarnings, FString& OutError) const;
 	// Assets/FBX에 저장한 뒤 미로드 Asset을 등록한다. 이미 로드된 객체는 유지한다.
 	static bool ImportToAssets(const FString& Path, EFbxImportMode Mode, FFbxImportResult& OutResult, FString& OutError);

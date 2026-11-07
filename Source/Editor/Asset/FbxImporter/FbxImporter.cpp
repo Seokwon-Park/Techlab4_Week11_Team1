@@ -1,9 +1,13 @@
 #include "EnginePCH.h"
 #include "FbxImporter.h"
+#include "Animation/AnimSequence.h"
+#include "Animation/AnimSequenceFile.h"
 #include "Asset/AssetManager.h"
 
 #include <array>
+#include <cmath>
 #include <fstream>
+#include <memory>
 
 namespace
 {
@@ -31,6 +35,7 @@ namespace
 		TArray<TMap<int32, double>> Influences;
 		Influences.SetNum(Count);
 		bool bWarnedLinkMode = false;
+		int64 SkippedNegativeWeights = 0;
 		for (int S = 0; S < Mesh->GetDeformerCount(FbxDeformer::eSkin); ++S)
 		{
 			auto* Skin = static_cast<FbxSkin*>(Mesh->GetDeformer(S, FbxDeformer::eSkin));
@@ -58,7 +63,12 @@ namespace
 				{
 					const int CP = Points[I];
 					const double Weight = Weights[I];
-					if (CP < 0 || CP >= Count || !std::isfinite(Weight) || Weight < 0) { Error = "FBX: invalid Control Point index or weight: " + FString(Node->GetName()); return false; }
+					if (CP < 0 || CP >= Count || !std::isfinite(Weight)) { Error = "FBX: invalid Control Point index or weight: " + FString(Node->GetName()); return false; }
+					if (Weight < 0)
+					{
+						++SkippedNegativeWeights;
+						continue;
+					}
 					if (Weight == 0) continue;
 					double& Sum = Influences[CP].FindOrAdd(*BoneIndex);
 					Sum += Weight;
@@ -66,6 +76,9 @@ namespace
 				}
 			}
 		}
+		if (SkippedNegativeWeights > 0)
+			Warnings.Add("FBX: skipped " + std::to_string(SkippedNegativeWeights) + " negative skin weights: " + FString(Node->GetName()));
+
 		Result.SetNum(Count);
 		for (int32 CP = 0; CP < Count; ++CP)
 		{
@@ -113,7 +126,7 @@ namespace
 			if (Parent == Scene->GetRootNode() || !IsBoneNode(Parent)) break;
 			const auto Type = Parent->GetNodeAttribute()->GetAttributeType();
 			// Blender의 Armature 컨테이너는 Bone에서 제외한다. 그 Transform은 Root의 Global에 남는다.
-			if (bIsBlender && Type == FbxNodeAttribute::eNull && Parent->GetParent() == Scene->GetRootNode() && _stricmp(Parent->GetName(), "armature") == 0) break;
+			// if (bIsBlender && Type == FbxNodeAttribute::eNull && Parent->GetParent() == Scene->GetRootNode() && _stricmp(Parent->GetName(), "armature") == 0) break;
 			// UE GetRootSkeleton처럼 Skin Mesh가 Bone의 조상인 경우 그 Mesh까지 올라가지 않는다.
 			if (Type == FbxNodeAttribute::eMesh && Parent->GetMesh()->GetDeformerCount(FbxDeformer::eSkin) > 0) break;
 			Node = Parent;
@@ -788,6 +801,130 @@ bool FFbxImporter::ReadSkeletonData(TArray<FString>& OutWarnings, FString& OutEr
 	return true;
 }
 
+bool FFbxImporter::ReadAnimationData(int32 AnimStackIndex, FFrameRate SampleRate, FAnimationClipData& OutClip, FString& OutError)
+{
+	OutError.clear();
+	if (!Scene || Bones.IsEmpty() || BoneIndices.Num() != Bones.Num())
+	{
+		OutError = "FBX: read skeleton data before reading animation data";
+		return false;
+	}
+
+	const int32 AnimStackCount = Scene->GetSrcObjectCount<FbxAnimStack>();
+	if (AnimStackIndex < 0 || AnimStackIndex >= AnimStackCount)
+	{
+		OutError = "FBX: invalid animation stack index";
+		return false;
+	}
+
+	if (SampleRate.Numerator <= 0 || SampleRate.Denominator <= 0)
+	{
+		OutError = "FBX: animation sample rate numerator and denominator must be positive";
+		return false;
+	}
+
+	FbxAnimStack* AnimStack = Scene->GetSrcObject<FbxAnimStack>(AnimStackIndex);
+	if (!AnimStack)
+	{
+		OutError = "FBX: animation stack could not be read";
+		return false;
+	}
+
+	TArray<FbxTime> SampleTimes;
+	BuildAnimationSampleTimes(*AnimStack, SampleRate, SampleTimes);
+	if (SampleTimes.IsEmpty())
+	{
+		OutError = "FBX: animation stack has no samples";
+		return false;
+	}
+
+	ReadBoneAnimationTracks(*AnimStack, SampleTimes, OutClip);
+	OutClip.Name = AnimStack->GetName();
+	OutClip.FrameRate = SampleRate;
+	OutClip.PlayLength = static_cast<float>((SampleTimes.Num() - 1) * SampleRate.AsInterval());
+	return true;
+}
+
+void FFbxImporter::BuildAnimationSampleTimes(const FbxAnimStack& AnimStack, FFrameRate SampleRate, TArray<FbxTime>& OutSampleTimes) const
+{
+	const FbxTimeSpan TimeSpan = AnimStack.GetLocalTimeSpan();
+	const double StartSeconds = TimeSpan.GetStart().GetSecondDouble();
+	const double EndSeconds = TimeSpan.GetStop().GetSecondDouble();
+	const double SampleInterval = SampleRate.AsInterval();
+
+	OutSampleTimes.Empty();
+	for (int32 SampleIndex = 0; ; ++SampleIndex)
+	{
+		const double SampleSeconds = StartSeconds + SampleIndex * SampleInterval;
+
+		if (SampleSeconds > EndSeconds)
+		{
+			break;
+		}
+
+		FbxTime SampleTime;
+		SampleTime.SetSecondDouble(SampleSeconds);
+		OutSampleTimes.Add(SampleTime);
+	}
+
+}
+
+void FFbxImporter::ReadBoneAnimationTracks(FbxAnimStack& AnimStack, const TArray<FbxTime>& SampleTimes, FAnimationClipData& OutClip)
+{
+	const int32 BoneCount = Bones.Num();
+	TArray<FbxNode*> Nodes;
+	Nodes.SetNum(BoneCount);
+	for (const auto& [Node, BoneIndex] : BoneIndices)
+	{
+		Nodes[BoneIndex] = Node;
+	}
+
+	auto& Tracks = OutClip.BoneAnimationTracks;
+	Tracks.Empty();
+	Tracks.SetNum(BoneCount);
+	for (int32 i = 0; i < BoneCount; ++i)
+	{
+		Tracks[i].Name = Bones[i].Name;
+	}
+
+	FbxAnimStack* PreviousStack = Scene->GetCurrentAnimationStack();
+	Scene->SetCurrentAnimationStack(&AnimStack);
+
+	TArray<FbxAMatrix> Globals;
+	Globals.SetNum(BoneCount);
+
+	for (const FbxTime& Time : SampleTimes)
+	{
+		for (int32 i = 0; i < BoneCount; ++i)
+		{
+			Globals[i] = Nodes[i]->EvaluateGlobalTransform(Time);
+		}
+
+		for (int32 i = 0; i < BoneCount; ++i)
+		{
+			const int32 Parent = Bones[i].ParentIndex;
+			const FbxAMatrix Local = Parent < 0
+				? Globals[i]
+				: Globals[Parent].Inverse() * Globals[i];
+
+			FbxAMatrix RotationMatrix;
+			RotationMatrix.SetQ(Local.GetQ());
+			const FbxVector4 Euler = RotationMatrix.GetR();
+			const FQuat Rotation = FRotator(
+				static_cast<float>(Euler[1]),
+				static_cast<float>(Euler[2]),
+				static_cast<float>(Euler[0])).Quaternion();
+
+			auto& Keys = Tracks[i].InternalTrack;
+			Keys.PosKeys.Add(ToVector(Local.GetT()));
+			Keys.RotKeys.Add(Rotation);
+			Keys.ScaleKeys.Add(ToVector(Local.GetS()));
+		}
+	}
+
+	Scene->SetCurrentAnimationStack(PreviousStack);
+}
+
 // Node별 Geometry와 Weight를 같은 정점 순서로 합친 뒤, SDK 포인터 없는 엔진 자료를 반환한다.
 bool FFbxImporter::BuildSkeletalMesh(FSkeletalMeshData& OutData, TArray<FString>& OutWarnings, FString& OutError) const
 {
@@ -888,7 +1025,12 @@ namespace
 			}
 			for (int32 I = 0; I < Files.Num(); ++I)
 			{
-				if (MoveFileExW(Files[I].first.c_str(), Files[I].second.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) continue;
+				const auto& [Temp, Target] = Files[I];
+				if (Temp.empty())
+				{
+					if (!Existing[I] || DeleteFileW(Target.c_str())) continue;
+				}
+				else if (MoveFileExW(Temp.c_str(), Target.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) continue;
 				Error = "FBX: cannot replace file: " + Utf8Path(Files[I].second) + " (Windows " + std::to_string(GetLastError()) + ")";
 				for (int32 J = I - 1; J >= 0; --J)
 				{
@@ -947,6 +1089,10 @@ bool FFbxImporter::ImportToAssets(const FString& Path, EFbxImportMode Mode, FFbx
 		Source.Mode = Mode;
 		FString Name = AssetFileName(SourcePath);
 		const FString Stem = Utf8Path(SourcePath.stem());
+		bool bTestAnimationImport = false;
+#if defined(ENGINE_DEBUG)
+		bTestAnimationImport = Mode == EFbxImportMode::Skeletal && Stem == "UAL1_Standard";
+#endif
 		if (std::none_of(Stem.begin(), Stem.end(), [](char C)
 		{
 			return (C >= 'a' && C <= 'z') || (C >= 'A' && C <= 'Z') || (C >= '0' && C <= '9');
@@ -964,13 +1110,25 @@ bool FFbxImporter::ImportToAssets(const FString& Path, EFbxImportMode Mode, FFbx
 		const auto Folder = std::filesystem::path("Assets/FBX") / Name;
 		const auto StaticPath = Folder / (Name + "_Static.fbx.bin");
 		const auto SkeletalPath = Folder / (Name + ".fbx.bin");
+		const auto AnimationPath = Folder / (Name + ".anim.bin");
 		const auto Primary = Mode == EFbxImportMode::Static ? StaticPath : SkeletalPath;
 		FFbxBakedMesh Previous;
 		FString ReadError;
-		if (FFbxMeshBake::Read(Utf8Path(Primary), Previous, ReadError) && SameSource(Source, Previous.Source)
+		if (!bTestAnimationImport && FFbxMeshBake::Read(Utf8Path(Primary), Previous, ReadError) && SameSource(Source, Previous.Source)
 			&& Previous.Kind == (Mode == EFbxImportMode::Static ? EFbxMeshKind::Static : EFbxMeshKind::Skeletal))
 		{
 			bool Complete = Mode != EFbxImportMode::Static || Previous.Source.Outputs == static_cast<uint32>(EFbxMeshKind::Static);
+			const bool bHasAnimation = (Previous.Source.Outputs & FFbxSourceInfo::AnimationOutput) != 0;
+			if (Mode == EFbxImportMode::Skeletal)
+			{
+				Complete = (Previous.Source.Outputs & FFbxSourceInfo::AnimationChecked) != 0
+					&& std::filesystem::exists(AnimationPath) == bHasAnimation;
+				if (Complete && bHasAnimation)
+				{
+					const std::unique_ptr<UAnimSequence> Sequence(NewObject<UAnimSequence>());
+					Complete = AnimSequenceFile::Read(AnimationPath, *Sequence, ReadError);
+				}
+			}
 			TArray<FString> Paths;
 			for (EFbxMeshKind Kind : { EFbxMeshKind::Static, EFbxMeshKind::Skeletal })
 			{
@@ -986,6 +1144,7 @@ bool FFbxImporter::ImportToAssets(const FString& Path, EFbxImportMode Mode, FFbx
 				// 참조하는 외부 Texture의 변경 정보도 저장·비교하여 이미지가 바뀐 경우 재Import하도록 해야 한다.
 				OutResult.bSkipped = true;
 				OutResult.Paths = std::move(Paths);
+				if (bHasAnimation) OutResult.AnimationPath = Utf8Path(AnimationPath);
 				HTR_LOG(Info, "FBX Import skipped (source unchanged): {}", Source.Path);
 				return RegisterImported(OutResult.Paths, false, OutResult.Warnings, OutError);
 			}
@@ -1001,6 +1160,25 @@ bool FFbxImporter::ImportToAssets(const FString& Path, EFbxImportMode Mode, FFbx
 		std::filesystem::create_directory(Extraction);
 		FFbxImporter Importer;
 		if (!Importer.Open(Source.Path, OutError, Utf8Path(Extraction))) return false;
+		if (Mode == EFbxImportMode::Skeletal)
+		{
+			FbxScene* Scene = Importer.GetScene();
+			bool bHasSkinnedMesh = false;
+			for (int I = 0; I < Scene->GetNodeCount(); ++I)
+			{
+				FbxMesh* Mesh = Scene->GetNode(I)->GetMesh();
+				if (Mesh && Mesh->GetDeformerCount(FbxDeformer::eSkin) > 0)
+				{
+					bHasSkinnedMesh = true;
+					break;
+				}
+			}
+			if (!bHasSkinnedMesh)
+			{
+				OutError = "FBX: Skeletal Mesh import requires a mesh with skin weights. Use Static Mesh import for geometry.";
+				return false;
+			}
+		}
 		TArray<FString> Warnings;
 		if (!Importer.ReadMeshData(Warnings, OutError)) { OutResult.Warnings.Append(Warnings); return false; }
 		OutResult.Warnings.Append(Warnings);
@@ -1009,6 +1187,88 @@ bool FFbxImporter::ImportToAssets(const FString& Path, EFbxImportMode Mode, FFbx
 		{
 			if (!Importer.ReadSkeletonData(Warnings, OutError)) { OutResult.Warnings.Append(Warnings); return false; }
 			OutResult.Warnings.Append(Warnings);
+			Source.Outputs |= FFbxSourceInfo::AnimationChecked;
+			if (Importer.GetScene()->GetSrcObjectCount<FbxAnimStack>() > 0)
+			{
+				constexpr int32 StackIndex = 0;
+				constexpr FFrameRate SampleRate{30, 1};
+				FAnimationClipData Clip;
+				if (!Importer.ReadAnimationData(StackIndex, SampleRate, Clip, OutError)) return false;
+				const std::unique_ptr<UAnimSequence> Sequence(NewObject<UAnimSequence>());
+				Sequence->Initialize(std::move(Clip.Name), std::move(Clip.BoneAnimationTracks), Clip.FrameRate, Clip.PlayLength);
+				const auto Temp = Staged.Folder / "animation.tmp";
+				if (!AnimSequenceFile::Write(Temp, *Sequence, OutError)) return false;
+				Staged.Files.Add({ Temp, AnimationPath });
+				Source.Outputs |= FFbxSourceInfo::AnimationOutput;
+
+				if (bTestAnimationImport)
+				{
+					const std::unique_ptr<UAnimSequence> LoadedSequence(NewObject<UAnimSequence>());
+					if (!AnimSequenceFile::Read(Temp, *LoadedSequence, OutError)) return false;
+					const UAnimDataModel* DataModel = LoadedSequence->GetDataModel();
+					const auto& Tracks = DataModel->GetBoneAnimationTracks();
+					const auto& Bones = Importer.GetBones();
+					const FbxAnimStack* Stack = Importer.GetScene()->GetSrcObject<FbxAnimStack>(StackIndex);
+					TArray<FbxTime> SampleTimes;
+					Importer.BuildAnimationSampleTimes(*Stack, SampleRate, SampleTimes);
+					const int32 SampleCount = SampleTimes.Num();
+					bool bPassed = SampleCount > 0 && Tracks.Num() == Bones.Num()
+						&& DataModel->GetNumberOfKeys() == SampleCount
+						&& DataModel->GetNumberOfFrames() == SampleCount - 1
+						&& DataModel->GetFrameRate() == SampleRate
+						&& LoadedSequence->GetClipName() == Sequence->GetClipName();
+					HTR_LOG(Info, "FBX animation test: stack={}, samples={}, tracks={}, bones={}, rate={}, length={}",
+						LoadedSequence->GetClipName(), SampleCount, Tracks.Num(), Bones.Num(), DataModel->GetFrameRate().AsDecimal(), DataModel->GetPlayLength());
+
+					for (int32 BoneIndex = 0; BoneIndex < Tracks.Num(); ++BoneIndex)
+					{
+						const auto& Track = Tracks[BoneIndex];
+						const auto& Keys = Track.InternalTrack;
+						if (BoneIndex >= Bones.Num() || Track.Name != Bones[BoneIndex].Name
+							|| Keys.PosKeys.Num() != SampleCount || Keys.RotKeys.Num() != SampleCount
+							|| Keys.ScaleKeys.Num() != SampleCount)
+						{
+							bPassed = false;
+							HTR_LOG(Error, "FBX animation test: invalid track {} (pos={}, rot={}, scale={})",
+								Track.Name, Keys.PosKeys.Num(), Keys.RotKeys.Num(), Keys.ScaleKeys.Num());
+						}
+					}
+
+					if (bPassed)
+					{
+						HTR_LOG(Info, "FBX animation test PASS: tracks, key counts and frame metadata match");
+						for (const auto& Track : Tracks)
+						{
+							const auto& Keys = Track.InternalTrack;
+							const FQuat& First = Keys.RotKeys[0];
+							const bool bRotationChanges = std::any_of(Keys.RotKeys.begin(), Keys.RotKeys.end(), [&First](const FQuat& Key)
+							{
+								const float Dot = First.X * Key.X + First.Y * Key.Y + First.Z * Key.Z + First.W * Key.W;
+								return std::abs(Dot) < 0.9999f;
+							});
+							if (!bRotationChanges) continue;
+
+							for (const int32 KeyIndex : { 0, SampleCount / 2, SampleCount - 1 })
+							{
+								const FVector& Pos = Keys.PosKeys[KeyIndex];
+								const FQuat& Rot = Keys.RotKeys[KeyIndex];
+								const FVector& Scale = Keys.ScaleKeys[KeyIndex];
+								HTR_LOG(Info, "FBX animation test: bone={}, key={}, pos=({}, {}, {}), rot=({}, {}, {}, {}), scale=({}, {}, {})",
+									Track.Name, KeyIndex, Pos.X, Pos.Y, Pos.Z, Rot.X, Rot.Y, Rot.Z, Rot.W, Scale.X, Scale.Y, Scale.Z);
+							}
+							break;
+						}
+					}
+					else
+					{
+						HTR_LOG(Error, "FBX animation test FAIL: tracks, key counts or frame metadata do not match");
+					}
+				}
+			}
+			else if (std::filesystem::exists(AnimationPath))
+			{
+				Staged.Files.Add({ std::filesystem::path{}, AnimationPath });
+			}
 			FFbxBakedMesh Skeletal;
 			Skeletal.Kind = EFbxMeshKind::Skeletal;
 			if (!Importer.BuildSkeletalMesh(Skeletal.SkeletalMesh, Warnings, OutError)) { OutResult.Warnings.Append(Warnings); return false; }
@@ -1080,6 +1340,11 @@ bool FFbxImporter::ImportToAssets(const FString& Path, EFbxImportMode Mode, FFbx
 		if (Source.Size != std::filesystem::file_size(SourcePath) || Source.ModifiedTime != std::filesystem::last_write_time(SourcePath).time_since_epoch().count()) { OutError = "FBX: source changed during Import; retry"; return false; }
 		if (!Staged.Commit(OutError)) return false;
 		OutResult.Paths = std::move(Paths);
+		if (Source.Outputs & FFbxSourceInfo::AnimationOutput)
+		{
+			OutResult.AnimationPath = Utf8Path(AnimationPath);
+			HTR_LOG(Info, "FBX animation saved: {}", OutResult.AnimationPath);
+		}
 		HTR_LOG(Info, "FBX Import saved: {} ({} files)", Source.Path, OutResult.Paths.Num());
 		return RegisterImported(OutResult.Paths, true, OutResult.Warnings, OutError);
 	}
