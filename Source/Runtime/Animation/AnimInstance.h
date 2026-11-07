@@ -33,24 +33,12 @@ public:
 	APawn* TryGetPawnOwner() const;
 
 	FAnimNode_Base* GetRootNode() const { return RootNode; }
-	void SetBlendSpaceInput(float Value) { BlendSpacePlayer.X = Value; }
 
 protected:
-	virtual void NativeInitializeAnimation();
+	virtual void NativeInitializeAnimation() {}
 	virtual void NativeUpdateAnimation(float DeltaSeconds) {}
 	virtual void NativeUninitializeAnimation() {}
 
 protected:
 	FAnimNode_Base* RootNode = nullptr;
-
-private:
-	UTestAnimSequence* SequenceA = nullptr;
-	UTestAnimSequence* SequenceB = nullptr;
-
-	FAnimNode_SequencePlayer PlayerA;
-	FAnimNode_SequencePlayer PlayerB;
-
-	FAnimNode_TwoWayBlend Blend;
-	UBlendSpace1D* BlendSpace = nullptr;
-	FAnimNode_BlendSpacePlayer BlendSpacePlayer;
 };

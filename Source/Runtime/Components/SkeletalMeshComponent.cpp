@@ -3,6 +3,9 @@
 #include "Serialization/MathSerialization.h"
 #include "Animation/BonePose.h"
 #include "Animation/AnimNodeBase.h"
+#include "Animation/AnimSingleNodeInstance.h"
+#include "UObject/UObjectGlobals.h"
+#include "UObject/Casts.h"
 
 void USkeletalMeshComponent::SetAnimInstance(UAnimInstance* InInstance)
 {
@@ -24,7 +27,11 @@ void USkeletalMeshComponent::TickComponent(float DeltaTime)
 {
 	if (bEnableAnimation && AnimInstance && GetSkeletalMesh())
 	{
-		AnimInstance->SetBlendSpaceInput(BlendSpaceInput);
+		if (auto* Instance = Cast<UAnimSingleNodeInstance>(AnimInstance))
+		{
+			Instance->SetBlendSpaceInput(BlendSpaceInput);
+		}
+
 		AnimInstance->UpdateAnimation(DeltaTime);
 		FPoseContext Pose(AnimInstance, GetBones());
 		AnimInstance->EvaluateAnimation(Pose);
@@ -152,4 +159,32 @@ void USkeletalMeshComponent::OnSkeletalMeshChanged()
 void USkeletalMeshComponent::SetEnableAnimation(const bool EnableAnimation)
 {
 	bEnableAnimation = EnableAnimation;
+}
+
+void USkeletalMeshComponent::PlayAnimation(UTestAnimSequence* Sequence, bool bLooping)
+{
+	auto* SingleNodeInstance = Cast<UAnimSingleNodeInstance>(AnimInstance);
+
+	if (!SingleNodeInstance)
+	{
+		SingleNodeInstance = NewObject<UAnimSingleNodeInstance>(this);
+		SetAnimInstance(SingleNodeInstance);
+	}
+
+	SingleNodeInstance->SetAnimationAsset(Sequence, bLooping);
+
+	SetEnableAnimation(true);
+}
+
+void USkeletalMeshComponent::PlayBlendSpace(UBlendSpace1D* BlendSpace)
+{
+	auto* Instance = Cast<UAnimSingleNodeInstance>(AnimInstance);
+	if (!Instance)
+	{
+		Instance = NewObject<UAnimSingleNodeInstance>(this);
+		SetAnimInstance(Instance);
+	}
+	Instance->SetBlendSpaceAsset(BlendSpace);
+	Instance->SetBlendSpaceInput(BlendSpaceInput);
+	SetEnableAnimation(true);
 }

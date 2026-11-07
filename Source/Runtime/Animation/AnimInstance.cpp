@@ -9,15 +9,6 @@
 
 UAnimInstance::~UAnimInstance()
 {
-	RootNode = nullptr;
-	PlayerA.Sequence = nullptr;
-	PlayerB.Sequence = nullptr;
-	BlendSpacePlayer.BlendSpace = nullptr;
-
-	// NewObject 객체는 엔진의 전역 종료 정리에서 삭제
-	BlendSpace = nullptr;
-	SequenceA = nullptr;
-	SequenceB = nullptr;
 }
 
 void UAnimInstance::InitializeAnimation()
@@ -81,43 +72,4 @@ AActor* UAnimInstance::GetOwningActor() const
 APawn* UAnimInstance::TryGetPawnOwner() const
 {
 	return Cast<APawn>(GetOwningActor());
-}
-
-void UAnimInstance::NativeInitializeAnimation()
-{
-	if (!SequenceA)
-		SequenceA = NewObject<UTestAnimSequence>(this);
-
-	if (!SequenceB)
-		SequenceB = NewObject<UTestAnimSequence>(this);
-
-	SequenceA->MaxOffset = FVector(0, 1, 0);
-	SequenceB->MaxOffset = FVector(0, 0, 1);
-
-	PlayerA.Sequence = SequenceA;
-	PlayerB.Sequence = SequenceB;
-
-	PlayerA.CurrentTime = 0.0f;
-	PlayerB.CurrentTime = 0.0f;
-
-	PlayerA.bLoop = true;
-	PlayerB.bLoop = true;
-
-	Blend.A.SetLinkNode(&PlayerA);
-	Blend.B.SetLinkNode(&PlayerB);
-	Blend.Alpha = 0.5f;
-
-	if (!BlendSpace)
-	{
-		BlendSpace = NewObject<UBlendSpace1D>(this);
-
-		BlendSpace->AddSample(SequenceA, FVector(200, 0, 0));
-		BlendSpace->AddSample(SequenceB, FVector(600, 0, 0));
-	}
-
-	BlendSpacePlayer.BlendSpace = BlendSpace;
-	BlendSpacePlayer.X = 300.0f;
-	BlendSpacePlayer.Phase = 0.0f;
-
-	RootNode = &BlendSpacePlayer;
 }

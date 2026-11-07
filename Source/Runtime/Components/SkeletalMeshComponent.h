@@ -5,6 +5,8 @@
 #include "SkeletalMeshComponent.generated.h"
 
 class UAnimInstance;
+class UTestAnimSequence;
+class UBlendSpace1D;
 
 UCLASS()
 class USkeletalMeshComponent : public USkinnedMeshComponent
@@ -32,6 +34,9 @@ public:
 
 	using Super::Serialize;
 	virtual void Serialize(FStructuredArchive::FRecord Record) override;
+
+	void PlayAnimation(UTestAnimSequence* Sequence, bool bLoop = true);
+	void PlayBlendSpace(UBlendSpace1D* BlendSpace);
 
 	UPROPERTY(EditAnywhere)
 	float BlendSpaceInput = 300.0f;

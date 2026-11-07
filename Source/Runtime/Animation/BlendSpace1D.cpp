@@ -1,5 +1,6 @@
 #include "EnginePCH.h"
 #include "BlendSpace1D.h"
+#include "Serialization/MathSerialization.h"
 
 bool UBlendSpace1D::AddSample(UTestAnimSequence* Animation, const FVector& SampleValue)
 {
@@ -73,4 +74,29 @@ bool UBlendSpace1D::GetSamples(float X, FBlendSample& OutA, FBlendSample& OutB, 
 	}
 
 	return false;
+}
+
+void UBlendSpace1D::Serialize(FStructuredArchive::FRecord Record)
+{
+	Super::Serialize(Record);
+
+	FArchive& Ar = Record.GetUnderlyingArchive();
+	int32 Count = Ar.IsSaving() ? BlendSampleData.Num() : 0;
+	auto Samples = Record.EnterArray("Samples", Count);
+
+	if (Ar.IsLoading())
+		BlendSampleData.SetNum(Count);
+
+	for (int32 Index = 0; Index < Count; ++Index)
+	{
+		auto SampleRecord = Samples.EnterElement().EnterRecord();
+		FBlendSample& Sample = BlendSampleData[Index];
+		UObject* Animation = Sample.Animation;
+
+		SampleRecord << SA_VALUE("Animation", Animation);
+		SampleRecord << SA_VALUE("SampleValue", Sample.SampleValue);
+
+		if (Ar.IsLoading())
+			Sample.Animation = static_cast<UTestAnimSequence*>(Animation);
+	}
 }

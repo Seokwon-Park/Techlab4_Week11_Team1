@@ -1,6 +1,7 @@
 #include "EnginePCH.h"
 #include "SkeletalMeshActor.h"
 #include "Render/SkeletalMesh.h"
+#include "Animation/AnimSingleNodeInstance.h"
 
 namespace
 {
@@ -24,6 +25,16 @@ ASkeletalMeshActor::ASkeletalMeshActor()
     SkeletalMeshComponent->SetupAttachment(GetRootComponent());
     SkeletalMeshComponent->SetSkeletalMesh(GetTestBoneStickMesh());
 
-    SkeletalMeshComponent->SetAnimInstance(NewObject<UAnimInstance>(SkeletalMeshComponent));
-    SkeletalMeshComponent->SetEnableAnimation(true);
+    auto* Idle = NewObject<UTestAnimSequence>(SkeletalMeshComponent);
+    auto* Walk = NewObject<UTestAnimSequence>(SkeletalMeshComponent);
+    auto* Run = NewObject<UTestAnimSequence>(SkeletalMeshComponent);
+    Idle->MaxOffset = FVector(0, 0, 0);
+    Walk->MaxOffset = FVector(0, 1, 0);
+    Run->MaxOffset = FVector(0, 0, 1);
+
+    auto* BlendSpace = NewObject<UBlendSpace1D>(SkeletalMeshComponent);
+    BlendSpace->AddSample(Idle, FVector(0, 0, 0));
+    BlendSpace->AddSample(Walk, FVector(200, 0, 0));
+    BlendSpace->AddSample(Run, FVector(600, 0, 0));
+    SkeletalMeshComponent->PlayBlendSpace(BlendSpace);
 }
