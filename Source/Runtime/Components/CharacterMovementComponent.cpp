@@ -2,6 +2,7 @@
 #include "CharacterMovementComponent.h"
 #include "GameFramework/Pawn.h"
 #include <algorithm>
+#include <cmath>
 
 UCharacterMovementComponent::UCharacterMovementComponent()
 {
@@ -48,7 +49,47 @@ void UCharacterMovementComponent::PerformMovement(float DeltaTime)
 	if (Delta.SizeSquared() > SMALL_NUMBER)
 		SafeMoveWithSlide(Delta, UpdatedComponent->GetWorldRotation());
 
+	PhysicsRotation(DeltaTime);
 	UpdateComponentVelocity();
+}
+
+namespace
+{
+	// UE FMath::FixedTurn: Current에서 Desired로 최단 방향으로 최대 DeltaRate도까지만 돈다
+	float FixedTurn(float Current, float Desired, float DeltaRate)
+	{
+		if (DeltaRate <= 0.0f) return Current;
+		const float Delta = FMath::UnwindDegrees(Desired - Current);
+		if (std::abs(Delta) <= DeltaRate) return Desired;
+		return FMath::NormalizeAxis(Current + (Delta > 0.0f ? DeltaRate : -DeltaRate));
+	}
+}
+
+void UCharacterMovementComponent::PhysicsRotation(float DeltaTime)
+{
+	if (!bOrientRotationToMovement || !UpdatedComponent) return;
+
+	const FRotator CurrentRotation = UpdatedComponent->GetWorldRotation();
+	const FRotator DesiredRotation = ComputeOrientToMovementRotation(CurrentRotation);
+
+	// 캐릭터는 수직을 유지한다 (UE ShouldRemainVertical): Pitch/Roll은 0, Yaw만 RotationRate로 돌린다
+	FRotator NewRotation(0.0f, FixedTurn(CurrentRotation.Yaw, DesiredRotation.Yaw, RotationRate.Yaw * DeltaTime), 0.0f);
+	if (std::abs(FMath::UnwindDegrees(NewRotation.Yaw - CurrentRotation.Yaw)) <= KINDA_SMALL_NUMBER &&
+		std::abs(CurrentRotation.Pitch) <= KINDA_SMALL_NUMBER && std::abs(CurrentRotation.Roll) <= KINDA_SMALL_NUMBER)
+		return;
+
+	// 위치는 그대로, 회전만 바꾼다
+	MoveUpdatedComponent(FVector::ZeroVector, NewRotation, false, nullptr);
+}
+
+FRotator UCharacterMovementComponent::ComputeOrientToMovementRotation(const FRotator& CurrentRotation) const
+{
+	if (Acceleration.SizeSquared() < KINDA_SMALL_NUMBER * KINDA_SMALL_NUMBER)
+		return CurrentRotation;
+
+	FRotator Result;
+	Result.LookDirection(Acceleration);
+	return Result;
 }
 
 void UCharacterMovementComponent::CalcVelocity(float DeltaTime, float Friction, float BrakingDeceleration)

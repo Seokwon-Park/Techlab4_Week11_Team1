@@ -24,6 +24,14 @@ public:
 	UPROPERTY(EditAnywhere)
 	float GroundFriction = 8.0f;
 
+	// UE: 가속(입력) 방향으로 캐릭터를 RotationRate만큼씩 돌린다.
+	// Controller 입력으로 몸을 직접 돌리는 Pawn(ACharacter 기본 Yaw 입력)과 같이 켜면 서로 싸운다
+	UPROPERTY(EditAnywhere)
+	bool bOrientRotationToMovement = false;
+	// 초당 최대 회전 각도(deg/s). 캐릭터는 수직을 유지하므로 Yaw만 쓴다
+	UPROPERTY(EditAnywhere)
+	FRotator RotationRate = FRotator(0.0f, 360.0f, 0.0f);
+
 	FVector GetCurrentAcceleration() const { return Acceleration; }
 
 protected:
@@ -38,6 +46,11 @@ protected:
 	void CalcVelocity(float DeltaTime, float Friction, float BrakingDeceleration);
 	// Sweep 이동. 막히면 표면을 따라 한 번 미끄러진다
 	void SafeMoveWithSlide(const FVector& Delta, const FRotator& NewRotation);
+
+	// UE: 이동이 끝난 뒤 회전을 갱신한다 (bOrientRotationToMovement)
+	void PhysicsRotation(float DeltaTime);
+	// 가속 방향의 회전. 가속이 없으면 현재 회전 유지
+	FRotator ComputeOrientToMovementRotation(const FRotator& CurrentRotation) const;
 
 	FVector Acceleration;
 };

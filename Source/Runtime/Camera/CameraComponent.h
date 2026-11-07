@@ -84,5 +84,10 @@ protected:
 	UPROPERTY(EditAnywhere)
 	bool bExternalInputManaged = false;
 
+public:
+	// UE와 같이 소유 Pawn의 Controller ControlRotation을 뷰 회전으로 쓴다 (부모/스프링 암 회전보다 우선)
+	UPROPERTY(EditAnywhere)
+	bool bUsePawnControlRotation = false;
+
 };
 

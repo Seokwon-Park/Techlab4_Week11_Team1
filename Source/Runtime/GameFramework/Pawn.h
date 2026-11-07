@@ -38,6 +38,9 @@ public:
 
 	virtual FVector GetVelocity() const { return FVector::ZeroVector; }
 
+	// PlayerController가 WASD를 월드 방향으로 바꿀 때 쓰는 기준 회전. 기본은 액터 회전
+	virtual FRotator GetMovementInputRotation() const { return GetActorRotation(); }
+
 protected:
 	// 이번 프레임에 누적 중인 입력
 	FVector ControlInputVector;

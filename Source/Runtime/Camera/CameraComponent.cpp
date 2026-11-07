@@ -3,6 +3,8 @@
 #include "Input/InputSystem.h"
 #include "../Collision/Ray.h"
 #include "Camera/PlayerCameraManager.h"
+#include "GameFramework/Pawn.h"
+#include "GameFramework/PlayerController.h"
 
 // 외부 입력 관리 시 기본 입력을 생략해 ViewportLayout와 카메라의 중복 갱신을 막는다.
 void UCameraComponent::TickComponent(float DeltaTime)
@@ -181,6 +183,14 @@ void UCameraComponent::GetCameraView(float DeltaTime, FMinimalViewInfo& OutPOV) 
     // 1. 위치·회전 (부모까지 반영된 월드 값)
     OutPOV.Location = GetWorldLocation();
     OutPOV.Rotation = GetWorldRotation();
+    if (bUsePawnControlRotation)
+    {
+        if (const APawn* Pawn = Cast<APawn>(GetOwner()))
+        {
+            if (const APlayerController* PC = Pawn->GetController())
+                OutPOV.Rotation = PC->ControlRotation;
+        }
+    }
     // 2. 렌즈 값
     OutPOV.FOV = FieldOfView;
     OutPOV.AspectRatio = AspectRatio;
