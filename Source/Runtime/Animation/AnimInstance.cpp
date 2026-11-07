@@ -4,6 +4,11 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/Pawn.h"
 #include "UObject/Casts.h"
+#include "UObject/UObjectGlobals.h"
+
+UAnimInstance::~UAnimInstance()
+{
+}
 
 void UAnimInstance::InitializeAnimation()
 {

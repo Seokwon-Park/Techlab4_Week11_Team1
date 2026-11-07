@@ -1,11 +1,12 @@
 #pragma once
 
-#include "Animation/AnimDataModel.h"
+#include "AnimDataModel.h"
+#include "AnimationAsset.h"
 #include <memory>
 #include "AnimSequenceBase.generated.h"
 
 UCLASS()
-class UAnimSequenceBase : public UObject
+class UAnimSequenceBase : public UAnimationAsset
 {
 	GENERATED_BODY()
 
