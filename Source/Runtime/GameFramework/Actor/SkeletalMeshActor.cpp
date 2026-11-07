@@ -1,7 +1,9 @@
 #include "EnginePCH.h"
 #include "SkeletalMeshActor.h"
 #include "Render/SkeletalMesh.h"
-#include "Animation/AnimSingleNodeInstance.h"
+#include "Animation/AnimSequence.h"
+#include "Animation/AnimSequenceFile.h"
+#include "Animation/BlendSpace1D.h"
 
 namespace
 {
@@ -19,22 +21,44 @@ namespace
     }
 }
 
+// TEST
+void ASkeletalMeshActor::BeginPlay()
+{
+    Super::BeginPlay();
+
+    auto LoadSequence = [this](const char* Path) -> UAnimSequence*
+        {
+            auto* Sequence = NewObject<UAnimSequence>(SkeletalMeshComponent);
+            FString Error;
+
+            if (!AnimSequenceFile::Read(Path, *Sequence, Error))
+            {
+                HTR_LOG(Error, "Animation load failed: {} ({})", Path, Error);
+                delete Sequence;
+                return nullptr;
+            }
+
+            return Sequence;
+        };
+
+    auto* Idle = LoadSequence(
+        "Assets/FBX/UAL1_Standard/UAL1_Standard1.anim.bin");
+    auto* Walk = LoadSequence(
+        "Assets/FBX/UAL1_Standard/UAL1_Standard42.anim.bin");
+
+
+    auto* BlendSpace = NewObject<UBlendSpace1D>(SkeletalMeshComponent);
+
+    BlendSpace->AddSample(Idle, FVector(0, 0, 0));
+    BlendSpace->AddSample(Walk, FVector(200, 0, 0));
+
+    SkeletalMeshComponent->BlendSpaceInput = 0.0f;
+    SkeletalMeshComponent->PlayBlendSpace(BlendSpace);
+}
+
 ASkeletalMeshActor::ASkeletalMeshActor()
 {
     SkeletalMeshComponent = CreateDefaultSubobject<USkeletalMeshComponent>("USkeletalMeshComponent");
     SkeletalMeshComponent->SetupAttachment(GetRootComponent());
     SkeletalMeshComponent->SetSkeletalMesh(GetTestBoneStickMesh());
-
-    auto* Idle = NewObject<UTestAnimSequence>(SkeletalMeshComponent);
-    auto* Walk = NewObject<UTestAnimSequence>(SkeletalMeshComponent);
-    auto* Run = NewObject<UTestAnimSequence>(SkeletalMeshComponent);
-    Idle->MaxOffset = FVector(0, 0, 0);
-    Walk->MaxOffset = FVector(0, 1, 0);
-    Run->MaxOffset = FVector(0, 0, 1);
-
-    auto* BlendSpace = NewObject<UBlendSpace1D>(SkeletalMeshComponent);
-    BlendSpace->AddSample(Idle, FVector(0, 0, 0));
-    BlendSpace->AddSample(Walk, FVector(200, 0, 0));
-    BlendSpace->AddSample(Run, FVector(600, 0, 0));
-    SkeletalMeshComponent->PlayBlendSpace(BlendSpace);
 }
