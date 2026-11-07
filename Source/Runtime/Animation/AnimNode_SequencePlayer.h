@@ -12,7 +12,7 @@ struct FAnimNode_SequencePlayer : public FAnimNode_Base
 	float CurrentTime = 0.0f;
 	float PlayRate = 1.0f;
 
-	bool bLoop = false;
+	bool bLooping = false;
 
 	void Update(const FAnimationUpdateContext& Context) override
 	{
@@ -31,7 +31,7 @@ struct FAnimNode_SequencePlayer : public FAnimNode_Base
 
 		CurrentTime += Context.GetDeltaTime() * PlayRate;
 
-		if (bLoop)
+		if (bLooping)
 		{
 			CurrentTime = std::fmod(CurrentTime, Length);
 			if (CurrentTime < 0.0f)

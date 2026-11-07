@@ -1,7 +1,7 @@
 #pragma once
 
-#include "UObject/Object.h"
 #include "AnimSequence.h"
+#include "AnimationAsset.h"
 #include "BlendSpace1D.generated.h"
 
 struct FBlendSample
@@ -11,7 +11,7 @@ struct FBlendSample
 };
 
 UCLASS()
-class UBlendSpace1D : public UObject
+class UBlendSpace1D : public UAnimationAsset
 {
 	GENERATED_BODY()
 

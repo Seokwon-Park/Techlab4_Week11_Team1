@@ -1,52 +1,44 @@
 #include "EnginePCH.h"
 #include "AnimSingleNodeInstance.h"
+#include "UObject/Casts.h"
 
-void UAnimSingleNodeInstance::SetAnimationAsset(
-	UAnimSequence* InSequence, bool bLoop, float InPlayRate)
+void UAnimSingleNodeInstance::SetAnimationAsset(UAnimationAsset* InAsset, bool bLoop, float InPlayRate)
 {
-	SequencePlayer.Sequence = InSequence;
-	SequencePlayer.CurrentTime = 0.0f;
-	SequencePlayer.PlayRate = InPlayRate;
-	SequencePlayer.bLoop = bLoop;
-
-	AnimationAsset = InSequence;
+	CurrentAsset = InAsset;
 	bLooping = bLoop;
 	PlayRate = InPlayRate;
 
-	bUseBlendSpace = false;
-	RootNode = &SequencePlayer;
+	InitializeAnimation();
 }
 
 void UAnimSingleNodeInstance::NativeInitializeAnimation()
 {
-	if (bUseBlendSpace)
-	{
-		BlendSpacePlayer.Phase = 0.0f;
-		BlendSpacePlayer.BlendSpace = BlendSpaceAsset;
-		BlendSpacePlayer.PlayRate = PlayRate;
-		RootNode = &BlendSpacePlayer;
-	}
-	else
-	{
-		SequencePlayer.CurrentTime = 0.0f;
-		SequencePlayer.Sequence = AnimationAsset;
-		SequencePlayer.bLoop = bLooping;
-		SequencePlayer.PlayRate = PlayRate;
-		RootNode = &SequencePlayer;
-	}
+    if (auto* Sequence = Cast<UAnimSequence>(CurrentAsset))
+    {
+        SequencePlayer.Sequence = Sequence;
+        SequencePlayer.CurrentTime = 0.0f;
+        SequencePlayer.bLooping = bLooping;
+        SequencePlayer.PlayRate = PlayRate;
+
+        RootNode = &SequencePlayer;
+    }
+    else if (auto* BlendSpace = Cast<UBlendSpace1D>(CurrentAsset))
+    {
+        BlendSpacePlayer.BlendSpace = BlendSpace;
+        BlendSpacePlayer.Phase = 0.0f;
+        BlendSpacePlayer.PlayRate = PlayRate;
+
+        RootNode = &BlendSpacePlayer;
+    }
+    else
+    {
+        RootNode = nullptr;
+    }
 }
 
 void UAnimSingleNodeInstance::SetBlendSpaceAsset(UBlendSpace1D* InBlendSpace, float InPlayRate)
 {
-	bUseBlendSpace = true;
-	BlendSpacePlayer.BlendSpace = InBlendSpace;
-	BlendSpacePlayer.Phase = 0.0f;
-	BlendSpacePlayer.PlayRate = InPlayRate;
-
-	BlendSpaceAsset = InBlendSpace;
-	PlayRate = InPlayRate;
-
-	RootNode = &BlendSpacePlayer;
+    SetAnimationAsset(InBlendSpace, true, InPlayRate);
 }
 
 void UAnimSingleNodeInstance::SetBlendSpaceInput(float Value)
