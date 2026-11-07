@@ -161,7 +161,7 @@ void USkeletalMeshComponent::SetEnableAnimation(const bool EnableAnimation)
 	bEnableAnimation = EnableAnimation;
 }
 
-void USkeletalMeshComponent::PlayAnimation(UTestAnimSequence* Sequence, bool bLooping)
+void USkeletalMeshComponent::PlayAnimation(UAnimSequence* Sequence, bool bLooping)
 {
 	auto* SingleNodeInstance = Cast<UAnimSingleNodeInstance>(AnimInstance);
 

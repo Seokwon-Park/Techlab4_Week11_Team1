@@ -26,13 +26,14 @@ struct FAnimNode_BlendSpacePlayer : public FAnimNode_Base
 		float Alpha = 0.0f;
 
 		if (!BlendSpace->GetSamples(X, SampleA, SampleB, Alpha)
-			|| !SampleA.Animation || !SampleB.Animation)
+			|| !SampleA.Animation || !SampleB.Animation
+			|| !SampleA.Animation->GetDataModel() || !SampleB.Animation->GetDataModel())
 		{
 			return;
 		}
 
-		const float LengthA = SampleA.Animation->GetPlayLength();
-		const float LengthB = SampleB.Animation->GetPlayLength();
+		const float LengthA = SampleA.Animation->GetDataModel()->GetPlayLength();
+		const float LengthB = SampleB.Animation->GetDataModel()->GetPlayLength();
 		const float EffectiveLength = FMath::Lerp(LengthA, LengthB, Alpha);
 
 		if (EffectiveLength <= 0.0f)
@@ -63,7 +64,8 @@ struct FAnimNode_BlendSpacePlayer : public FAnimNode_Base
         float Alpha = 0.0f;
 
         if (!BlendSpace->GetSamples(X, SampleA, SampleB, Alpha) 
-            || !SampleA.Animation || !SampleB.Animation)
+            || !SampleA.Animation || !SampleB.Animation
+            || !SampleA.Animation->GetDataModel() || !SampleB.Animation->GetDataModel())
         {
             Output.ResetToRefPose();
             return;
@@ -72,8 +74,8 @@ struct FAnimNode_BlendSpacePlayer : public FAnimNode_Base
         FPoseContext PoseA(Output);
         FPoseContext PoseB(Output);
 
-        const float TimeA = Phase * SampleA.Animation->GetPlayLength();
-        const float TimeB = Phase * SampleB.Animation->GetPlayLength();
+        const float TimeA = Phase * SampleA.Animation->GetDataModel()->GetPlayLength();
+        const float TimeB = Phase * SampleB.Animation->GetDataModel()->GetPlayLength();
 
         SampleA.Animation->GetAnimationPose(
             TimeA,

@@ -1190,7 +1190,7 @@ bool FFbxImporter::ImportToAssets(const FString& Path, EFbxImportMode Mode, FFbx
 			Source.Outputs |= FFbxSourceInfo::AnimationChecked;
 			if (Importer.GetScene()->GetSrcObjectCount<FbxAnimStack>() > 0)
 			{
-				constexpr int32 StackIndex = 0;
+				constexpr int32 StackIndex = 42;
 				constexpr FFrameRate SampleRate{30, 1};
 				FAnimationClipData Clip;
 				if (!Importer.ReadAnimationData(StackIndex, SampleRate, Clip, OutError)) return false;

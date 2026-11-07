@@ -1,13 +1,13 @@
 #pragma once
 
 #include "AnimNodeBase.h"
-#include "TestAnimSequence.h"
+#include "AnimSequence.h"
 
 #include <cmath>
 
 struct FAnimNode_SequencePlayer : public FAnimNode_Base
 {
-	UTestAnimSequence* Sequence = nullptr;
+	UAnimSequence* Sequence = nullptr;
 
 	float CurrentTime = 0.0f;
 	float PlayRate = 1.0f;
@@ -21,7 +21,8 @@ struct FAnimNode_SequencePlayer : public FAnimNode_Base
 			return;
 		}
 
-		const float Length = Sequence->GetPlayLength();
+		const UAnimDataModel* Model = Sequence->GetDataModel();
+		const float Length = Model ? Model->GetPlayLength() : 0.0f;
 		if (Length <= 0.0f)
 		{
 			CurrentTime = 0.0f;

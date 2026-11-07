@@ -1,12 +1,12 @@
 #pragma once
 
 #include "UObject/Object.h"
-#include "TestAnimSequence.h"
+#include "AnimSequence.h"
 #include "BlendSpace1D.generated.h"
 
 struct FBlendSample
 {
-	UTestAnimSequence* Animation = nullptr;
+	UAnimSequence* Animation = nullptr;
 	FVector SampleValue = FVector::ZeroVector;
 };
 
@@ -16,7 +16,7 @@ class UBlendSpace1D : public UObject
 	GENERATED_BODY()
 
 public:
-	bool AddSample(UTestAnimSequence* Animation, const FVector& SampleValue);
+	bool AddSample(UAnimSequence* Animation, const FVector& SampleValue);
 	bool GetSamples(float X, FBlendSample& OutA, FBlendSample& OutB, float& OutAlpha) const;
 
 	using Super::Serialize;

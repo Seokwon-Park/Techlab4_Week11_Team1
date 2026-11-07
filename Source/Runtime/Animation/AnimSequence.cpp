@@ -3,6 +3,8 @@
 #include "Animation/AnimSequenceFile.h"
 #include "Serialization/MemoryReader.h"
 #include "Serialization/MemoryWriter.h"
+#include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <limits>
 
@@ -163,4 +165,69 @@ bool AnimSequenceFile::Write(const std::filesystem::path& Path, UAnimSequence& S
 	if (File) return true;
 	OutError = "Animation binary: cannot write file";
 	return false;
+}
+
+void UAnimSequence::GetAnimationPose(float Time, FCompactPose& OutPose, const TArray<FBoneInfo>& RefSkeleton) const
+{         
+    OutPose.ResetToRefPose(RefSkeleton);
+    const UAnimDataModel* Model = GetDataModel();
+	if (!Model)
+	{
+		return;
+	}
+
+    const FFrameRate Rate = Model->GetFrameRate();
+    const float Length = Model->GetPlayLength();
+	if (!std::isfinite(Time) || !std::isfinite(Length) || Length < 0.0f)
+	{
+		return;
+	}
+
+    const double Frame = static_cast<double>(FMath::Clamp(Time, 0.0f, Length)) * Rate.AsDecimal();
+
+    for (const FBoneAnimationTrack& Track : Model->GetBoneAnimationTracks())
+    {
+        int32 BoneIndex = -1;
+        for (int32 Index = 0; Index < RefSkeleton.Num(); ++Index)
+        {
+            if (RefSkeleton[Index].Name == Track.Name)
+            {
+                BoneIndex = Index;
+                break;
+            }
+        }
+		if (BoneIndex < 0)
+		{
+			continue;
+		}
+
+        auto Sample = [Frame](const auto& Keys, auto& Value, auto Interpolate)
+        {
+			if (Keys.IsEmpty())
+			{
+				return;
+			}
+			const double KeyFrame = std::clamp(Frame, 0.0, static_cast<double>(Keys.Num() - 1));
+
+            const int32 A = static_cast<int32>(KeyFrame);
+            const int32 B = std::min(A + 1, Keys.Num() - 1);
+
+            Value = Interpolate(Keys[A], Keys[B], static_cast<float>(KeyFrame - A));
+        };
+
+        FTransform& Bone = OutPose[BoneIndex];
+        const auto& Keys = Track.InternalTrack;
+
+        auto Lerp = [](const FVector& A, const FVector& B, float Alpha) 
+		{ 
+			return FMath::Lerp(A, B, Alpha); 
+		};
+
+        Sample(Keys.PosKeys, Bone.Location, Lerp);
+        Sample(Keys.ScaleKeys, Bone.Scale, Lerp);
+        Sample(Keys.RotKeys, Bone.Rotation, [](const FQuat& A, const FQuat& B, float Alpha)
+        {
+            return FMath::Slerp(A, B, Alpha).Normalized();
+        });
+    }
 }

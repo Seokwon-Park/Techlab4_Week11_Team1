@@ -2,7 +2,7 @@
 #include "AnimSingleNodeInstance.h"
 
 void UAnimSingleNodeInstance::SetAnimationAsset(
-	UTestAnimSequence* InSequence, bool bLoop, float InPlayRate)
+	UAnimSequence* InSequence, bool bLoop, float InPlayRate)
 {
 	SequencePlayer.Sequence = InSequence;
 	SequencePlayer.CurrentTime = 0.0f;

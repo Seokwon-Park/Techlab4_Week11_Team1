@@ -11,7 +11,7 @@ class UAnimSingleNodeInstance : public UAnimInstance
 	GENERATED_BODY()
 
 public:
-	void SetAnimationAsset(UTestAnimSequence* InSequence, bool bLoop = true, float InPlayRate = 1.0f);
+	void SetAnimationAsset(UAnimSequence* InSequence, bool bLoop = true, float InPlayRate = 1.0f);
 	void SetBlendSpaceAsset(UBlendSpace1D* InBlendSpace, float InPlayRate = 1.0f);
 	void SetBlendSpaceInput(float Value);
 
@@ -26,7 +26,7 @@ private:
 	bool bUseBlendSpace = false;
 
 	UPROPERTY()
-	UTestAnimSequence* AnimationAsset = nullptr;
+	UAnimSequence* AnimationAsset = nullptr;
 
 	UPROPERTY()
 	UBlendSpace1D* BlendSpaceAsset = nullptr;

@@ -5,7 +5,7 @@
 #include "SkeletalMeshComponent.generated.h"
 
 class UAnimInstance;
-class UTestAnimSequence;
+class UAnimSequence;
 class UBlendSpace1D;
 
 UCLASS()
@@ -35,7 +35,7 @@ public:
 	using Super::Serialize;
 	virtual void Serialize(FStructuredArchive::FRecord Record) override;
 
-	void PlayAnimation(UTestAnimSequence* Sequence, bool bLoop = true);
+	void PlayAnimation(UAnimSequence* Sequence, bool bLoop = true);
 	void PlayBlendSpace(UBlendSpace1D* BlendSpace);
 
 	UPROPERTY(EditAnywhere)

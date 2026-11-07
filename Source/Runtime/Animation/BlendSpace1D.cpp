@@ -2,7 +2,7 @@
 #include "BlendSpace1D.h"
 #include "Serialization/MathSerialization.h"
 
-bool UBlendSpace1D::AddSample(UTestAnimSequence* Animation, const FVector& SampleValue)
+bool UBlendSpace1D::AddSample(UAnimSequence* Animation, const FVector& SampleValue)
 {
 	if (!Animation)
 	{
@@ -97,6 +97,6 @@ void UBlendSpace1D::Serialize(FStructuredArchive::FRecord Record)
 		SampleRecord << SA_VALUE("SampleValue", Sample.SampleValue);
 
 		if (Ar.IsLoading())
-			Sample.Animation = static_cast<UTestAnimSequence*>(Animation);
+			Sample.Animation = static_cast<UAnimSequence*>(Animation);
 	}
 }
