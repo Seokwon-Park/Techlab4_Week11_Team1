@@ -45,6 +45,7 @@ struct FPoseContext
 	void ResetToRefPose() { Pose.ResetToRefPose(*RefSkeleton); }
 
 	FCompactPose Pose;
+
 	FBlendedCurve Curve;
 
 private:

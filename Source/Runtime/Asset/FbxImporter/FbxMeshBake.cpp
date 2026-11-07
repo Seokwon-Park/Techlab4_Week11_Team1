@@ -9,7 +9,8 @@ namespace
 {
 	constexpr uint32 Magic = 0x58424648; // HFBX, little endian
 	// 장면 전체의 축 변환으로 Bone Local 축과 Bind 행렬 표현이 달라져 기존 출력은 다시 굽는다.
-	constexpr uint32 Version = 5;
+	constexpr uint32 Version = 6;
+	constexpr uint32 QuaternionBoneRotationVersion = 5;
 	constexpr uint32 EulerBoneRotationVersion = 4; // 본 회전을 FRotator로 저장한 마지막 버전. 그대로 읽어 변환한다
 	static_assert(sizeof(FVertex) == 64 && sizeof(FSkinWeight) == 20);
 	// 기존 Binary의 Section 배열을 그대로 읽도록 두 타입의 바이트 배치를 고정한다.
@@ -186,14 +187,16 @@ bool FFbxMeshBake::Read(const FString& Path, FFbxBakedMesh& OutData, FString& Ou
 	FFbxBakedMesh D;
 	uint32 M = 0, V = 0;
 	if (!In.Pod(M) || M != Magic || !In.Pod(V)) { OutError = "FBX binary: invalid header: " + Path; return false; }
-	if (V != Version && V != EulerBoneRotationVersion)
+	if (V != Version && V != QuaternionBoneRotationVersion && V != EulerBoneRotationVersion)
 	{
 		OutError = "FBX binary: unsupported version " + std::to_string(V) + " (expected " + std::to_string(Version) + "); reimport the source FBX: " + Path;
 		return false;
 	}
 	if (!In.Pod(D.Kind) || (D.Kind != EFbxMeshKind::Static && D.Kind != EFbxMeshKind::Skeletal)
 		|| !In.Pod(D.Source.Mode) || (D.Source.Mode != EFbxImportMode::Static && D.Source.Mode != EFbxImportMode::Skeletal)
-		|| !In.Pod(D.Source.Outputs) || D.Source.Outputs == 0 || D.Source.Outputs > 3 || !(D.Source.Outputs & static_cast<uint32>(D.Kind))
+		|| !In.Pod(D.Source.Outputs) || !(D.Source.Outputs & static_cast<uint32>(D.Kind))
+		|| (D.Source.Outputs & ~(3u | FFbxSourceInfo::AnimationChecked | FFbxSourceInfo::AnimationOutput))
+		|| ((D.Source.Outputs & FFbxSourceInfo::AnimationOutput) && !(D.Source.Outputs & FFbxSourceInfo::AnimationChecked))
 		|| (D.Source.Mode == EFbxImportMode::Static && D.Source.Outputs != static_cast<uint32>(EFbxMeshKind::Static))
 		|| !In.String(D.Source.Path) || !In.Pod(D.Source.ModifiedTime) || !In.Pod(D.Source.Size))
 	{
