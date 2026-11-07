@@ -3,11 +3,7 @@
 #include "RenderCommand.h"
 #include "Tasks/Tasks.h"
 #include "Tasks/TaskScheduler.h"
-#include "Core/Stats/LightweightStats.h"
-
-DECLARE_CYCLE_STAT("CPU Skinning", STAT_CpuSkinning);
-DECLARE_CYCLE_STAT("Skin Upload", STAT_SkinUpload);
-DECLARE_CYCLE_STAT("Bone Upload", STAT_BoneUpload);
+#include "Render/SkinningStats.h"
 
 // GpuSkinCommon.hlsli가 이 배치를 가정한다
 static_assert(sizeof(FMatrix) == 64);
@@ -36,7 +32,7 @@ FSkeletalMeshObject::FSkeletalMeshObject(USkeletalMesh* InMesh)
 
 void FSkeletalMeshObject::SkinVerticesCPU(TArray<FVertex>& OutVertices, FBox& OutBounds) const
 {
-	SCOPE_CYCLE_COUNTER(STAT_CpuSkinning);
+	SCOPE_CYCLE_COUNTER(SkinningStats::STAT_CpuSkinning);
 	const FSkeletalMeshLODRenderData& LOD = SkeletalMesh->GetRenderData().LODRenderData[0];
 	const uint32 Count = static_cast<uint32>(LOD.BindVertices.Num());
 	const uint32 NumThreads = Tasks::FTaskScheduler::Get().GetNumWorkers() + 1;
@@ -124,13 +120,16 @@ FSkeletalMeshObjectCPUSkin::FSkeletalMeshObjectCPUSkin(USkeletalMesh* InMesh)
 void FSkeletalMeshObjectCPUSkin::Update(const TArray<FMatrix>& ComponentSpaceTransforms)
 {
 	UpdateRefToLocalMatrices(ComponentSpaceTransforms);
-	SkinVerticesCPU(SkinnedVertices, SkinnedBounds);
+	{
+		SCOPE_CYCLE_COUNTER(SkinningStats::STAT_CpuSkinning);
+		SkinVerticesCPU(SkinnedVertices, SkinnedBounds);
+	}
 	UploadVertices();
 }
 
 void FSkeletalMeshObjectCPUSkin::UploadVertices()
 {
-	SCOPE_CYCLE_COUNTER(STAT_SkinUpload);
+	SCOPE_CYCLE_COUNTER(SkinningStats::STAT_SkinUpload);
 	if (!FinalVertexBuffer) return;
 	void* Dst = RenderCommand::MapWriteDiscard(FinalVertexBuffer.get());
 	if (!Dst)return;
@@ -175,6 +174,7 @@ const TArray<FVertex>* FSkeletalMeshObjectGPUSkin::GetCPUSkinnedVertices() const
 {
 	if (bCPUVerticesDirty)
 	{
+		SCOPE_CYCLE_COUNTER(SkinningStats::STAT_CpuSkinningPicking); 
 		FBox Unused;
 		SkinVerticesCPU(CPUVertices, Unused);
 		bCPUVerticesDirty = false;
@@ -199,7 +199,7 @@ void FSkeletalMeshObjectGPUSkin::UpdateSkinnedBoundsFromBones()
 
 void FSkeletalMeshObjectGPUSkin::UploadBoneMatrices()
 {
-	SCOPE_CYCLE_COUNTER(STAT_BoneUpload);
+	SCOPE_CYCLE_COUNTER(SkinningStats::STAT_BoneUpload);
 	void* Dst = RenderCommand::MapWriteDiscard(BoneMatrixBuffer.get());
 	if (!Dst) return;
 	std::memcpy(Dst, RefToLocal.GetData(), sizeof(FMatrix) * RefToLocal.Num());

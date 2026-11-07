@@ -32,6 +32,8 @@ public:
 
 	// 엔진 전체에 적용한다. 값을 바꾸면 RefreshSkinningMode로 기존 컴포넌트에 반영한다
 	inline static bool bUseGPUSkinning = false;
+	inline static bool bForceSkinUpdate = false;
+
 	void RefreshSkinningMode();
 
 	void MarkBoneTransformsDirty() { bBoneTransformsDirty = true; }

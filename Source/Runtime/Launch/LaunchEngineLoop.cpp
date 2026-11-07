@@ -20,6 +20,8 @@
 #include "Core/Async/TaskPool.h"
 #include "Tasks/Tasks.h"
 
+#include "Render/RealtimeGPUProfiler.h"
+
 #include "UObject/UObjectGlobals.h"
 
 namespace
@@ -167,7 +169,9 @@ bool FEngineLoop::Tick()
 
 	{
 		SCOPE_CYCLE_COUNTER(STAT_EngineTick);
-		GEngine->Tick(EngineTimer::GetDeltaTime());
+		FRealtimeGPUProfiler::BeginFrame();          
+		GEngine->Tick(EngineTimer::GetDeltaTime());  
+		FRealtimeGPUProfiler::EndFrame();           
 	}
 	{
 		SCOPE_CYCLE_COUNTER(STAT_Present);
@@ -185,6 +189,7 @@ bool FEngineLoop::Tick()
 // UObject(에셋 포함)의 GPU 자원은 Device가 살아 있을 때 해제한다.
 void FEngineLoop::Exit()
 {
+	FRealtimeGPUProfiler::Shutdown();
 	FTaskPool::Get().Shutdown();
 	Tasks::FTaskScheduler::Get().Shutdown();
 

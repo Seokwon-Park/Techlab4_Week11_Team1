@@ -6,6 +6,8 @@
 #include "Collision/Ray.h"
 #include <UObject/UObjectIterator.h>
 
+#include "Render/SkinningStats.h"
+
 #include <cfloat>
 
 namespace
@@ -35,7 +37,7 @@ USkinnedMeshComponent::~USkinnedMeshComponent()
 void USkinnedMeshComponent::TickComponent(float DeltaTime)
 {
 	Super::TickComponent(DeltaTime);
-	if (bBoneTransformsDirty)
+	if (bBoneTransformsDirty || bForceSkinUpdate)
 		UpdateBoneTransformsNow();
 }
 
@@ -100,7 +102,10 @@ void USkinnedMeshComponent::UpdateBoneTransformsNow()
 {
 	bBoneTransformsDirty = false;
 	if (!SkeletalMesh || !MeshObject) return;
-	RefreshBoneTransforms();
+	{
+		SCOPE_CYCLE_COUNTER(SkinningStats::STAT_BoneTransforms);
+		RefreshBoneTransforms();      
+	}
 	SendRenderDynamicData();
 }
 
@@ -112,6 +117,7 @@ void USkinnedMeshComponent::SetGPUSkinningEnabled(bool bEnable)
 	{
 		It->RefreshSkinningMode();
 	}
+	FStatRegistry::Reset();
 }
 
 void USkinnedMeshComponent::RefreshBoneTransforms()
