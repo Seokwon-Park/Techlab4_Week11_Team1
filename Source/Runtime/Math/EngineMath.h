@@ -304,4 +304,36 @@ namespace FMath
 			A.Yaw + FMath::UnwindDegrees(B.Yaw - A.Yaw) * Alpha,
 			A.Roll + FMath::UnwindDegrees(B.Roll - A.Roll) * Alpha);
 	}
+
+	// 헤더에 정의하는 함수는 inline이어야 여러 .cpp에서 include해도 중복 정의(LNK2005)가 나지 않는다
+	inline void FmodReportError(double X, double Y)
+	{
+		// assert는 인자를 하나만 받는다
+		assert(Y != 0 && "FMath::Fmod : Y is zero, this is invalid and would result in NaN!");
+	}
+
+	inline float Fmod(float X, float Y)
+	{
+		const float AbsY = std::abs(Y);
+		if (AbsY <= SMALL_NUMBER) // Note: this constant should match that used by VectorMod() implementations
+		{
+			FmodReportError(X, Y);
+			return 0.0;
+		}
+
+		return fmodf(X, Y);
+	}
+
+	inline double Fmod(double X, double Y)
+	{
+		const double AbsY = std::abs(Y);
+		if (AbsY <= DOUBLE_SMALL_NUMBER) // Note: this constant should match that used by VectorMod() implementations
+		{
+			FmodReportError(X, Y);
+			return 0.0;
+		}
+
+		return fmod(X, Y);
+	}
+
 }

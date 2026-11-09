@@ -12,8 +12,9 @@ struct FAnimNode_TwoWayBlend : public FAnimNode_Base
 
 	virtual void Update(const FAnimationUpdateContext& Context) override
 	{
-		A.Update(Context);  
-		B.Update(Context);
+		const float ClampedAlpha = FMath::Clamp(Alpha, 0.0f, 1.0f);
+		A.Update(Context.FractionalWeight(1.f - ClampedAlpha));
+		B.Update(Context.FractionalWeight(ClampedAlpha));
 	}
 
 	virtual void Evaluate(FPoseContext& Output) override
