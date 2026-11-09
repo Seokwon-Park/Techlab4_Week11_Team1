@@ -13,14 +13,16 @@ public:
 	virtual void InitializeComponent() override;
 	virtual void TickComponent(float DeltaTime) override;
 
+	// 아래 속도·가속도는 UE와 같은 cm 단위(cm/s, cm/s²)다. 계산할 때 CmToWorld로 월드 단위(m)로 바꾼다.
+	// Velocity는 월드 단위(m/s) 그대로다.
 	UPROPERTY(EditAnywhere)
-	float MaxWalkSpeed = 6.0f;
+	float MaxWalkSpeed = 600.0f;
 	UPROPERTY(EditAnywhere)
-	float MaxAcceleration = 20.0f;
+	float MaxAcceleration = 2048.0f;
 	// 입력이 없을 때 일정하게 줄이는 감속도
 	UPROPERTY(EditAnywhere)
-	float BrakingDecelerationWalking = 20.0f;
-	// 클수록 방향 전환과 정지가 빠르다
+	float BrakingDecelerationWalking = 2048.0f;
+	// 클수록 방향 전환과 정지가 빠르다 (1/s, 단위 없음)
 	UPROPERTY(EditAnywhere)
 	float GroundFriction = 8.0f;
 

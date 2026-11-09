@@ -37,12 +37,12 @@ FVector UCharacterMovementComponent::ConstrainInputAcceleration(const FVector& I
 
 FVector UCharacterMovementComponent::ScaleInputAcceleration(const FVector& InputAcceleration) const
 {
-	return InputAcceleration.GetClampedToMaxSize(1.0f) * MaxAcceleration;
+	return InputAcceleration.GetClampedToMaxSize(1.0f) * (MaxAcceleration * CmToWorld);
 }
 
 void UCharacterMovementComponent::PerformMovement(float DeltaTime)
 {
-	CalcVelocity(DeltaTime, GroundFriction, BrakingDecelerationWalking);
+	CalcVelocity(DeltaTime, GroundFriction, BrakingDecelerationWalking * CmToWorld);
 	Velocity.Z = 0.0f;
 
 	const FVector Delta = Velocity * DeltaTime;
@@ -101,7 +101,7 @@ void UCharacterMovementComponent::CalcVelocity(float DeltaTime, float Friction, 
 		const FVector AccelDir = Acceleration.GetSafeNormal();
 		Velocity = Velocity - (Velocity - AccelDir * Speed) * std::min(DeltaTime * Friction, 1.0f);
 		Velocity = Velocity + Acceleration * DeltaTime;
-		Velocity = Velocity.GetClampedToMaxSize(MaxWalkSpeed);
+		Velocity = Velocity.GetClampedToMaxSize(MaxWalkSpeed * CmToWorld);
 		return;
 	}
 

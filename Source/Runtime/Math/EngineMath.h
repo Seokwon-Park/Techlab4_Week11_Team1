@@ -15,6 +15,11 @@
 #define INDEX_NONE -1
 #define WORLD_MAX 8796093022208.0f
 
+// 월드 단위는 m(1유닛 = 1m)다. 게임플레이 수치(속도·가속도, BlendSpace 축 등)는 UE와 같은 cm 기준으로
+// 다루고 경계에서 이 상수로 변환한다. 엔진 전체를 cm로 바꾸게 되면 CmToWorld를 1로 바꾸면 된다.
+inline constexpr float CmToWorld = 0.01f;
+inline constexpr float WorldToCm = 1.0f / CmToWorld;
+
 namespace FMath
 {
 	//static float PI = std::acosf(-1);
