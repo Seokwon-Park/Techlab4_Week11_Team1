@@ -22,6 +22,7 @@ public:
 	// SpringArm/Camera가 읽으므로 몸은 돌리지 않는다
 	virtual void AddControllerYawInput(float Value) override {}
 	virtual void AddControllerPitchInput(float Value) override {}
+	virtual void BeginPlay() override;
 
 	virtual FRotator GetMovementInputRotation() const override;
 

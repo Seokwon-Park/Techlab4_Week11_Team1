@@ -4,6 +4,8 @@
 #include "GameFramework/PlayerController.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "GameFramework/Animation/MyAnimInstance.h"
 #include "Components/CharacterMovementComponent.h"
 
 AMyCharacter::AMyCharacter()
@@ -30,6 +32,14 @@ AMyCharacter::AMyCharacter()
 	// UE 3인칭 템플릿 값: 몸은 마우스가 아니라 이동(가속) 방향을 향해 초당 500도까지 돈다
 	CharacterMovementComponent->bOrientRotationToMovement = true;
 	CharacterMovementComponent->RotationRate = FRotator(0.0f, 500.0f, 0.0f);
+}
+
+void AMyCharacter::BeginPlay()
+{
+	Super::BeginPlay();
+
+	UMyAnimInstance* Instance = NewObject<UMyAnimInstance>(SkeletalMeshComponent);
+	SkeletalMeshComponent->SetAnimInstance(Instance);
 }
 
 FRotator AMyCharacter::GetMovementInputRotation() const
