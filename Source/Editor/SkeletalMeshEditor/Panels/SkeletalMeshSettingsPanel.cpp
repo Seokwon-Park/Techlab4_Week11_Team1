@@ -44,4 +44,10 @@ void FSkeletalMeshSettingsPanel::DrawContent()
 			Client->SetViewportMode(bWireframe ? EViewportMode::Wireframe : EViewportMode::Solid);
 		}
 	}
+
+	bool bHeatmap = Editor.IsWeightHeatmapEnabled();
+	if (ImGui::Checkbox("Weight Heatmap", &bHeatmap))
+	{
+		Editor.SetWeightHeatmap(bHeatmap);
+	}
 }

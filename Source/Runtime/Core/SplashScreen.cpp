@@ -166,7 +166,7 @@ namespace
 		const int32 Y = (GetSystemMetrics(SM_CYSCREEN) - GSplash.Height) / 2;
 
 		HWND hWnd = CreateWindowExW(
-			WS_EX_TOOLWINDOW | WS_EX_TOPMOST,   // 작업 표시줄에 안 뜨고, 항상 위
+			WS_EX_TOOLWINDOW,                   // 작업 표시줄에 안 뜸 (다른 창에 가려질 수 있음)
 			SplashClassName, L"", WS_POPUP,     // 테두리·제목 표시줄 없음
 			X, Y, GSplash.Width, GSplash.Height,
 			nullptr, nullptr, GSplash.hInstance, nullptr);

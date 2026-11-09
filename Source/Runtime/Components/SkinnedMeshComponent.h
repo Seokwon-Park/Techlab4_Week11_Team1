@@ -43,6 +43,9 @@ public:
 
 	const TArray<FMatrix>& GetComponentSpaceTransform() const { return ComponentSpaceTransforms; }
 
+	void SetDebugWeightBone(int32 BoneIndex);
+	int32 GetDebugWeightBone() const { return DebugWeightBone; }
+
 	using Super::Serialize;
 	virtual void Serialize(FStructuredArchive::FRecord Record) override;
 
@@ -54,6 +57,8 @@ protected:
 	TArray<FMatrix> ComponentSpaceTransforms;
 private:
 	void RecreateMeshObject();
+
+	int32 DebugWeightBone = -1;
 
 	UPROPERTY()
 	USkeletalMesh* SkeletalMesh = nullptr;
