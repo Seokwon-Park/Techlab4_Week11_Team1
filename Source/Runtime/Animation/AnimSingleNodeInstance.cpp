@@ -13,27 +13,8 @@ void UAnimSingleNodeInstance::SetAnimationAsset(UAnimationAsset* InAsset, bool b
 
 void UAnimSingleNodeInstance::NativeInitializeAnimation()
 {
-    if (auto* Sequence = Cast<UAnimSequence>(CurrentAsset))
-    {
-        SequencePlayer.Sequence = Sequence;
-        SequencePlayer.CurrentTime = 0.0f;
-        SequencePlayer.bLooping = bLooping;
-        SequencePlayer.PlayRate = PlayRate;
-
-        RootNode = &SequencePlayer;
-    }
-    else if (auto* BlendSpace = Cast<UBlendSpace1D>(CurrentAsset))
-    {
-        BlendSpacePlayer.BlendSpace = BlendSpace;
-        BlendSpacePlayer.Phase = 0.0f;
-        BlendSpacePlayer.PlayRate = PlayRate;
-
-        RootNode = &BlendSpacePlayer;
-    }
-    else
-    {
-        RootNode = nullptr;
-    }
+	SingleNode.SetAnimationAsset(CurrentAsset, bLooping, PlayRate);
+	RootNode = &SingleNode;
 }
 
 void UAnimSingleNodeInstance::SetBlendSpaceAsset(UBlendSpace1D* InBlendSpace, float InPlayRate)
@@ -43,5 +24,5 @@ void UAnimSingleNodeInstance::SetBlendSpaceAsset(UBlendSpace1D* InBlendSpace, fl
 
 void UAnimSingleNodeInstance::SetBlendSpaceInput(float Value)
 {
-	BlendSpacePlayer.X = Value;
+	SingleNode.SetBlendSpaceInput(Value);
 }

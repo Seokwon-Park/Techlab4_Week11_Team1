@@ -11,7 +11,7 @@ class UAnimSequenceBase : public UAnimationAsset
 	GENERATED_BODY()
 
 public:
-	const UAnimDataModel* GetDataModel() const { return DataModel.get(); }
+	const UAnimDataModel* GetDataModel() const { return DataModel; }
 
 protected:
 	void InitializeDataModel(
@@ -19,12 +19,12 @@ protected:
 	{
 		if (!DataModel)
 		{
-			DataModel.reset(NewObject<UAnimDataModel>(this));
+			DataModel = NewObject<UAnimDataModel>(this);
 		}
 
 		DataModel->Initialize(std::move(Tracks), FrameRate, PlayLength);
 	}
 
 private:
-	std::unique_ptr<UAnimDataModel> DataModel;
+	UAnimDataModel* DataModel = nullptr;
 };

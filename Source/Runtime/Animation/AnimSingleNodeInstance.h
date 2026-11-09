@@ -1,8 +1,7 @@
 #pragma once
 
 #include "AnimInstance.h"
-#include "AnimNode_SequencePlayer.h"
-#include "AnimNode_BlendSpacePlayer.h"
+#include "AnimNode_SingleNode.h"
 #include "AnimationAsset.h"
 #include "AnimSingleNodeInstance.generated.h"
 
@@ -20,11 +19,10 @@ protected:
 	void NativeInitializeAnimation() override;
 
 private:
+	FAnimNode_SingleNode SingleNode;
+
 	UPROPERTY()
 	UAnimationAsset* CurrentAsset = nullptr;
-
-	FAnimNode_SequencePlayer SequencePlayer;
-	FAnimNode_BlendSpacePlayer BlendSpacePlayer;
 
 	UPROPERTY()
 	bool bLooping = true;
