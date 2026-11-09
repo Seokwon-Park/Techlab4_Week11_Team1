@@ -115,6 +115,15 @@ private:
 	void UpdatePIEViewCamera();
 	void TickPIEInput(float DeltaTime);
 
+	// UE PIE 마우스 캡처: Viewport를 클릭(또는 PIE 시작)하면 커서를 숨기고 PIE 영역에 가둔 채
+	// 매 프레임 중앙으로 되돌려 상대 이동량을 얻는다. Shift+F1 / 포커스 상실 / PIE 종료로 푼다.
+	void BeginPIEMouseCapture();
+	void EndPIEMouseCapture();
+	// 캡처 영역(PIE View 또는 PIE 창 클라이언트)을 화면 좌표로 구한다
+	bool GetPIECaptureScreenRect(int32& OutLeft, int32& OutTop, int32& OutRight, int32& OutBottom) const;
+	// 커서를 영역에 가두고 중앙으로 옮긴다. 영역이 없으면 false
+	bool RecenterPIEMouseCapture();
+
 	// 별도 PIE 창(New Editor Window)을 만들고 정리한다.
 	bool CreatePIEWindow();
 	void DestroyPIEWindow();
@@ -234,6 +243,11 @@ private:
 
 	int32 InputOwnerPIEInstance = -1;
 	bool bGameMouseCaptured = false;
+	// PIE 시작 / SIE → 게임 복귀 시 다음 입력 틱에서 자동 캡처 (UE bCaptureMouseOnLaunch)
+	bool bPendingPIEMouseCapture = false;
+	// 캡처 중 커서를 되돌려 놓는 화면 좌표
+	int32 PIECaptureCenterX = 0;
+	int32 PIECaptureCenterY = 0;
 	int32 PendingFocusedPIEInstance = -1;
 	int32 PendingWheelDelta = 0;
 

@@ -25,6 +25,8 @@ public:
 	void SetView(int32 ViewIndex, const FRect &Rect, bool bActive);
 
 	FVector2 GetContentSize() const { return {ContentSize.x, ContentSize.y}; }
+	// 패널 내용 영역의 좌상단 (ImGui 멀티 뷰포트라 OS 화면 좌표)
+	FVector2 GetContentOrigin() const { return {ContentOrigin.x, ContentOrigin.y}; }
 	FVector2 GetLocalMousePosition() const;
 	bool IsHovered() const;
 	bool IsFocused() const { return bFocused; }
