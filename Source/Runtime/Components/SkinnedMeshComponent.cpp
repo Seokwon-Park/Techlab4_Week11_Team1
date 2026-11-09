@@ -120,6 +120,16 @@ void USkinnedMeshComponent::SetGPUSkinningEnabled(bool bEnable)
 	FStatRegistry::Reset();
 }
 
+void USkinnedMeshComponent::SetDebugWeightBone(int32 BoneIndex)
+{
+	if (DebugWeightBone == BoneIndex) return;
+	DebugWeightBone = BoneIndex;
+	if (MeshObject)
+		MeshObject->SetDebugWeightBone(BoneIndex);
+	// CPU 스키닝은 다시 돌아야 정점 색이 바뀐다. 틱이 없는 월드에서도 바로 보이도록 즉시 갱신한다
+	UpdateBoneTransformsNow();
+}
+
 void USkinnedMeshComponent::RefreshBoneTransforms()
 {
 	const TArray<FBoneInfo>& Bones = SkeletalMesh->GetRefSkeleton();
@@ -150,6 +160,7 @@ void USkinnedMeshComponent::RecreateMeshObject()
 {
 	const bool bValid = SkeletalMesh && !SkeletalMesh->GetRenderData().LODRenderData.IsEmpty();
 	MeshObject = bValid ? MakeMeshObject(SkeletalMesh) : nullptr;
+	if (MeshObject) MeshObject->SetDebugWeightBone(DebugWeightBone);
 	ComponentSpaceTransforms.Reset();
 	OnSkeletalMeshChanged();
 	
@@ -162,6 +173,7 @@ void USkinnedMeshComponent::RefreshSkinningMode()
 {
 	if (!MeshObject) return;
 	MeshObject = MakeMeshObject(SkeletalMesh);
+	if (MeshObject) MeshObject->SetDebugWeightBone(DebugWeightBone);
 	UpdateBoneTransformsNow();   // 포즈는 그대로 두고 새 MeshObject에 다시 올린다
 }
 

@@ -55,6 +55,9 @@ public:
 	bool IsBoneVisualizerVisible() const { return bShowBoneVisualizer; }
 	const FVector4& GetBoneVisualizerColor() const { return BoneVisualizerColor; }
 
+	void SetWeightHeatmap(bool bEnable);
+	bool IsWeightHeatmapEnabled() const { return bShowWeightHeatmap; }
+
 protected:
 	bool InitializePreview();                // Mesh 검증, 프리뷰 씬 생성, 컴포넌트·본 목록·포커스
 	void ShutdownResources() override;       // 선택·컴포넌트·Mesh 정리 후 FAssetEditor::ShutdownResources
@@ -68,6 +71,9 @@ protected:
 	bool CanProcessViewportInput() const;
 	void UpdateBonePicking();
 	int32 PickBone(const FVector2& MousePosition) const;
+
+	void RefreshHeatmap();
+	bool bShowWeightHeatmap = false;
 
 	USkeletalMesh* Mesh = nullptr;
 	USkeletalMeshComponent* MeshComponent = nullptr;
