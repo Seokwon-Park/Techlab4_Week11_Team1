@@ -11,7 +11,7 @@
 namespace
 {
 	constexpr uint32 AnimSequenceMagic = 0x4D494E41; // ANIM
-	constexpr uint32 AnimSequenceVersion = 1;
+	constexpr uint32 AnimSequenceVersion = 2;        // 2: 미리보기 메시 경로 추가
 	constexpr int64 BytesPerBoneKey = 10 * sizeof(float);
 
 	void SerializeName(FArchive& Ar, FString& Name)
@@ -54,18 +54,23 @@ void UAnimSequence::Serialize(FArchive& Ar)
 	uint32 Magic = AnimSequenceMagic;
 	uint32 Version = AnimSequenceVersion;
 	Ar << Magic << Version;
-	if (Ar.IsError() || Magic != AnimSequenceMagic || Version != AnimSequenceVersion)
+	if (Ar.IsError() || Magic != AnimSequenceMagic || Version < 1 || Version > AnimSequenceVersion)
 	{
 		Ar.SetError();
 		return;
 	}
 
 	FString Name = bLoading ? FString{} : GetClipName();
-	FFrameRate Rate = bLoading ? FFrameRate{0, 1} : Model->GetFrameRate();
+	FString PreviewPath = bLoading ? FString{} : GetPreviewMeshPath();
+	FFrameRate Rate = bLoading ? FFrameRate{ 0, 1 } : Model->GetFrameRate();
 	float Length = bLoading ? 0.0f : Model->GetPlayLength();
 	int32 TrackCount = bLoading ? 0 : Model->GetBoneAnimationTracks().Num();
 	int32 KeyCount = bLoading ? 0 : Model->GetNumberOfKeys();
 	SerializeName(Ar, Name);
+	if (Version >= 2)
+	{
+		SerializeName(Ar, PreviewPath);
+	}
 	Ar << Rate.Numerator << Rate.Denominator << Length << TrackCount << KeyCount;
 	if (Ar.IsError() || Rate.Numerator <= 0 || Rate.Denominator <= 0
 		|| !std::isfinite(Length) || Length < 0.0f || TrackCount <= 0 || KeyCount <= 0
@@ -112,15 +117,16 @@ void UAnimSequence::Serialize(FArchive& Ar)
 		}
 	}
 
-	if (bLoading && !Ar.IsError())
-	{
-		if (Ar.Tell() != Ar.TotalSize())
-		{
-			Ar.SetError();
-			return;
-		}
-		Initialize(std::move(Name), std::move(LoadedTracks), Rate, Length);
-	}
+    if (bLoading && !Ar.IsError())
+    {
+        if (Ar.Tell() != Ar.TotalSize())
+        {
+            Ar.SetError();
+            return;
+        }
+        Initialize(std::move(Name), std::move(LoadedTracks), Rate, Length);
+        SetPreviewMeshPath(std::move(PreviewPath));
+    }
 }
 
 bool AnimSequenceFile::Read(const std::filesystem::path& Path, UAnimSequence& Sequence, FString& OutError)
@@ -165,6 +171,14 @@ bool AnimSequenceFile::Write(const std::filesystem::path& Path, UAnimSequence& S
 	if (File) return true;
 	OutError = "Animation binary: cannot write file";
 	return false;
+}
+
+bool AnimSequenceFile::IsAnimSequencePath(const FString& Path)
+{
+	// 파일 이름 끝이 .anim.bin인지 대소문자를 구분하지 않고 확인한다. 내용 검사는 Read가 한다
+	FString End = Path.size() >= 9 ? Path.substr(Path.size() - 9) : FString();
+	for (char& C : End) if (C >= 'A' && C <= 'Z') C += 'a' - 'A';
+	return End == ".anim.bin";
 }
 
 void UAnimSequence::GetAnimationPose(float Time, FCompactPose& OutPose, const TArray<FBoneInfo>& RefSkeleton) const

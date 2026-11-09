@@ -1480,11 +1480,13 @@ bool FFbxImporter::ImportToAssets(const FString& Path, EFbxImportMode Mode, FFbx
 				// 파일 목록은 따로 기록하지 않으므로, 애니메이션이 있었다면 파일이 하나 이상 있고 모두 읽혀야 완전한 것으로 본다.
 				Complete = (Previous.Source.Outputs & FFbxSourceInfo::AnimationChecked) != 0
 					&& ExistingAnimations.IsEmpty() != bHasAnimation;
+				// 미리보기 메시 경로가 없는 파일(형식 버전 1)은 다시 임포트해서 채운다.
 				for (const auto& AnimationFile : ExistingAnimations)
 				{
 					if (!Complete) break;
 					const std::unique_ptr<UAnimSequence> Sequence(NewObject<UAnimSequence>());
-					Complete = AnimSequenceFile::Read(AnimationFile, *Sequence, ReadError);
+					Complete = AnimSequenceFile::Read(AnimationFile, *Sequence, ReadError)
+						&& !Sequence->GetPreviewMeshPath().empty();
 				}
 			}
 			TArray<FString> Paths;
@@ -1576,6 +1578,7 @@ bool FFbxImporter::ImportToAssets(const FString& Path, EFbxImportMode Mode, FFbx
 
 				const auto Target = Folder / File;
 				const auto Temp = Staged.Folder / ("animation_" + std::to_string(SequenceIndex) + ".tmp");
+				Sequence.SetPreviewMeshPath(Utf8Path(SkeletalPath)); // 애님 시퀀스 뷰어가 이 메시로 미리보기한다
 				if (!AnimSequenceFile::Write(Temp, Sequence, OutError)) return false;
 				Staged.Files.Add({ Temp, Target });
 				AnimationPaths.Add(Target);

@@ -32,7 +32,6 @@ FSkeletalMeshObject::FSkeletalMeshObject(USkeletalMesh* InMesh)
 
 void FSkeletalMeshObject::SkinVerticesCPU(TArray<FVertex>& OutVertices, FBox& OutBounds) const
 {
-	SCOPE_CYCLE_COUNTER(SkinningStats::STAT_CpuSkinning);
 	const FSkeletalMeshLODRenderData& LOD = SkeletalMesh->GetRenderData().LODRenderData[0];
 	const uint32 Count = static_cast<uint32>(LOD.BindVertices.Num());
 	const uint32 NumThreads = Tasks::FTaskScheduler::Get().GetNumWorkers() + 1;
