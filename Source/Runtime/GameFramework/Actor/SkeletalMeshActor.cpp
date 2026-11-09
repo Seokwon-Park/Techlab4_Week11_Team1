@@ -41,10 +41,12 @@ void ASkeletalMeshActor::BeginPlay()
             return Sequence;
         };
 
+    // FBX 임포터가 스택마다 "FBX이름_스택이름.anim.bin"으로 저장한다.
+    // 기존 UAL1_Standard1(스택 1)·UAL1_Standard42(스택 42)와 같은 클립이다.
     auto* Idle = LoadSequence(
-        "Assets/FBX/UAL1_Standard/UAL1_Standard1.anim.bin");
+        "Assets/FBX/UAL1_Standard/UAL1_Standard_Armature_Crouch_Fwd_Loop.anim.bin");
     auto* Walk = LoadSequence(
-        "Assets/FBX/UAL1_Standard/UAL1_Standard42.anim.bin");
+        "Assets/FBX/UAL1_Standard/UAL1_Standard_Armature_Walk_Loop.anim.bin");
 
 
     auto* BlendSpace = NewObject<UBlendSpace1D>(SkeletalMeshComponent);

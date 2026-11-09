@@ -7,10 +7,18 @@
 #include "Render/SkeletalMeshData.h"
 #include "Asset/FbxImporter/FbxMeshBake.h"
 
+class UAnimSequence;
+
+struct FFbxAnimationImportOptions
+{
+	bool bResample = true; // false면 기본 30Hz 사용
+	int32 ResampleRate = 0; // bResample이 true일 때 0은 자동 계산, 양수는 지정값
+};
+
 struct FFbxImportResult
 {
 	TArray<FString> Paths;
-	FString AnimationPath;
+	TArray<FString> AnimationPaths; // 스택 1개면 Name.anim.bin, 여러 개면 Name_스택이름.anim.bin
 	TArray<FString> Warnings;
 	bool bSkipped = false;
 };
@@ -23,14 +31,6 @@ struct FFbxMeshNodeData
 	int32 RigidBoneIndex = -1; // Skin 없는 Mesh가 선택된 Bone 계층에 속하면 자기 Node의 Bone 번호
 	FStaticMeshData Geometry;
 	TArray<int32> ControlPointIndices; // Geometry.Vertices와 같은 순서/길이
-};
-
-struct FAnimationClipData
-{
-	FString Name;
-	FFrameRate FrameRate{0, 1};
-	float PlayLength = 0.0f; // 초 단위
-	TArray<FBoneAnimationTrack> BoneAnimationTracks;
 };
 
 // Manager와 Scene의 수명을 관리하며 한 번에 FBX 파일 하나를 보관한다.
@@ -58,18 +58,31 @@ public:
 	bool ReadSkeletonData(TArray<FString>& OutWarnings, FString& OutError);
 	// 다음 Skeleton/Mesh 재추출, Open/Close/소멸 전까지만 유효하다.
 	const TArray<FBoneInfo>& GetBones() const { return Bones; }
-	// ReadSkeletonData 성공 후 호출한다. 현재는 입력 유효성만 검사한다.
-	bool ReadAnimationData(int32 AnimStackIndex, FFrameRate SampleRate, FAnimationClipData& OutClip, FString& OutError);
+	// 새 Factory에서 사용할 Unreal 방식의 임포트 함수 틀.
+	void ImportFromFile();
+	void ImportStaticMeshAsSingle();
+	void ImportSkeletalMesh();
+	// ReadSkeletonData 성공 후 호출. 성공 시 OutSequences에 추가한 시퀀스의 수명은 호출부가 관리한다.
+	// 스택마다 시간 범위 확인 → 프레임 경계 정렬 → 시퀀스 생성 → ImportAnimation 호출만 담당한다.
+	// 키 추출과 PlayLength 확정은 ImportAnimation, 파일 저장은 ImportToAssets가 맡는다.
+	bool ImportAnimations(TArray<UAnimSequence*>& OutSequences, TArray<FString>& OutWarnings,
+		FString& OutError, const FFbxAnimationImportOptions& Options = {});
 	// ReadSkeletonData 성공 후 호출한다. SDK 수명과 독립적인 Geometry/Weight/Bone 출력을 만든다.
-	void BuildAnimationSampleTimes(const FbxAnimStack& AnimStack, FFrameRate SampleRate, TArray<FbxTime>& OutSampleTimes) const;
-
-	void ReadBoneAnimationTracks(FbxAnimStack& AnimStack, const TArray<FbxTime>& SampleTimes, FAnimationClipData& OutClip);
-
 	bool BuildSkeletalMesh(FSkeletalMeshData& OutData, TArray<FString>& OutWarnings, FString& OutError) const;
 	// Assets/FBX에 저장한 뒤 미로드 Asset을 등록한다. 이미 로드된 객체는 유지한다.
 	static bool ImportToAssets(const FString& Path, EFbxImportMode Mode, FFbxImportResult& OutResult, FString& OutError);
 
 private:
+	int32 GetMaxSampleRate() const;
+	FbxTimeSpan GetAnimationTimeSpan(const FbxAnimStack& AnimStack) const;
+	// 레이어·길이를 검사하고 Start/Stop을 SampleRate의 가장 가까운 프레임 경계로 맞춘다.
+	bool ValidateAnimStack(const FbxAnimStack& AnimStack, FFrameRate SampleRate, FbxTimeSpan& InOutTimeSpan, FString& OutError) const;
+	void ImportAnimation(UAnimSequence& Sequence, FbxAnimStack& AnimStack,
+		FFrameRate SampleRate, const FbxTimeSpan& TimeSpan, TArray<FString>& OutWarnings);
+	// 현재 활성 스택에서 SampleTimes 시각마다 본 Transform을 평가해 스켈레톤 순서의 본 트랙을 만든다.
+	// 비정상(NaN·0 스케일) Transform이 나온 본은 트랙에서 빼고 경고를 남긴다. 그 본은 재생 시 바인드 포즈를 쓴다.
+	void ImportBoneTracks(const TArray<FbxTime>& SampleTimes, TArray<FBoneAnimationTrack>& OutTracks, TArray<FString>& OutWarnings);
+
 	void ClearSkeletonData();
 	FbxManager* Manager = nullptr;
 	FbxScene* Scene = nullptr;

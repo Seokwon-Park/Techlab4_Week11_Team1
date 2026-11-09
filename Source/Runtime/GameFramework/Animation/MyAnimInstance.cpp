@@ -31,9 +31,9 @@ void UMyAnimInstance::NativeInitializeAnimation()
 		};
 
 	auto* Idle = LoadSequence(
-		"Assets/FBX/UAL1_Standard/UAL1_Standard.anim.bin");
+		"Assets/FBX/UAL1_Standard/UAL1_Standard_Armature_Idle_Loop.anim.bin");
 	auto* Walk = LoadSequence(
-		"Assets/FBX/UAL1_Standard/UAL1_Standard42.anim.bin");
+		"Assets/FBX/UAL1_Standard/UAL1_Standard_Armature_Walk_Loop.anim.bin");
 	auto* BlendSpace = NewObject<UBlendSpace1D>();
 
 	BlendSpace->AddSample(Idle, FVector(0, 0, 0));
