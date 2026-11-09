@@ -15,7 +15,7 @@ class UAnimSequenceBase : public UAnimationAsset
 public:
 	virtual ~UAnimSequenceBase() override;
 
-	const UAnimDataModel* GetDataModel() const { return DataModel.get(); }
+	const UAnimDataModel* GetDataModel() const { return DataModel; }
 	bool IsNotifyAvailable() const;
 	void GetAnimNotifies(float StartTime, float DeltaTime, FAnimNotifyContext& NotifyContext) const;
 	void GetAnimNotifiesFromDeltaPositions(const float& PreviousPosition, const float& CurrentPosition, FAnimNotifyContext& NotifyContext) const;
@@ -74,6 +74,7 @@ protected:
 	{
 		if (!DataModel)
 		{
+			// unique_ptr은 raw 포인터를 '='로 받을 수 없다. 소유권을 넘길 때는 reset을 쓴다.
 			DataModel = NewObject<UAnimDataModel>(this);
 		}
 
@@ -81,6 +82,6 @@ protected:
 	}
 
 private:
-	std::unique_ptr<UAnimDataModel> DataModel;
+	UAnimDataModel* DataModel = nullptr;
 	TArray<FAnimNotifyEvent> AnimNotifies;
 };
