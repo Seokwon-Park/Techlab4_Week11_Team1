@@ -141,6 +141,11 @@ void FAnimNode_StateMachine::ProcessState(UAnimInstance* AnimInstance)
 
 void FAnimNode_StateMachine::ChangeState(const FAnimTransitionDesc& Transition, UAnimInstance* AnimInstance)
 {
+	HTR_LOG(Info, "[AnimStateMachine] {} -> {} ({}, after {:.2f}s, crossfade {:.2f}s)",
+		States[CurrentState].Name.ToString(), States[Transition.To].Name.ToString(),
+		Transition.From == INDEX_NONE ? "Any State" : "Transition",
+		ElapsedTime, Transition.CrossfadeDuration);
+
 	if (States[CurrentState].OnExit)
 		States[CurrentState].OnExit(AnimInstance);
 

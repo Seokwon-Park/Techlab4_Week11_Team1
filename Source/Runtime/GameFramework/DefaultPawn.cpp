@@ -17,10 +17,12 @@ ADefaultPawn::ADefaultPawn()
 	CameraComponent->SetExternalInputManaged(true);
 }
 
-void ADefaultPawn::AddMovementInput(const FVector& WorldDirection, float ScaleValue)
+void ADefaultPawn::Tick(float DeltaTime)
 {
-	if (GetRootComponent())
-		GetRootComponent()->SetRelativeLocation(GetActorLocation() + WorldDirection * (ScaleValue * MoveSpeed));
+	Super::Tick(DeltaTime);
+	const FVector Input = ConsumeMovementInputVector();
+	if (GetRootComponent() && Input.SizeSquared() > 0.0f)
+		GetRootComponent()->SetRelativeLocation(GetActorLocation() + Input * (MoveSpeed * DeltaTime));
 }
 
 void ADefaultPawn::AddControllerYawInput(float Value)
