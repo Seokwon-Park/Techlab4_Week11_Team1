@@ -497,10 +497,16 @@ void UEditorEngine::UpdateViewportState(const float DeltaTime)
 	const float MoveSpeed = 10.0f * SettingsPanel->GetSettings().CameraSpeed;
 	const float MouseSens = 0.2f * SettingsPanel->GetSettings().MouseSensitivity;
 
+	// PIE 게임 뷰(SIE에서는 SIE 입력을 받는 뷰)의 카메라는 GameViewport가 소유한다.
+	// 여기서 에디터 카메라까지 움직이면 같은 마우스 입력이 두 번 적용된다.
+	const bool bSimulating = IsSimulatingInEditor();
+	const int32 GameOwnedViewIndex = !PlayWorld ? InvalidViewIndex
+		: (IsPIEInWindow() && bSimulating ? PIEStartEditorViewIndex : PIEViewIndex);
+
 	for (int32 i = 0; i < 4; ++i)
 	{
 		FEditorViewportClient* Client = ViewportsPanel->GetViewportClient(i);
-		if (!Client || !Client->IsActive())
+		if (!Client || !Client->IsActive() || i == GameOwnedViewIndex)
 			continue;
 
 		Client->TickInput(DeltaTime, i == CapturedViewportIndex,
@@ -508,8 +514,10 @@ void UEditorEngine::UpdateViewportState(const float DeltaTime)
 	}
 
 	// 활성 뷰포트 시점 동기화
+	// SIE 중 PlayWorld의 MainCamera는 SIE 카메라라서 TickSIEInput만 움직인다.
+	// 여기서 에디터 카메라 포즈로 덮어쓰면 매 프레임 두 값이 번갈아 보여 화면이 떨린다.
 	const int32 ActiveIndex = ViewportsPanel->GetActiveViewIndex();
-	if (FEditorViewportClient* ActiveClient = ViewportsPanel->GetViewportClient(ActiveIndex))
+	if (FEditorViewportClient* ActiveClient = bSimulating ? nullptr : ViewportsPanel->GetViewportClient(ActiveIndex))
 	{
 		if (ACameraActor* MainCam = GetActiveWorld()->GetMainCamera())
 		{
@@ -732,16 +740,42 @@ void UEditorEngine::TickPIEInput(float DeltaTime)
 		::GetForegroundWindow() == MainWindow->GetHandle() &&
 		ActiveViewIdx == PIEStartEditorViewIndex && ViewportsPanel->IsHovered() &&
 		!ImGui::GetIO().WantTextInput && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup);
-	const bool bFocused = IsPIEInWindow()
-		? ::GetForegroundWindow() == PIEWindow->GetHandle() || bEditorSIEFocus
-		: ::GetForegroundWindow() == MainWindow->GetHandle() &&
+	const bool bClickPressed =
+		FInputSystem::IsMousePressed(EMouseButton::Left) || FInputSystem::IsMousePressed(EMouseButton::Right);
+	const HWND InputWindow = IsPIEInWindow() ? PIEWindow->GetHandle() : MainWindow->GetHandle();
+	const bool bInputWindowForeground = ::GetForegroundWindow() == InputWindow;
+
+	// 마우스 캡처: 캡처 중에는 커서가 PIE 영역 밖으로 못 나가므로 hover 판정 없이 입력을 유지한다.
+	// SIE(에디터 카메라 조작)는 기존 hover 규칙을 그대로 쓴다.
+	if (bGameMouseCaptured)
+	{
+		const bool bReleaseKey = FInputSystem::IsKeyDown(EKeyCode::Shift) && FInputSystem::IsKeyPressed(EKeyCode::F1);
+		if (bReleaseKey || GameViewport.IsSIEMode() || !bInputWindowForeground)
+			EndPIEMouseCapture();
+	}
+	bool bCaptureStartedThisFrame = false;
+	if (!bGameMouseCaptured && !GameViewport.IsSIEMode() && bInputWindowForeground)
+	{
+		// 별도 PIE 창은 창이 포그라운드면 클릭 위치가 곧 PIE 영역이다
+		const bool bClickOnPIE = bClickPressed && (IsPIEInWindow() ||
+			(bMouseOverPIE && ViewportsPanel->IsHovered() &&
+			 !ImGui::GetIO().WantTextInput && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup)));
+		if (bPendingPIEMouseCapture || bClickOnPIE)
+		{
+			BeginPIEMouseCapture();
+			// 캡처를 시작한 클릭은 게임에 넘기지 않고, 이번 프레임 이동량도 버린다
+			bCaptureStartedThisFrame = bGameMouseCaptured;
+		}
+	}
+
+	const bool bFocused = bGameMouseCaptured || (IsPIEInWindow()
+		? bInputWindowForeground || bEditorSIEFocus
+		: bInputWindowForeground &&
 		ActiveViewIdx == InputViewIndex &&
 		ViewportsPanel->IsHovered() &&
-		!ImGui::GetIO().WantTextInput && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup);
+		!ImGui::GetIO().WantTextInput && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup));
 	if (!bFocused) { GameViewport.LostFocus(); return; }
-	if (!IsPIEInWindow() &&
-		(FInputSystem::IsMousePressed(EMouseButton::Left) || FInputSystem::IsMousePressed(EMouseButton::Right)) &&
-		!bMouseOverPIE)
+	if (!bGameMouseCaptured && !IsPIEInWindow() && bClickPressed && !bMouseOverPIE)
 	{
 		GameViewport.LostFocus();
 		return;
@@ -751,8 +785,16 @@ void UEditorEngine::TickPIEInput(float DeltaTime)
 		GameViewport.InputKey(nullptr, static_cast<int32>(EKeyCode::F8), true);
 	if (GameViewport.ConsumeSIERequest())
 	{
-		if (GameViewport.IsSIEMode()) GameViewport.EndSIEMode();
-		else GameViewport.BeginSIEMode();
+		if (GameViewport.IsSIEMode())
+		{
+			GameViewport.EndSIEMode();
+			bPendingPIEMouseCapture = true;   // 게임으로 돌아오면 다시 잡는다
+		}
+		else
+		{
+			EndPIEMouseCapture();
+			GameViewport.BeginSIEMode();
+		}
 		OnActiveWorldChanged();
 	}
 	if (FInputSystem::IsKeyPressed(EKeyCode::Escape))
@@ -760,6 +802,12 @@ void UEditorEngine::TickPIEInput(float DeltaTime)
 	if (GameViewport.ConsumeExitRequest())
 	{
 		RequestEndPlayMap();
+		return;
+	}
+	// 캡처 전(Shift+F1로 풀었거나 아직 클릭 전)에는 F8/Esc만 받고 게임 입력은 막는다 (UE와 동일)
+	if (!GameViewport.IsSIEMode() && !bGameMouseCaptured)
+	{
+		GameViewport.LostFocus();
 		return;
 	}
 	constexpr EKeyCode Keys[] = { EKeyCode::W, EKeyCode::A, EKeyCode::S, EKeyCode::D,
@@ -798,7 +846,7 @@ void UEditorEngine::TickPIEInput(float DeltaTime)
 	for (EMouseButton Button : MouseButtons)
 	{
 		const int32 Key = Button == EMouseButton::Left ? static_cast<int32>(EKeyCode::LButton) : static_cast<int32>(EKeyCode::RButton);
-		if (FInputSystem::IsMousePressed(Button))
+		if (FInputSystem::IsMousePressed(Button) && !bCaptureStartedThisFrame)
 		{
 			if (GameViewport.IsSIEMode()) GameViewport.GetKeyInputBySIEMode(Key, true);
 			else GameViewport.InputKey(nullptr, Key, true);
@@ -809,20 +857,100 @@ void UEditorEngine::TickPIEInput(float DeltaTime)
 			else GameViewport.InputKey(nullptr, Key, false);
 		}
 	}
-	const float MouseX = static_cast<float>(FInputSystem::GetMouseDeltaX());
-	const float MouseY = static_cast<float>(FInputSystem::GetMouseDeltaY());
+	float MouseX = static_cast<float>(FInputSystem::GetMouseDeltaX());
+	float MouseY = static_cast<float>(FInputSystem::GetMouseDeltaY());
+	if (bGameMouseCaptured)
+	{
+		// 캡처 중에는 WM_MOUSEMOVE 좌표 차 대신 "지난 프레임에 놓아 둔 중앙에서 얼마나 움직였나"를 쓴다.
+		// 커서가 가장자리에 닿아 이동량이 0이 되는 일이 없고, 어느 창이 메시지를 받든 상관없다.
+		POINT Cursor{};
+		if (::GetCursorPos(&Cursor))
+		{
+			MouseX = static_cast<float>(Cursor.x - PIECaptureCenterX);
+			MouseY = static_cast<float>(Cursor.y - PIECaptureCenterY);
+		}
+		if (bCaptureStartedThisFrame || !RecenterPIEMouseCapture())
+			MouseX = MouseY = 0.0f;
+	}
 	if (GameViewport.IsSIEMode())
 	{
 		GameViewport.GetAxisInputBySIEMode(EGameInputAxis::MouseX, MouseX);
 		GameViewport.GetAxisInputBySIEMode(EGameInputAxis::MouseY, MouseY);
-		GameViewport.TickSIEInput(DeltaTime, SettingsPanel->GetSettings().CameraSpeed,
-			SettingsPanel->GetSettings().MouseSensitivity);
+		// 에디터 뷰포트 카메라(UpdateViewportState)와 같은 배율
+		GameViewport.TickSIEInput(DeltaTime, 10.0f * SettingsPanel->GetSettings().CameraSpeed,
+			0.2f * SettingsPanel->GetSettings().MouseSensitivity);
 	}
 	else
 	{
 		GameViewport.InputAxis(nullptr, 0, EGameInputAxis::MouseX, MouseX, DeltaTime);
 		GameViewport.InputAxis(nullptr, 0, EGameInputAxis::MouseY, MouseY, DeltaTime);
 	}
+}
+
+bool UEditorEngine::GetPIECaptureScreenRect(int32& OutLeft, int32& OutTop, int32& OutRight, int32& OutBottom) const
+{
+	if (IsPIEInWindow())
+	{
+		RECT Client{};
+		if (!::GetClientRect(PIEWindow->GetHandle(), &Client)) return false;
+		POINT TopLeft{ Client.left, Client.top };
+		POINT BottomRight{ Client.right, Client.bottom };
+		::ClientToScreen(PIEWindow->GetHandle(), &TopLeft);
+		::ClientToScreen(PIEWindow->GetHandle(), &BottomRight);
+		OutLeft = TopLeft.x; OutTop = TopLeft.y; OutRight = BottomRight.x; OutBottom = BottomRight.y;
+	}
+	else
+	{
+		if (!ViewportsPanel || PIEViewIndex < 0 || PIEViewIndex >= AllViewportClients.Num() || !AllViewportClients[PIEViewIndex])
+			return false;
+		// PIE View Rect는 Viewports 패널 내용 기준, 패널 원점은 화면 좌표
+		const FRect ViewRect = AllViewportClients[PIEViewIndex]->GetRect();
+		const FVector2 Origin = ViewportsPanel->GetContentOrigin();
+		OutLeft = static_cast<int32>(Origin.X + ViewRect.X);
+		OutTop = static_cast<int32>(Origin.Y + ViewRect.Y);
+		OutRight = static_cast<int32>(Origin.X + ViewRect.X + ViewRect.Width);
+		OutBottom = static_cast<int32>(Origin.Y + ViewRect.Y + ViewRect.Height);
+	}
+	return OutRight - OutLeft > 2 && OutBottom - OutTop > 2;
+}
+
+bool UEditorEngine::RecenterPIEMouseCapture()
+{
+	int32 Left, Top, Right, Bottom;
+	if (!GetPIECaptureScreenRect(Left, Top, Right, Bottom)) return false;
+	// 패널 이동·크기 변경을 따라가도록 매 프레임 다시 가둔다
+	const RECT Clip{ Left, Top, Right, Bottom };
+	::ClipCursor(&Clip);
+	PIECaptureCenterX = (Left + Right) / 2;
+	PIECaptureCenterY = (Top + Bottom) / 2;
+	::SetCursorPos(PIECaptureCenterX, PIECaptureCenterY);
+	return true;
+}
+
+void UEditorEngine::BeginPIEMouseCapture()
+{
+	bPendingPIEMouseCapture = false;
+	if (bGameMouseCaptured || !RecenterPIEMouseCapture()) return;
+	bGameMouseCaptured = true;
+	::ShowCursor(FALSE);
+	// 숨은 커서가 에디터 UI(툴바, 패널)를 누르거나 hover하지 않게 한다
+	ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NoMouse;
+}
+
+void UEditorEngine::EndPIEMouseCapture()
+{
+	bPendingPIEMouseCapture = false;
+	if (!bGameMouseCaptured) return;
+	bGameMouseCaptured = false;
+	::ClipCursor(nullptr);
+	::ShowCursor(TRUE);
+	ImGui::GetIO().ConfigFlags &= ~ImGuiConfigFlags_NoMouse;
+
+	// 캡처 중 SetCursorPos가 만든 이동이 풀린 직후 델타로 튀지 않게 현재 위치로 맞춘다
+	POINT Cursor{};
+	const HWND InputWindow = IsPIEInWindow() ? PIEWindow->GetHandle() : MainWindow->GetHandle();
+	if (::GetCursorPos(&Cursor) && ::ScreenToClient(InputWindow, &Cursor))
+		FInputSystem::SyncMousePosition(Cursor.x, Cursor.y);
 }
 
 // 화면을 표시하고 UI 변경 후 View 설정을 보관한다.
@@ -1407,6 +1535,8 @@ void UEditorEngine::StartPlayInEditorSession()
 	{
 		ViewportsPanel->SetGameViewportClient(PIEStartEditorViewIndex, PIEContext.GameViewport.get());
 	}
+	// UE 기본값처럼 시작하자마자 마우스를 잡는다 (Shift+F1로 해제)
+	bPendingPIEMouseCapture = true;
 
 	OnActiveWorldChanged();
 }
@@ -1460,6 +1590,7 @@ void UEditorEngine::EndPlayMap()
 {
 	if (!PlayWorld)
 		return;
+	EndPIEMouseCapture();
 	bIsPaused = false;
 	bStepRequested = false;
 
