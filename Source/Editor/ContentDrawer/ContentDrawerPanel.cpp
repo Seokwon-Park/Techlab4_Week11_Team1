@@ -4,6 +4,7 @@
 #include "Asset/FbxImporter/FbxMeshBake.h"
 #include "Text/Font.h"
 #include "Editor/HitoriEd/EditorDragDrop.h"
+#include "Animation/AnimSequenceFile.h"
 
 bool FContentDrawerPanel::Init()
 {
@@ -201,7 +202,8 @@ void FContentDrawerPanel::OnRender()
 						OnOpenWidget(PathString);
 					}
 
-					else if ((Path.extension() == ".obj" || FFbxMeshBake::IsBakedPath(PathString)) && OnOpenMesh)
+					else if ((Path.extension() == ".obj" || FFbxMeshBake::IsBakedPath(PathString)
+						|| AnimSequenceFile::IsAnimSequencePath(PathString)) && OnOpenMesh)
 					{
 						OnOpenMesh(PathString);
 					}

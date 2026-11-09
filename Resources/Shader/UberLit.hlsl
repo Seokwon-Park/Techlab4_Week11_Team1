@@ -408,6 +408,13 @@ VS_OUT Uber_VS(VS_IN Input)
     float4 ViewPosition = mul(WorldPosition, View);
     Output.Position = mul(ViewPosition, Projection);
     Output.Color = Input.Color;
+#if GPU_SKIN
+    if (ShadowFlags.y > 0.5f)
+    {
+        const uint Bone = (uint)(ShadowFlags.y - 0.5f);   // 본 번호 + 1로 실은 값을 되돌린다
+        Output.Color = float4(GpuSkinWeightColor(GpuSkinWeightForBone(Input.BlendIndices, Input.BlendWeights, Bone)), 1.0f);
+    }
+#endif
     Output.UV = Input.UV * UVTransform.zw + UVTransform.xy;
 
     float3 N = mul(float4(Input.Normal, 0.0f), NormalMatrix).xyz;
@@ -434,6 +441,12 @@ FUberOutput Uber_PS(VS_OUT Input)
 #if VIEW_MODE_WORLD_NORMAL
     Output.LitColor = float4(ShadingNormal * 0.5f + 0.5f, 1.0f);
 #else
+    if (ShadowFlags.y > 0.5f)
+    {
+        Output.LitColor = float4(Input.Color.rgb, 1.0f);
+        Output.NormalRoughness = float4(ShadingNormal, 0.8f); // SV_Target1도 반드시 채운다
+        return Output;
+    }
     float4 SurfaceColor;
     if (SurfaceParams.z > 0.5f)
     {

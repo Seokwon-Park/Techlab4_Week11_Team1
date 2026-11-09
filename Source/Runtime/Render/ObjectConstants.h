@@ -31,7 +31,7 @@ struct FForwardObjectConstants
 	FMatrix View;
 	FMatrix Projection;
 	FMatrix NormalMatrix;
-	FVector4 ShadowFlags;
+	FVector4 ShadowFlags; // x: 그림자 수신, y: 디버그 웨이트 본 번호 + 1 (0이면 끔)
 };
 
 struct FForwardMaterialConstants

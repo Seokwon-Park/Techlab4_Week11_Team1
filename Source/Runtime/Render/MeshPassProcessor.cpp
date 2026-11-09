@@ -263,10 +263,18 @@ bool FMeshPassProcessor::Build(const FSceneView& View, const FRenderQueue& Queue
 		const void* ObjectKey = Packet.Proxy ? static_cast<const void*>(Packet.Proxy) : static_cast<const void*>(&Packet);
 
 		Batch.Items.Add(BuildItem(PacketWorld(Packet), View, Pass, Packet.Slot,
-			Packet.StartIndex, IndexCount, ObjectKey, Packet.bOccludedByGpu, !Packet.Proxy || Packet.Proxy->bReceiveShadow, 
-			!Packet.Proxy || Packet.Proxy->bReceivesDecals, 
+			Packet.StartIndex, IndexCount, ObjectKey, Packet.bOccludedByGpu, !Packet.Proxy || Packet.Proxy->bReceiveShadow,
+			!Packet.Proxy || Packet.Proxy->bReceivesDecals,
 			Packet.Proxy ? Packet.Proxy->GetBounds() : ConservativeBounds, Packet.Proxy));
-		Out.Add(std::move(Batch)); 
+
+		// 웨이트 히트맵: Forward 패스의 오브젝트 상수 빈 칸(ShadowFlags.y)에 본 번호 + 1을 싣는다
+		if (Pass == EMeshPassType::Forward && Packet.DebugWeightBone >= 0)
+		{
+			auto* Constants = reinterpret_cast<FForwardObjectConstants*>(Batch.Items.Last().ObjectData.data());
+			Constants->ShadowFlags.Y = static_cast<float>(Packet.DebugWeightBone + 1);
+		}
+
+		Out.Add(std::move(Batch));
 	}
 	return true;
 }

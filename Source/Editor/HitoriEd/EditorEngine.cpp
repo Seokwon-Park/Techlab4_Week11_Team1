@@ -1153,6 +1153,7 @@ void UEditorEngine::RenderAssetEditor(FAssetEditor& AssetEditor)
 		.bEnableFXAA = true,
 		.bShowVignette = false,
 		.bShowCameraOverlay = false,
+		.RenderingPath = ERenderingPath::Forward,   // 웨이트 히트맵은 Forward 패스에만 있다
 	};
 
 	// SceneRenderer 생성 및 초기화

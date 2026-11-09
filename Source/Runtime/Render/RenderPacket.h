@@ -31,6 +31,7 @@ struct FRenderPacket
 	uint32 Slot = InvalidObjectSlot;
 	uint8 LODIndex = 0;
 	bool bOccludedByGpu = false;
+	int32 DebugWeightBone = -1; // 웨이트 히트맵 본 번호. -1이면 끔
 };
 
 struct FViewContext

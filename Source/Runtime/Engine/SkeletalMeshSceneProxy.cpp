@@ -52,5 +52,7 @@ void FSkeletalMeshSceneProxy::GetDynamicMeshElements(FRenderQueue& Queue, const 
 		Packet.StartIndex = Section.StartIndex;
 		Packet.IndexCount = Section.IndexCount;
 		Packet.CameraToParticleDistance = DistanceSq;
+		Packet.BoneBuffer = Object->GetBoneMatrixBuffer();
+		Packet.DebugWeightBone = Skinned->GetDebugWeightBone();
 	}
 }

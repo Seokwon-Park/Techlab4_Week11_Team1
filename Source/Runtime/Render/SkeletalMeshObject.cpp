@@ -21,6 +21,18 @@ namespace
 		const FVector Result = C0 * N.X + FVector::Cross(R2, R0) * N.Y + FVector::Cross(R0, R1) * N.Z;
 		return (R0.Dot(C0) < 0.0f ? Result * -1.0f : Result).Normalized();
 	}
+
+	FVector4 WeightToColor(float Weight)
+	{
+		if (Weight <= 0.0f)
+			return FVector4(0.08f, 0.08f, 0.10f, 1.0f);
+		const float T = std::min(Weight, 1.0f);
+		const FVector Low(0.0f, 0.2f, 1.0f);
+		const FVector Mid(0.0f, 1.0f, 0.2f);
+		const FVector High(1.0f, 0.1f, 0.0f);
+		const FVector C = T < 0.5f ? Low + (Mid - Low) * (T * 2.0f) : Mid + (High - Mid) * (T * 2.0f - 1.0f);
+		return FVector4(C.X, C.Y, C.Z, 1.0f);
+	}
 }
 
 FSkeletalMeshObject::FSkeletalMeshObject(USkeletalMesh* InMesh)
@@ -32,7 +44,6 @@ FSkeletalMeshObject::FSkeletalMeshObject(USkeletalMesh* InMesh)
 
 void FSkeletalMeshObject::SkinVerticesCPU(TArray<FVertex>& OutVertices, FBox& OutBounds) const
 {
-	SCOPE_CYCLE_COUNTER(SkinningStats::STAT_CpuSkinning);
 	const FSkeletalMeshLODRenderData& LOD = SkeletalMesh->GetRenderData().LODRenderData[0];
 	const uint32 Count = static_cast<uint32>(LOD.BindVertices.Num());
 	const uint32 NumThreads = Tasks::FTaskScheduler::Get().GetNumWorkers() + 1;
@@ -63,6 +74,17 @@ void FSkeletalMeshObject::SkinVerticesCPU(TArray<FVertex>& OutVertices, FBox& Ou
 				Out.Normal = TransformNormal(M, Bind.Normal);
 				const FVector Tangent = M.TransformVector(FVector(Bind.Tangent.X, Bind.Tangent.Y, Bind.Tangent.Z)).Normalized();
 				Out.Tangent = FVector4(Tangent.X, Tangent.Y, Tangent.Z, Bind.Tangent.W);
+
+				if (DebugWeightBone >= 0)
+				{
+					float Weight = 0.0f;
+					for (int32 k = 0; k < MaxBoneInfluences; ++k)
+					{
+						if (W.BoneIndex[k] == DebugWeightBone)
+							Weight += W.Weight[k];
+					}
+					Out.Color = WeightToColor(Weight);
+				}
 
 				for (int Axis = 0; Axis < 3; ++Axis)
 				{

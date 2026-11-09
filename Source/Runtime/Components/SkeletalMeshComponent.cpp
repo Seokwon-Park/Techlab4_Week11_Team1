@@ -185,7 +185,7 @@ void USkeletalMeshComponent::PlayBlendSpace(UBlendSpace1D* BlendSpace)
 		Instance = NewObject<UAnimSingleNodeInstance>(this);
 		SetAnimInstance(Instance);
 	}
-	Instance->SetBlendSpaceAsset(BlendSpace);
+	Instance->SetAnimationAsset(BlendSpace);
 	Instance->SetBlendSpaceInput(BlendSpaceInput);
 	SetEnableAnimation(true);
 }

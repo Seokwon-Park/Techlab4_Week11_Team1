@@ -7,6 +7,9 @@
 #include "Asset/FbxImporter/FbxMeshBake.h"
 #include "Render/Mesh.h"
 #include "Render/SkeletalMesh.h"
+#include "Editor/AnimSequenceEditor/AnimSequenceEditor.h"
+#include "Animation/AnimSequenceFile.h"
+
 #include <filesystem>
 
 FEditorManager::FEditorManager(UEditorEngine& InEditorEngine)
@@ -52,6 +55,27 @@ void FEditorManager::CreateEditor(const FString& AssetPath)
 	if (FAssetEditor* Existing = FindEditor(AssetPath))
 	{
 		Existing->Activate();
+		return;
+	}
+
+	// 애니메이션 시퀀스는 렌더 에셋이 아니므로 먼저 분기한다
+	if (AnimSequenceFile::IsAnimSequencePath(AssetPath))
+	{
+		UAnimSequence* Sequence = UAssetManager::LoadAnimSequence(AssetPath);
+		if (!Sequence)
+		{
+			return;     // 경고는 LoadAnimSequence가 남긴다
+		}
+
+		TUniquePtr<FAssetEditor> Editor = MakeUnique<FAnimSequenceEditor>(EditorEngine, *this, AssetPath, Sequence);
+		if (!Editor->Initialize())
+		{
+			Editor->Shutdown();
+			HTR_LOG(Warning, "Asset editor initialization failed: {}", AssetPath.c_str());
+			return;
+		}
+		Editors.Add(std::move(Editor));
+		HTR_LOG(Info, "Opened asset editor: {}", AssetPath.c_str());
 		return;
 	}
 

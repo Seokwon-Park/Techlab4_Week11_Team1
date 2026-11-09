@@ -74,7 +74,7 @@ protected:
 	{
 		if (!DataModel)
 		{
-			DataModel.reset(NewObject<UAnimDataModel>(this));
+			DataModel = NewObject<UAnimDataModel>(this);
 		}
 
 		DataModel->Initialize(std::move(Tracks), FrameRate, PlayLength);
