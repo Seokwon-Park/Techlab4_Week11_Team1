@@ -21,6 +21,7 @@ enum class EAssetType
 
 class UStaticMesh;
 class USoundWave;
+class UAnimSequence;
 struct FSkeletalMaterialSlot;
 
 namespace fs = std::filesystem;
@@ -82,6 +83,7 @@ public:
 	USoundWave* LoadSound(const FString& Path);
 	static UStaticMesh* LoadObjStaticMesh(const FString& Path);
 	static URenderAsset* LoadFbxMesh(const FString& Path, FString& OutError);
+	static UAnimSequence* LoadAnimSequence(const FString& Path);
 
 	FLODGenerateResult GenerateStaticMeshLODs(UStaticMesh& Mesh,const FLODGenerateRequest& Request);
 
@@ -101,6 +103,7 @@ private:
 	TMap<FString, FString> AssetPathMap;
 	TMap<FString, URenderAsset*> AssetMap;
 	TMap<FString, USoundWave*> SoundMap;
+	TMap<FString, UAnimSequence*> AnimSequenceMap;
 
 	//TMap<FString, UStaticMesh*> MeshMap;	// KEY: FILE NAME OR 쉐입 첫글자 대문자
 	TMap<FString, TUniquePtr<FShader>> ShaderMap;	// KEY: FILE NAME

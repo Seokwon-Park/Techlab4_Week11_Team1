@@ -1123,11 +1123,12 @@ bool FFbxImporter::ImportToAssets(const FString& Path, EFbxImportMode Mode, FFbx
 			{
 				Complete = (Previous.Source.Outputs & FFbxSourceInfo::AnimationChecked) != 0
 					&& std::filesystem::exists(AnimationPath) == bHasAnimation;
-				if (Complete && bHasAnimation)
-				{
-					const std::unique_ptr<UAnimSequence> Sequence(NewObject<UAnimSequence>());
-					Complete = AnimSequenceFile::Read(AnimationPath, *Sequence, ReadError);
-				}
+                if (Complete && bHasAnimation)
+                {
+                    const std::unique_ptr<UAnimSequence> Sequence(NewObject<UAnimSequence>());
+                    Complete = AnimSequenceFile::Read(AnimationPath, *Sequence, ReadError)
+                        && !Sequence->GetPreviewMeshPath().empty();
+                }
 			}
 			TArray<FString> Paths;
 			for (EFbxMeshKind Kind : { EFbxMeshKind::Static, EFbxMeshKind::Skeletal })
@@ -1196,6 +1197,7 @@ bool FFbxImporter::ImportToAssets(const FString& Path, EFbxImportMode Mode, FFbx
 				if (!Importer.ReadAnimationData(StackIndex, SampleRate, Clip, OutError)) return false;
 				const std::unique_ptr<UAnimSequence> Sequence(NewObject<UAnimSequence>());
 				Sequence->Initialize(std::move(Clip.Name), std::move(Clip.BoneAnimationTracks), Clip.FrameRate, Clip.PlayLength);
+				Sequence->SetPreviewMeshPath(Utf8Path(SkeletalPath));
 				const auto Temp = Staged.Folder / "animation.tmp";
 				if (!AnimSequenceFile::Write(Temp, *Sequence, OutError)) return false;
 				Staged.Files.Add({ Temp, AnimationPath });

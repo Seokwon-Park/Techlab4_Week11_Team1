@@ -59,7 +59,7 @@ void FSkeletalMeshViewportPanel::DrawContent()
 	const ImGuiIO& IO = ImGui::GetIO();
 	const bool bMouseDown = ImGui::IsMouseDown(ImGuiMouseButton_Left);
 	const bool bCameraDragging = ImGui::IsMouseDown(ImGuiMouseButton_Right);
-	const FBoneGizmoInput GizmoInput
+	const FViewportPointerInput PointerInput
 	{
 		.MouseUV = FVector2((IO.MousePos.x - Origin.x) / Size.x, (IO.MousePos.y - Origin.y) / Size.y),
 		.bHovered = bHovered,
@@ -114,5 +114,5 @@ void FSkeletalMeshViewportPanel::DrawContent()
 	// 렌더 타깃 변경은 Editor의 다음 Render에서 수행합니다.
 	uint32 Width = static_cast<uint32>(Size.x);
 	uint32 Height = static_cast<uint32>(Size.y);
-	Editor.SetViewportState(Width, Height, Input, GizmoInput);
+	Editor.SetViewportState(Width, Height, Input, PointerInput);
 }

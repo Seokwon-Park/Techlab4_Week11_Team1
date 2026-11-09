@@ -18,6 +18,10 @@
 
 #include "Engine/Classes/Sound/SoundWave.h"
 
+#include "Animation/AnimSequence.h"
+#include "Animation/AnimSequenceFile.h"
+#include "Asset/AssetUtils.h"
+
 #include "Render/ImageLoader.h"
 #include "Asset/AssetLoadProfiler.h"
 #include <cctype>
@@ -458,6 +462,7 @@ void UAssetManager::Shutdown()
 {
 	Get().AssetMap.Empty();
 	Get().SoundMap.Empty();
+	Get().AnimSequenceMap.Empty();
 }
 
 
@@ -587,6 +592,28 @@ URenderAsset* UAssetManager::LoadFbxMesh(const FString& Path, FString& OutError)
 	if (!Asset) { OutError = "FBX binary: mesh resource creation failed: " + Path; return nullptr; }
 	Get().RegisterAsset(Key, Asset);
 	return Asset;
+}
+
+UAnimSequence* UAssetManager::LoadAnimSequence(const FString& Path)
+{
+	const FString Key = MakeLookupKey(Path);
+	if (UAnimSequence** Found = Get().AnimSequenceMap.Find(Key))
+	{
+		return *Found;
+	}
+
+	const FString FilePath = FAssetUtils::ResolveAssetFilePath(Path);
+	UAnimSequence* Sequence = NewObject<UAnimSequence>();
+	FString Error;
+	if (!AnimSequenceFile::Read(std::filesystem::path(FilePath.empty() ? Path : FilePath), *Sequence, Error))
+	{
+		HTR_LOG(Warning, "Failed to load animation sequence: {} ({})", Path, Error);
+		delete Sequence;    // 캐시에 넣지 않은 객체는 아무도 지우지 않으므로 여기서 지운다
+		return nullptr;
+	}
+
+	Get().AnimSequenceMap[Key] = Sequence;
+	return Sequence;
 }
 
 bool UAssetManager::ReorientStaticMesh(UStaticMesh& Mesh, const std::function<FVector(const FVector&)>& Rotate)
