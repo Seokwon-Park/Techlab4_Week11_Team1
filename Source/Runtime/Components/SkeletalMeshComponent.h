@@ -7,6 +7,8 @@
 class UAnimInstance;
 class UAnimSequence;
 class UBlendSpace1D;
+class UAnimationAsset;
+class UAnimSingleNodeInstance;
 
 UCLASS()
 class USkeletalMeshComponent : public USkinnedMeshComponent
@@ -15,6 +17,7 @@ class USkeletalMeshComponent : public USkinnedMeshComponent
 
 public:
 	void SetAnimInstance(UAnimInstance* InInstance);
+	UAnimSingleNodeInstance* GetSingleNodeInstance() const;
 	UAnimInstance* GetAnimInstance() const { return AnimInstance; }
 	void BeginPlay() override;
 	void TickComponent(float DeltaTime) override;
@@ -35,8 +38,12 @@ public:
 	using Super::Serialize;
 	virtual void Serialize(FStructuredArchive::FRecord Record) override;
 
-	void PlayAnimation(UAnimSequence* Sequence, bool bLoop = true);
-	void PlayBlendSpace(UBlendSpace1D* BlendSpace);
+	void SetAnimation(UAnimationAsset* NewAnimToPlay);
+	void Play(bool bLooping = true);
+	void Stop();
+	bool IsPlaying() const;
+	void PlayAnimation(UAnimationAsset* NewAnimToPlay, bool bLoop = true);
+	void RefreshAnimationPose();
 
 	UPROPERTY(EditAnywhere)
 	float BlendSpaceInput = 300.0f;

@@ -13,6 +13,7 @@ struct FAnimNode_BlendSpacePlayer : public FAnimNode_Base
 	float X = 0.0f;
 	float PlayRate = 1.0f;
 	float Phase = 0.0f;
+	bool bLooping = true;
 
 	void Update(const FAnimationUpdateContext& Context) override
 	{
@@ -43,6 +44,11 @@ struct FAnimNode_BlendSpacePlayer : public FAnimNode_Base
 		}
 
 		Phase += Context.GetDeltaTime() * PlayRate / EffectiveLength;
+		if (!bLooping)
+		{
+			Phase = FMath::Clamp(Phase, 0.0f, 1.0f);
+			return;
+		}
 		Phase = std::fmod(Phase, 1.0f);
 
 		if (Phase < 0.0f)

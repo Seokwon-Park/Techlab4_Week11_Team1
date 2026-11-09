@@ -118,3 +118,14 @@ void UBlendSpace1D::Serialize(FStructuredArchive::FRecord Record)
 		}
 	}
 }
+
+bool UBlendSpace1D::RemoveSample(int32 Index)
+{
+	if (Index < 0 || Index >= BlendSampleData.Num())
+	{
+		return false;
+	}
+	
+	BlendSampleData.RemoveAt(Index);
+	return true;
+}

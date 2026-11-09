@@ -15,6 +15,19 @@ public:
 	void SetBlendSpaceAsset(UBlendSpace1D* InBlendSpace, float InPlayRate = 1.0f);
 	void SetBlendSpaceInput(float Value);
 
+	void SetPlaying(bool bInPlaying);
+	bool IsPlaying() const;
+
+	void SetLooping(bool bInLooping);
+	void SetPlayRate(float InPlayRate);
+	float GetPlayRate() const;
+
+	void SetPosition(float InPosition);
+	float GetCurrentTime() const;
+	float GetLength() const;
+
+	UAnimationAsset* GetCurrentAsset() const;
+
 protected:
 	void NativeInitializeAnimation() override;
 

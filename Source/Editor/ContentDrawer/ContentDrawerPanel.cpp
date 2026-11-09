@@ -203,7 +203,7 @@ void FContentDrawerPanel::OnRender()
 					{
 						CurrentPath /= Path.filename(); // 하위 폴더로 이동
 					}
-					
+
 					// TODO: UIEditor를 FAssetEditor 계열로 통합
 					else if (Path.extension() == ".widget" && OnOpenWidget)
 					{
@@ -216,12 +216,11 @@ void FContentDrawerPanel::OnRender()
 						OnOpenMesh(PathString);
 					}
 
-					else if ((Path.extension() == ".blendspace" 
-						|| BlendSpaceFile::IsBlendSpacePath(PathString)) && OnOpenMesh)
+					else if (BlendSpaceFile::IsBlendSpacePath(PathString) && OnOpenMesh)
 					{
 						OnOpenMesh(PathString);
 					}
-					
+
 				}
 				// 파일 이름 표시
 				ImGui::TextWrapped("%s", FilenameString.c_str());
@@ -231,7 +230,7 @@ void FContentDrawerPanel::OnRender()
 			ImGui::EndTable();
 		}
 	}
-	BlendSpaceCreator.DrawCreateDialog();
+	BlendSpaceCreator.ProcessCreateRequest();
 
 	ImGui::EndChild();
 	ImGui::End();
