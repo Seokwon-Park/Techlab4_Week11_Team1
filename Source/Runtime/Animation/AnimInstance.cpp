@@ -23,6 +23,8 @@ void UAnimInstance::InitializeAnimation()
 
 void UAnimInstance::UpdateAnimation(float DeltaSeconds)
 {
+	NotifyQueue.Reset();
+
 	// 변수를 먼저 갱신해야 노드가 이번 프레임 값(Speed 등)으로 상태와 가중치를 정한다.
 	NativeUpdateAnimation(DeltaSeconds);
 
@@ -71,4 +73,9 @@ AActor* UAnimInstance::GetOwningActor() const
 APawn* UAnimInstance::TryGetPawnOwner() const
 {
 	return Cast<APawn>(GetOwningActor());
+}
+
+void UAnimInstance::AddNotifies(const TArray<FAnimNotifyEventReference>& ActiveNotifies, const float Weight)
+{
+	NotifyQueue.AddAnimNotifies(ActiveNotifies, Weight);
 }

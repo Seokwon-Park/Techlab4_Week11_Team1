@@ -16,9 +16,20 @@ struct FAnimationUpdateContext
 	template <typename T>
 	T* GetAnimInstance() const { return static_cast<T*>(AnimInstance); }
 
+	//BlendNode가 가중치를 줄일 때 사용
+	FAnimationUpdateContext FractionalWeight(float WeightMultiplier) const
+	{
+		FAnimationUpdateContext Result(*this);
+		Result.CurrentWeight = CurrentWeight * WeightMultiplier;
+		return Result;
+	}
+
+	float GetFinalBlendWeight() const { return CurrentWeight; }
+
 private:
 	UAnimInstance* AnimInstance = nullptr;
 	float DeltaTime = 0.0f;
+	float CurrentWeight = 1.0f;
 };
 
 struct FPoseContext

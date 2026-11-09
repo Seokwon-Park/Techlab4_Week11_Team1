@@ -4,12 +4,15 @@
 #include "AnimSequence.h"
 
 #include <cmath>
+#include "AnimInstance.h"
+#include "AnimNotifyQueue.h"
 
 struct FAnimNode_SequencePlayer : public FAnimNode_Base
 {
 	UAnimSequence* Sequence = nullptr;
 
 	float CurrentTime = 0.0f;
+	float PrevTime = 0.0f;
 	float PlayRate = 1.0f;
 
 	bool bLooping = false;
@@ -25,10 +28,11 @@ struct FAnimNode_SequencePlayer : public FAnimNode_Base
 		const float Length = Model ? Model->GetPlayLength() : 0.0f;
 		if (Length <= 0.0f)
 		{
-			CurrentTime = 0.0f;
+			CurrentTime = PrevTime = 0.0f;
 			return;
 		}
 
+		PrevTime = CurrentTime;
 		CurrentTime += Context.GetDeltaTime() * PlayRate;
 
 		if (bLooping)
@@ -43,6 +47,12 @@ struct FAnimNode_SequencePlayer : public FAnimNode_Base
 		{
 			CurrentTime = FMath::Clamp(CurrentTime, 0.0f, Length);
 		}
+
+
+		FAnimNotifyContext NotifyContext(bLooping);
+		Sequence->GetAnimNotifies(PrevTime, Context.GetDeltaTime() * PlayRate, NotifyContext);
+		UAnimInstance* AnimInstance = Context.GetAnimInstance<UAnimInstance>();
+		AnimInstance->AddNotifies(NotifyContext.ActiveNotifies, Context.GetFinalBlendWeight());
 	}
 
 	void Evaluate(FPoseContext& Output) override

@@ -1,0 +1,31 @@
+#pragma once
+#include "Core/NameTypes.h"
+#include "AnimTypes.generated.h"
+
+// 포인터로만 쓰므로 include 대신 전방 선언 (AnimNotify.h를 include하면 순환 include가 생긴다)
+class UAnimNotify;
+class UAnimNotifyState;
+
+enum class ETypeAdvanceAnim : uint8
+{
+	ETAA_Default,
+	ETAA_Finished,
+	ETAA_Looped
+};
+
+USTRUCT()
+struct FAnimNotifyEvent
+{
+    GENERATED_BODY()
+    float TriggerTime = 0.f;
+    float Duration = 0.f;                 // 0이면 단발, >0이면 State
+
+    UAnimNotify* Notify = nullptr;        // 있으면 클래스 기반
+    UAnimNotifyState* NotifyStateClass = nullptr;
+    FName        NotifyName;              // Notify가 없으면 이름 기반
+
+    float TriggerWeightThreshold = 0.f;   // 가중치 필터
+
+    // 단발 Notify는 End == Start가 되어야 (Prev, Curr] 구간 검사에 걸린다
+    float GetEndTriggerTime() const { return TriggerTime + Duration; }
+};

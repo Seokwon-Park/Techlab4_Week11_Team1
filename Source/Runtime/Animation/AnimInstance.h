@@ -1,10 +1,7 @@
 #pragma once
 
 #include "UObject/Object.h"
-#include "AnimNode_SequencePlayer.h"
-#include "AnimNode_TwoWayBlend.h"
-#include "AnimNode_BlendSpacePlayer.h"
-
+#include "Animation/AnimNotifyQueue.h"
 #include "AnimInstance.generated.h"
 
 struct FAnimNode_Base;
@@ -34,6 +31,8 @@ public:
 
 	FAnimNode_Base* GetRootNode() const { return RootNode; }
 
+	void AddNotifies(const TArray<FAnimNotifyEventReference>& ActiveNotifies, const float Weight);
+
 protected:
 	virtual void NativeInitializeAnimation() {}
 	virtual void NativeUpdateAnimation(float DeltaSeconds) {}
@@ -41,4 +40,5 @@ protected:
 
 protected:
 	FAnimNode_Base* RootNode = nullptr;
+	FAnimNotifyQueue NotifyQueue;
 };

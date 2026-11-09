@@ -22,9 +22,7 @@ public:
 	}
 
 	void GetAnimationPose(float Time, FCompactPose& OutPose, const TArray<FBoneInfo>& RefSkeleton) const;
-
 	const FString& GetClipName() const { return ClipName; }
-
 private:
 	FString ClipName;
 };
