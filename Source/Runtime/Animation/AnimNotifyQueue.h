@@ -30,11 +30,12 @@ struct FAnimNotifyContext
 {
 	GENERATED_BODY()
 	FAnimNotifyContext() = default;
-	explicit FAnimNotifyContext(bool bIsLoop) : bIsLooping(bIsLoop) {}
+	explicit FAnimNotifyContext(bool bIsLoop, const UAnimSequenceBase *Sequence) : bIsLooping(bIsLoop), AnimSequenceBase(Sequence) {}
 
     bool bIsLooping = false;
     bool bHasFinished = false;
 	TArray<FAnimNotifyEventReference> ActiveNotifies;
+    const UAnimSequenceBase* AnimSequenceBase = nullptr;
 };
 
 

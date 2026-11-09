@@ -36,6 +36,7 @@ void USkeletalMeshComponent::TickComponent(float DeltaTime)
 		FPoseContext Pose(AnimInstance, GetBones());
 		AnimInstance->EvaluateAnimation(Pose);
 		SetBoneSpaceTransforms(Pose.Pose);
+		AnimInstance->TriggerAnimNotifies(DeltaTime);
 	}
 	Super::TickComponent(DeltaTime);
 }

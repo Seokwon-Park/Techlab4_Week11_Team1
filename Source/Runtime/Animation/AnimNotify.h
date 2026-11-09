@@ -14,7 +14,7 @@ class UAnimNotify : public UObject
 	GENERATED_BODY()
 
 public:
-    virtual void Notify(USkeletalMeshComponent* MeshComp,  UAnimSequenceBase* Animation, const FAnimNotifyEventReference& EventReference) {}
+    virtual void Notify(USkeletalMeshComponent* MeshComp, const UAnimSequenceBase* Animation, const FAnimNotifyEventReference& EventReference) {}
 };
 
 UCLASS()
@@ -29,5 +29,5 @@ public:
     UPROPERTY(EditAnywhere)
     float Volume = 0.f;
 
-    virtual void Notify(USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation, const FAnimNotifyEventReference& EventReference) override;
+    virtual void Notify(USkeletalMeshComponent* MeshComp, const UAnimSequenceBase* Animation, const FAnimNotifyEventReference& EventReference) override;
 };

@@ -5,6 +5,8 @@
 #include "GameFramework/Pawn.h"
 #include "UObject/Casts.h"
 #include "UObject/UObjectGlobals.h"
+#include "AnimTypes.h"
+#include "AnimNotify.h"
 
 UAnimInstance::~UAnimInstance()
 {
@@ -49,8 +51,26 @@ void UAnimInstance::EvaluateAnimation(FPoseContext& Output)
 
 void UAnimInstance::TriggerAnimNotifies(float DeltaSeconds)
 {
-	// TODO(C): FAnimNotifyEvent가 생기면 재생 중인 시퀀스의 [PrevTime, CurrentTime] 구간에 든
-	// Notify를 모아 GetSkelMeshComponent()->HandleAnimNotify()로 넘긴다.
+	USkeletalMeshComponent * SkeletalMeshComp = GetSkelMeshComponent();
+	for (uint32 i = 0; i < NotifyQueue.AnimNotifies.Num(); ++i)
+	{
+		const FAnimNotifyEventReference& NotifyRef = NotifyQueue.AnimNotifies[i];
+		const FAnimNotifyEvent* NotifyEvent = NotifyRef.GetNotify();
+
+		if (!NotifyEvent)
+			continue;
+
+		//TODO : NotifyStatClass
+		if (NotifyEvent->NotifyStateClass)
+			continue;
+
+		if (NotifyEvent->Notify)
+			NotifyEvent->Notify->Notify(SkeletalMeshComp, NotifyRef.Source, NotifyRef);
+
+		//TODO : 이름 만으로 호출하고 싶을 떄 HandleNamedNotify에서 구현
+		//else if (/* NotifyName이 비어 있지 않으면 */)
+		//	HandleNamedNotify(NotifyEvent->NotifyName);       // MyAnimInstance가 오버라이드
+	}
 }
 
 void UAnimInstance::UninitializeAnimation()

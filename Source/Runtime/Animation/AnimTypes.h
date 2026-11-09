@@ -1,5 +1,6 @@
 #pragma once
 #include "Core/NameTypes.h"
+#include "Core/Misc/Guid.h"
 #include "AnimTypes.generated.h"
 
 // 포인터로만 쓰므로 include 대신 전방 선언 (AnimNotify.h를 include하면 순환 include가 생긴다)
@@ -25,6 +26,10 @@ struct FAnimNotifyEvent
     FName        NotifyName;              // Notify가 없으면 이름 기반
 
     float TriggerWeightThreshold = 0.f;   // 가중치 필터
+
+    // 타임라인 UI가 Notify를 가리키는 식별자 (UE의 FAnimNotifyEvent::Guid).
+    // 배열 Index는 추가/삭제/정렬마다 바뀌므로 Index 대신 이 값을 쓴다.
+    FGuid Guid;
 
     // 단발 Notify는 End == Start가 되어야 (Prev, Curr] 구간 검사에 걸린다
     float GetEndTriggerTime() const { return TriggerTime + Duration; }
