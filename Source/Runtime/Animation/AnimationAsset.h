@@ -11,7 +11,10 @@ class UAnimationAsset : public UObject
 public:
     void SetPreviewMeshPath(FString InPath) { PreviewMeshPath = std::move(InPath); }
     const FString& GetPreviewMeshPath() const { return PreviewMeshPath; }
-    bool IsAnimSequencePath(const FString& Path);
+
+    void SetAssetPath(const FString& InPath) { AssetPath = InPath; }
+    const FString& GetAssetPath() const { return AssetPath; }
 private:
     FString PreviewMeshPath;
+    FString AssetPath;
 };

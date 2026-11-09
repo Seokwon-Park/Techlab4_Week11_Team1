@@ -8,7 +8,6 @@
 #include "Core/StatOverlay.h"
 #include "Input/InputSystem.h"
 
-
 #include "Render/GeometryGenerator.h"
 
 #include "Engine/World.h"
@@ -179,6 +178,8 @@ bool UEditorEngine::Init()
 
 	// StaticMesh / SkeletalMesh Viewer 열기
 	ContentDrawerPanel->SetOpenMeshCallback([this](const FString& Path) { EditorManager->OpenEditor(Path); });
+
+	ContentDrawerPanel->SetBlendSpaceCreatedCallback([this](const FString& Path) { EditorManager->OpenEditor(Path); });
 
 	Outline = MakeUnique<FOutline>();
 

@@ -1,10 +1,13 @@
 #include "EnginePCH.h"
 #include "Editor/ContentDrawer/ContentDrawerPanel.h"
+
+#include "Render/SkeletalMesh.h"
 #include "Asset/AssetManager.h"
 #include "Asset/FbxImporter/FbxMeshBake.h"
 #include "Text/Font.h"
 #include "Editor/HitoriEd/EditorDragDrop.h"
 #include "Animation/AnimSequenceFile.h"
+#include "Animation/BlendSpaceFile.h"
 
 bool FContentDrawerPanel::Init()
 {
@@ -167,6 +170,11 @@ void FContentDrawerPanel::OnRender()
 				if (Thumbnail)
 				{
 					ImGui::ImageButton(PathString.c_str(), (ImTextureID)Thumbnail->GetResource()->GetSRV(), { thumbnailSize, thumbnailSize });
+
+					if (!bIsDirectory)
+					{
+						BlendSpaceCreator.DrawContextMenu(PathString, CurrentPath);
+					}
 				}
 
 				// 페이로드에 포인터를 그대로 실어서 받는 쪽이 AssetMap을 다시 뒤지지 않게 한다.
@@ -207,6 +215,12 @@ void FContentDrawerPanel::OnRender()
 					{
 						OnOpenMesh(PathString);
 					}
+
+					else if ((Path.extension() == ".blendspace" 
+						|| BlendSpaceFile::IsBlendSpacePath(PathString)) && OnOpenMesh)
+					{
+						OnOpenMesh(PathString);
+					}
 					
 				}
 				// 파일 이름 표시
@@ -217,6 +231,8 @@ void FContentDrawerPanel::OnRender()
 			ImGui::EndTable();
 		}
 	}
+	BlendSpaceCreator.DrawCreateDialog();
+
 	ImGui::EndChild();
 	ImGui::End();
 }

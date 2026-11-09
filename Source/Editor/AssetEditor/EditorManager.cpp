@@ -8,7 +8,9 @@
 #include "Render/Mesh.h"
 #include "Render/SkeletalMesh.h"
 #include "Editor/AnimSequenceEditor/AnimSequenceEditor.h"
+#include "Editor/BlendSpaceEditor/BlendSpaceEditor.h"
 #include "Animation/AnimSequenceFile.h"
+#include "Animation/BlendSpaceFile.h"
 
 #include <filesystem>
 
@@ -76,6 +78,25 @@ void FEditorManager::CreateEditor(const FString& AssetPath)
 		}
 		Editors.Add(std::move(Editor));
 		HTR_LOG(Info, "Opened asset editor: {}", AssetPath.c_str());
+		return;
+	}
+
+	if (BlendSpaceFile::IsBlendSpacePath(AssetPath))
+	{
+		UBlendSpace1D* BlendSpace = UAssetManager::LoadBlendSpace(AssetPath);
+		if (!BlendSpace)
+		{
+			return;
+		}
+
+		TUniquePtr<FAssetEditor> Editor = MakeUnique<FBlendSpaceEditor>(EditorEngine, *this, AssetPath, BlendSpace);
+		if (!Editor->Initialize())
+		{
+			Editor->Shutdown();
+			HTR_LOG(Warning, "BlendSpace editor initialization failed: {}", AssetPath);
+			return;
+		}
+		Editors.Add(std::move(Editor));
 		return;
 	}
 
