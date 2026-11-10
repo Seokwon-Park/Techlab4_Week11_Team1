@@ -6,10 +6,6 @@
 class USpringArmComponent;
 class UCameraComponent;
 
-// UE 3인칭 템플릿 구성의 테스트 캐릭터. 마우스 회전은 캐릭터 몸이 아니라 ControlRotation으로 가고,
-//  - SpringArm(bUsePawnControlRotation)이 ControlRotation의 Yaw/Pitch를 따라 캐릭터 주위를 공전, 카메라는 팔 끝을 따른다
-//  - 몸은 CMC bOrientRotationToMovement로 이동 방향을 향한다
-// 이동 방향은 ControlRotation의 Yaw 기준 (카메라가 보는 수평 방향)
 UCLASS()
 class AMyCharacter : public ACharacter
 {

@@ -49,7 +49,7 @@ struct FAnimNode_SequencePlayer : public FAnimNode_Base
 		}
 
 
-		FAnimNotifyContext NotifyContext(bLooping);
+		FAnimNotifyContext NotifyContext(bLooping, Sequence);
 		Sequence->GetAnimNotifies(PrevTime, Context.GetDeltaTime() * PlayRate, NotifyContext);
 		UAnimInstance* AnimInstance = Context.GetAnimInstance<UAnimInstance>();
 		AnimInstance->AddNotifies(NotifyContext.ActiveNotifies, Context.GetFinalBlendWeight());
