@@ -22,10 +22,13 @@ public:
 	virtual const FStructuredBuffer* GetBoneMatrixBuffer() const { return nullptr; }
 	// 이번 포즈가 Bounds 밖으로 나가면 여유를 두고 넓히고 true를 돌려준다
 	bool UpdateBounds();
+	void SetDebugWeightBone(int32 BoneIndex) { DebugWeightBone = BoneIndex; }
 
 protected:
 	void UpdateRefToLocalMatrices(const TArray<FMatrix>& ComponentSpaceTransforms);
 	void SkinVerticesCPU(TArray<FVertex>& OutVertices, FBox& OutBounds) const;
+
+	int32 DebugWeightBone = -1;
 
 	USkeletalMesh* SkeletalMesh;
 	TArray<FMatrix> RefToLocal;

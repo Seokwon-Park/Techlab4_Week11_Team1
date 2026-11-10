@@ -75,10 +75,26 @@ void FSkeletalPreviewEditor::Tick(float DeltaTime)
 	PointerInput = {};
 }
 
+void FSkeletalPreviewEditor::SetWeightHeatmap(bool bEnable)
+{
+	bShowWeightHeatmap = bEnable;
+	RefreshHeatmap();
+}
+
+void FSkeletalPreviewEditor::RefreshHeatmap()
+{
+	if (MeshComponent)
+	{
+		MeshComponent->SetDebugWeightBone(bShowWeightHeatmap ? SelectedBoneIndex : -1);
+	}
+}
+
+// 기존 SelectBone에 RefreshHeatmap() 한 줄을 더한다
 void FSkeletalPreviewEditor::SelectBone(int32 BoneIndex)
 {
 	if (BoneIndex < -1 || BoneIndex >= BoneItems.Num()) return;
 	SelectedBoneIndex = BoneIndex;
+	RefreshHeatmap();
 	OnBoneSelected();
 }
 
