@@ -3,6 +3,8 @@
 
 #include <algorithm>
 
+#include "Core/Misc/Paths.h"
+
 FGamePackager::~FGamePackager()
 {
 	// 복사 중에 에디터를 닫으면 복사가 끝날 때까지 기다린다.
@@ -14,7 +16,8 @@ FGamePackager::~FGamePackager()
 bool FGamePackager::Start(const FString& Config)
 {
 	if (IsRunning()) return false;
-	const std::filesystem::path Root = std::filesystem::current_path();
+	// 엔진(Package.bat, Resources)과 프로젝트(Assets 등)는 서로 다른 폴더일 수 있다.
+	const std::filesystem::path Root = FPaths::EngineDir();
 	std::error_code Ec;
 	if (std::filesystem::exists(Root / "Package.bat", Ec) && std::filesystem::exists(Root / "premake5.lua", Ec))
 		return StartBuildAndPackage(Root, Config);
@@ -41,11 +44,19 @@ bool FGamePackager::StartBuildAndPackage(const std::filesystem::path& Root, cons
 	Startup.hStdOutput = OutputWrite;
 	Startup.hStdError = OutputWrite;
 
-	// 에디터의 작업 디렉터리가 저장소 루트(debugdir)이므로 상대 경로로 부른다.
-	FString CommandLine = "cmd.exe /c Package.bat " + Config;
+	// 작업 디렉터리는 프로젝트 폴더이므로 엔진 폴더의 Package.bat을 절대 경로로 부르고 프로젝트 파일을 넘긴다.
+	// cmd /c는 바깥 따옴표 한 쌍을 벗기므로 전체를 한 번 더 감싼다.
+	const std::wstring BatchPath = (Root / L"Package.bat").wstring();
+	const std::wstring ConfigW(Config.begin(), Config.end());
+	std::wstring CommandLine = L"cmd.exe /c \"\"" + BatchPath + L"\" " + ConfigW + L" \"" + FPaths::ProjectFilePath().wstring() + L"\"\"";
+	STARTUPINFOW StartupW{};
+	StartupW.cb = sizeof(StartupW);
+	StartupW.dwFlags = Startup.dwFlags;
+	StartupW.hStdOutput = Startup.hStdOutput;
+	StartupW.hStdError = Startup.hStdError;
 	PROCESS_INFORMATION Info{};
-	const BOOL bCreated = CreateProcessA(nullptr, CommandLine.data(), nullptr, nullptr, TRUE,
-		CREATE_NO_WINDOW, nullptr, nullptr, &Startup, &Info);
+	const BOOL bCreated = CreateProcessW(nullptr, CommandLine.data(), nullptr, nullptr, TRUE,
+		CREATE_NO_WINDOW, nullptr, Root.c_str(), &StartupW, &Info);
 	// 쓰기 핸들은 자식만 갖고 있어야, 자식이 끝날 때 파이프가 닫힌다.
 	CloseHandle(OutputWrite);
 	if (!bCreated)
@@ -72,14 +83,16 @@ bool FGamePackager::StartCopyOnly(const std::filesystem::path& Root)
 		return false;
 	}
 
-	const std::filesystem::path Out = Root / "Build" / "Package" / "Hitori";
+	const std::filesystem::path ProjectDir = FPaths::ProjectDir();
+	const std::filesystem::path ProjectFile = FPaths::ProjectFilePath();
+	const std::filesystem::path Out = ProjectDir / "Build" / "Package" / FPaths::FromUtf8(FPaths::ProjectName());
 	bCopyDone = false;
 	bCopyFailed = false;
-	CopyResult = Out.string();
+	CopyResult = FPaths::ToUtf8(Out);
 	HTR_LOG(Info, "Packaging with prebuilt HitoriGame.exe (no build) -> {}", CopyResult);
 
 	// 콘텐츠가 100MB 넘게 복사되므로 에디터가 멈추지 않게 따로 돌린다. 로그는 메인 스레드의 Tick에서만 남긴다.
-	CopyThread = std::thread([this, Root, GameExe, Out]
+	CopyThread = std::thread([this, Root, ProjectDir, ProjectFile, GameExe, Out]
 		{
 			namespace fs = std::filesystem;
 			std::error_code Ec;
@@ -90,11 +103,24 @@ bool FGamePackager::StartCopyOnly(const std::filesystem::path& Root)
 				CopyResult = "HitoriGame.exe";
 				bCopyFailed = true;
 			}
-			for (const char* Folder : { "Assets", "Resources", "Scenes", "Scripts", "Config" })
+			// 엔진 셰이더(Resources)와 엔진 콘텐츠(EngineContent)는 엔진 폴더에서, 프로젝트 콘텐츠는 프로젝트 폴더에서 가져온다.
+			// 게임 exe는 옆에 있는 .hproject를 찾아 그 폴더를 프로젝트 폴더로 쓴다.
+			const std::pair<std::filesystem::path, const char*> Folders[] =
+			{
+				{ Root, "Resources" }, { Root, "EngineContent" },
+				{ ProjectDir, "Assets" }, { ProjectDir, "Scenes" }, { ProjectDir, "Scripts" }, { ProjectDir, "Config" },
+			};
+			for (const auto& [Base, Folder] : Folders)
 			{
 				if (bCopyFailed) break;
-				fs::copy(Root / Folder, Out / Folder, fs::copy_options::recursive | fs::copy_options::overwrite_existing, Ec);
+				if (!fs::exists(Base / Folder, Ec)) continue;
+				fs::copy(Base / Folder, Out / Folder, fs::copy_options::recursive | fs::copy_options::overwrite_existing, Ec);
 				if (Ec) { CopyResult = Folder; bCopyFailed = true; }
+			}
+			if (!bCopyFailed && !fs::copy_file(ProjectFile, Out / ProjectFile.filename(), fs::copy_options::overwrite_existing, Ec))
+			{
+				CopyResult = FPaths::ToUtf8(ProjectFile.filename());
+				bCopyFailed = true;
 			}
 			bCopyDone = true;
 		});
@@ -160,6 +186,6 @@ void FGamePackager::Finish()
 	Process = nullptr;
 	OutputRead = nullptr;
 
-	if (ExitCode == 0) HTR_LOG(Info, "Packaging finished: Build/Package/Hitori");
+	if (ExitCode == 0) HTR_LOG(Info, "Packaging finished: {}", FPaths::ToUtf8(FPaths::ProjectDir() / "Build" / "Package" / FPaths::FromUtf8(FPaths::ProjectName())));
 	else HTR_LOG(Error, "Packaging failed (exit code {}). See the log above.", ExitCode);
 }

@@ -3,6 +3,8 @@
 
 #include <algorithm>
 
+#include "Core/Misc/Paths.h"
+
 namespace
 {
 	const char* GetShaderTarget(EShaderType Type)
@@ -55,7 +57,8 @@ FShaderByteCode RenderUtil::CompileShader(FString Path, const char* EntryPoint, 
 
 	FShaderByteCode ByteCode;
 
-	std::wstring WPath(Path.begin(), Path.end());
+	// 셰이더 키는 엔진 상대 경로(Resources/Shader/...)라서 엔진 폴더 기준으로 바꿔 연다.
+	const std::wstring WPath = FPaths::ResolveEngineRelative(Path).wstring();
 
 	//for (const auto& D : Defines)
 	//	Macros.push_back({ D.first.c_str(), D.second.c_str() });
@@ -78,9 +81,11 @@ FShaderByteCode RenderUtil::CompileShader(FString Path, const char* EntryPoint, 
 
 void RenderUtil::SaveByteCode(FString CsoPath, const FShaderByteCode& ByteCode)
 {
-	fs::create_directories(fs::path(CsoPath).parent_path());
-	std::ofstream Out(CsoPath, std::ios::binary);
-	if (!Out) { fs::remove(CsoPath); return; }
+	const fs::path File = FPaths::ResolveEngineRelative(CsoPath);
+	std::error_code Ec;
+	fs::create_directories(File.parent_path(), Ec);
+	std::ofstream Out(File, std::ios::binary);
+	if (!Out) { fs::remove(File, Ec); return; }
 	Out.write(reinterpret_cast<const char*>(ByteCode.GetData()), ByteCode.GetSize());
 }
 
@@ -88,7 +93,7 @@ FShaderByteCode RenderUtil::LoadByteCode(const FString& CsoPath)
 {
 	FShaderByteCode Result;
 
-	std::ifstream In(CsoPath, std::ios::binary | std::ios::ate);
+	std::ifstream In(FPaths::ResolveEngineRelative(CsoPath), std::ios::binary | std::ios::ate);
 	if (!In) return Result;
 
 	const std::streamsize Size = In.tellg();
@@ -105,7 +110,7 @@ FShaderByteCode RenderUtil::LoadByteCode(const FString& CsoPath)
 
 FString RenderUtil::GetCsoPath(const FString& ShaderPath, EShaderType ShaderType, const D3D_SHADER_MACRO* Macros)
 {
-	const fs::path Rel = fs::relative(ShaderPath, "Resources/Shader");
+	const fs::path Rel = FPaths::ResolveEngineRelative(ShaderPath).lexically_relative(FPaths::EngineFile("Resources/Shader"));
 	const char* Suffix = GetShaderPrefix(ShaderType);
 	FString MacroSuffix;
 	while (Macros && Macros->Name)
@@ -165,13 +170,14 @@ namespace
 bool RenderUtil::IsCsoUpToDate(const FString& ShaderPath, const FString& CsoPath)
 {
 	std::error_code Ec;
-	if (!fs::exists(CsoPath, Ec)) return false;
-	const auto CsoTime = fs::last_write_time(CsoPath, Ec);
+	const fs::path CsoFile = FPaths::ResolveEngineRelative(CsoPath);
+	if (!fs::exists(CsoFile, Ec)) return false;
+	const auto CsoTime = fs::last_write_time(CsoFile, Ec);
 	if (Ec) return false;
 
 	std::vector<fs::path> Visited;
 	fs::file_time_type LatestSource = fs::file_time_type::min();
-	if (!GetLatestSourceTime(fs::path(ShaderPath), Visited, LatestSource)) return false;
+	if (!GetLatestSourceTime(FPaths::ResolveEngineRelative(ShaderPath), Visited, LatestSource)) return false;
 
 	return CsoTime > LatestSource;
 }

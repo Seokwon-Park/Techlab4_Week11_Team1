@@ -22,8 +22,21 @@ rem → 어느 폴더에서 실행하든 배치 파일 위치를 기준으로 �
 set "BIN=%ROOT%Build\Bin\%CONFIG%-windows-x86_64"
 rem 빌드 결과물 폴더 (예: Build\Bin\Release-windows-x86_64)
 
-set "OUT=%ROOT%Build\Package\Hitori"
-rem 패키징 결과를 모을 폴더
+set "PROJECT=%~2"
+rem 두 번째 인자는 패키징할 .hproject 경로. 없으면 엔진 폴더의 첫 .hproject(기본 프로젝트)를 쓴다
+if "%PROJECT%"=="" for %%P in ("%ROOT%*.hproject") do if not defined PROJECT set "PROJECT=%%~fP"
+if not defined PROJECT (
+    echo [Package] No .hproject file. Usage: Package.bat [Release^|Shipping] [Path\To\Game.hproject]
+    exit /b 1
+)
+for %%P in ("%PROJECT%") do (
+    set "PROJECT_DIR=%%~dpP"
+    set "PROJECT_NAME=%%~nP"
+)
+rem %%~dpP = 프로젝트 파일이 있는 폴더(끝에 \ 포함), %%~nP = 확장자를 뺀 파일 이름
+
+set "OUT=%PROJECT_DIR%Build\Package\%PROJECT_NAME%"
+rem 패키징 결과를 모을 폴더. 프로젝트 폴더 아래에 만든다
 
 rem Build messages in English so they are not garbled when read through a pipe (editor Output Log).
 set "VSLANG=1033"
@@ -64,23 +77,35 @@ rem ---- 3. 게임 데이터 폴더 복사 ----
 rem Shaders are compiled at runtime, so Resources\Shader must ship as source.
 rem 셰이더를 런타임에 컴파일하므로 .hlsl 원본이 Resources\Shader에 같이 들어가야 함
 
-for %%D in (Assets Resources Scenes Scripts Config) do (
+rem 엔진 셰이더(Resources)와 엔진 콘텐츠(EngineContent)는 엔진 폴더에서, 프로젝트 콘텐츠는 프로젝트 폴더에서 가져온다
+call :CopyFolder "%ROOT%Resources" Resources || exit /b 1
+call :CopyFolder "%ROOT%EngineContent" EngineContent || exit /b 1
+
+for %%D in (Assets Scenes Scripts Config) do (
     rem 배치 파일 안의 for 변수는 %%D처럼 % 두 개 (cmd 직접 입력 시엔 %D)
-
-    robocopy "%ROOT%%%D" "%OUT%\%%D" /e /njh /njs /nfl /ndl >nul
-    rem /e  : 빈 폴더 포함 하위 폴더 전부 복사
-    rem /njh: 작업 헤더 숨김, /njs: 요약 숨김
-    rem /nfl: 파일 목록 숨김, /ndl: 폴더 목록 숨김
-
-    if errorlevel 8 (
-        rem robocopy 종료 코드는 0~7이 성공(복사함/할 것 없음 등), 8 이상이 실패
-        rem "if errorlevel 8"은 "== 8"이 아니라 ">= 8"이라는 뜻
-        rem (소스 폴더가 아예 없으면 16이 나와서 여기로 들어옴)
-        echo [Package] Failed to copy %%D
-        exit /b 1
-    )
+    call :CopyFolder "%PROJECT_DIR%%%D" %%D || exit /b 1
 )
+
+copy /y "%PROJECT%" "%OUT%\" >nul
+rem 게임 exe는 옆에 있는 .hproject를 찾아 그 폴더를 프로젝트 폴더로 쓴다
 
 echo [Package] Done: %OUT%
 endlocal
 rem setlocal로 만든 변수 범위 종료
+exit /b 0
+
+:CopyFolder
+rem %~1 = 원본 폴더, %~2 = 패키지 안의 폴더 이름
+robocopy "%~1" "%OUT%\%~2" /e /njh /njs /nfl /ndl >nul
+rem /e  : 빈 폴더 포함 하위 폴더 전부 복사
+rem /njh: 작업 헤더 숨김, /njs: 요약 숨김
+rem /nfl: 파일 목록 숨김, /ndl: 폴더 목록 숨김
+
+if errorlevel 8 (
+    rem robocopy 종료 코드는 0~7이 성공(복사함/할 것 없음 등), 8 이상이 실패
+    rem "if errorlevel 8"은 "== 8"이 아니라 ">= 8"이라는 뜻
+    rem (소스 폴더가 아예 없으면 16이 나와서 여기로 들어옴)
+    echo [Package] Failed to copy %~2
+    exit /b 1
+)
+exit /b 0

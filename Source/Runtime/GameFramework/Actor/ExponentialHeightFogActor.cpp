@@ -17,7 +17,7 @@ AExponentialHeightFogActor::AExponentialHeightFogActor()
 	BillboardComponent->SetHiddenInDetails(true);
 
 	UMaterial* Base = UAssetManager::GetAssetByPath<UMaterial>("BillboardMaterial");
-    UTexture2D* Icon = UAssetManager::Get().LoadTexture("Assets/Icons/Fog.png");
+    UTexture2D* Icon = UAssetManager::Get().LoadTexture("Engine/Icons/Fog.png");
     if (Base && Icon)
     {
         UMaterial* IconMat = UMaterial::CreateInstance(Base);

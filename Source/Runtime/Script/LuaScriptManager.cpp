@@ -2,6 +2,7 @@
 #include "LuaScriptManager.h"
 
 #include "LuaBindings.h"
+#include "Core/Misc/Paths.h"
 #include <sol/sol.hpp>
 #include <shellapi.h>
 
@@ -65,7 +66,12 @@ FString FLuaScriptManager::MakeScriptPath(const FString& SceneName, const FStrin
 
 FString FLuaScriptManager::GetTemplatePath()
 {
-	return "Scripts/template.lua";
+	// 프로젝트에 Scripts/template.lua가 있으면 그것을 쓰고, 없으면 엔진 콘텐츠의 기본 템플릿을 쓴다.
+	const FString ProjectTemplate = "Scripts/template.lua";
+	std::error_code Ec;
+	if (fs::exists(ToPath(ProjectTemplate), Ec))
+		return ProjectTemplate;
+	return FPaths::ResolveContentPath("Engine/Scripts/template.lua");
 }
 
 bool FLuaScriptManager::CreateScriptFromTemplate(const FString& Path)

@@ -4,6 +4,7 @@
 #include "RenderCommand.h"
 
 #include "RenderUtil.h"
+#include "Core/Misc/Paths.h"
 #include <cstring>
 #include <fstream>
 #include <iterator>
@@ -130,13 +131,15 @@ void FRenderResourceManager::ScanShaders(const fs::path& ShaderRoot)
 {
 	std::error_code ErrorCode;
 
-	if (!fs::exists(ShaderRoot, ErrorCode))
+	// 셰이더는 엔진 폴더에 있다. 작업 디렉터리는 프로젝트 폴더이므로 엔진 폴더 기준으로 찾는다.
+	const fs::path AbsoluteRoot = FPaths::EngineFile(ShaderRoot);
+	if (!fs::exists(AbsoluteRoot, ErrorCode))
 	{
-		HTR_LOG(Error, "[Shader] Scan Root Not Found : {}", ShaderRoot.generic_string());
+		HTR_LOG(Error, "[Shader] Scan Root Not Found : {}", FPaths::ToUtf8(AbsoluteRoot));
 		return;
 	}
 
-	for (const fs::directory_entry& Entry : fs::recursive_directory_iterator(ShaderRoot))
+	for (const fs::directory_entry& Entry : fs::recursive_directory_iterator(AbsoluteRoot))
 	{
 		if (!Entry.is_regular_file()) continue;
 		if (Entry.path().extension() != ".hlsl") continue;
@@ -147,7 +150,8 @@ void FRenderResourceManager::ScanShaders(const fs::path& ShaderRoot)
 		if (Source.find("mainVS(") == std::string::npos ||
 			Source.find("mainPS(") == std::string::npos) continue;
 
-		FString Path = Entry.path().generic_string();
+		// 키는 지금까지처럼 엔진 상대 경로("Resources/Shader/X.hlsl")로 둔다.
+		FString Path = FPaths::ToUtf8(Entry.path().lexically_relative(FPaths::EngineDir()));
 		LoadOrCompileShader(Path);
 		if (Source.find("GPU_SKIN_VS_INPUT") != std::string::npos)
 		{
