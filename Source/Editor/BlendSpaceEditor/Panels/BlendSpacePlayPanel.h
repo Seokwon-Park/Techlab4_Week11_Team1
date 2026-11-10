@@ -1,13 +1,15 @@
 #pragma once
 
-#include "BlendSpaceEditorPanel.h"
+#include "Editor/AssetEditor/AssetEditorPanel.h"
+#include "Editor/BlendSpaceEditor/BlendSpaceEditor.h"
 #include <vector>
 
-class FBlendSpacePlayPanel : public FBlendSpaceEditorPanel
+class FBlendSpacePlayPanel : public FAssetEditorPanel
 {
 public:
     explicit FBlendSpacePlayPanel(FBlendSpaceEditor& InEditor)
-        : FBlendSpaceEditorPanel(InEditor, "Preview Controls")
+        : FAssetEditorPanel(InEditor, "Preview Controls")
+        , Editor(InEditor)
     {
     }
 
@@ -15,10 +17,11 @@ protected:
     void DrawContent() override;
 
 private:
+    FBlendSpaceEditor& Editor;
+
     void DrawSamples();
     void RefreshAnimationList();
 
-private:
     bool bLoop = true;
 
     std::vector<FString> AnimationPaths;

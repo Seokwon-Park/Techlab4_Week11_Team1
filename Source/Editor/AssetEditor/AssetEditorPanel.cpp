@@ -1,15 +1,15 @@
 #include "EnginePCH.h"
-#include "AnimSequenceEditorPanel.h"
-#include "Editor/AnimSequenceEditor/AnimSequenceEditor.h"
+#include "AssetEditorPanel.h"
+#include "Editor/AssetEditor/AssetEditor.h"
 
-FAnimSequenceEditorPanel::FAnimSequenceEditorPanel(FAnimSequenceEditor& InEditor, const char* InName)
-    : Editor(InEditor)
-    , PanelName(InName)
+FAssetEditorPanel::FAssetEditorPanel(const FAssetEditor& InEditor, const char* InName)
+    : PanelName(InName)
+    // 기존 Sequence/BlendSpace 패널의 저장된 ImGui 배치를 유지한다.
     , WindowName(PanelName + "###AnimSequencePanel:" + InName + ":" + InEditor.GetAssetPath())
 {
 }
 
-void FAnimSequenceEditorPanel::OnRender()
+void FAssetEditorPanel::OnRender()
 {
     ImGuiWindowClass WindowClass;
     WindowClass.ClassId = DockClassId;
@@ -25,7 +25,7 @@ void FAnimSequenceEditorPanel::OnRender()
     ImGui::End();
 }
 
-bool FAnimSequenceEditorPanel::IsDetached(ImGuiID DockSpaceId) const
+bool FAssetEditorPanel::IsDetached(ImGuiID DockSpaceId) const
 {
     const ImGuiWindow* Window = ImGui::FindWindowByName(GetWindowName());
     return Window && (!Window->DockNode || ImGui::DockNodeGetRootNode(Window->DockNode)->ID != DockSpaceId);

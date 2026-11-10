@@ -1,14 +1,20 @@
 #pragma once
 
-#include "AnimSequenceEditorPanel.h"
+#include "Editor/AssetEditor/AssetEditorPanel.h"
+#include "Editor/AnimSequenceEditor/AnimSequenceEditor.h"
 
-class FAnimSequenceDetailsPanel : public FAnimSequenceEditorPanel
+class FAnimSequenceDetailsPanel : public FAssetEditorPanel
 {
 public:
     explicit FAnimSequenceDetailsPanel(FAnimSequenceEditor& InEditor)
-        : FAnimSequenceEditorPanel(InEditor, "Details") {
+        : FAssetEditorPanel(InEditor, "Details")
+        , Editor(InEditor)
+    {
     }
 
 protected:
     void DrawContent() override;
+
+private:
+    FAnimSequenceEditor& Editor;
 };

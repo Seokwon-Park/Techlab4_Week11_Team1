@@ -1,24 +1,17 @@
 #pragma once
 
-#include "Editor/AssetEditor/AssetEditorTab.h"
-#include "Panels/AnimSequenceEditorPanel.h"
+#include "Editor/AssetEditor/DockedAssetEditorTab.h"
 
 class FAnimSequenceEditor;
 
-class FAnimSequenceEditorTab : public FAssetEditorTab
+class FAnimSequenceEditorTab : public FDockedAssetEditorTab
 {
 public:
     explicit FAnimSequenceEditorTab(FAnimSequenceEditor& InEditor);
 
-    void DrawMenuBar() override;
-    void OnRender(bool bActive) override;
-
 private:
-    void BuildDefaultLayout(ImGuiID InDockSpaceId, const ImVec2& Size);
+    void BeforeRender() override;
+    void BuildDefaultLayout(ImGuiID InDockSpaceId, const ImVec2& Size) override;
 
     FAnimSequenceEditor& AnimEditor;
-    TArray<TUniquePtr<FAnimSequenceEditorPanel>> Panels;
-    ImGuiID DockSpaceId = 0;
-    ImGuiID PanelClassId = 0;
-    bool bLayoutInitialized = false;
 };
