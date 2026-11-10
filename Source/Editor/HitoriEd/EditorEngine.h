@@ -66,6 +66,7 @@ public:
 	// 뷰포트 하나의 씬과 에디터 요소를 렌더링한다.
 	void RenderFrame(FEditorViewportClient* ViewClient, const FSceneView& SceneView, const FSceneRenderOptions& RenderOptions, FSceneRenderer& SceneRenderer, UWorld* TargetWorld, const bool bIsPIE);
 	// 게임 뷰포트 화면을 렌더링한다.
+	void DrawPIEDebug(UWorld* World, const FMatrix& ViewProjection);
 	void RenderGameFrame(FGameViewportClient* GameClient, const FSceneView& SceneView, const FSceneRenderOptions& RenderOptions, FSceneRenderer& SceneRenderer, bool bIsSIEMode = false);
 	// 네 View 결과와 ImGui를 메인 Swapchain 백버퍼에 합성한다. Present는 FEngineLoop가 한다.
 	void PresentFrame();
@@ -211,6 +212,9 @@ private:
 	FGamePackager Packager;
 
 	FEditorCommand Save;
+	FEditorCommand SaveAs;
+	FEditorCommand NewScene;
+	FEditorCommand OpenSceneCommand;  // OpenScene()과 이름이 겹치지 않게 Command를 붙인다
 
 	FEditorCommand Play;
 	FEditorCommand Pause;

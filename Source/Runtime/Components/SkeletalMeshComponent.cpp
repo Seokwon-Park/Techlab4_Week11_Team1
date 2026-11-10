@@ -6,6 +6,9 @@
 #include "Animation/AnimSingleNodeInstance.h"
 #include "UObject/UObjectGlobals.h"
 #include "UObject/Casts.h"
+#include "UObject/UObjectIterator.h"
+#include "Render/LineBatcher.h"
+#include "GameFramework/Actor.h"
 
 void USkeletalMeshComponent::SetAnimInstance(UAnimInstance* InInstance)
 {
@@ -37,6 +40,16 @@ void USkeletalMeshComponent::TickComponent(float DeltaTime)
 		AnimInstance->EvaluateAnimation(Pose);
 		SetBoneSpaceTransforms(Pose.Pose);
 		AnimInstance->TriggerAnimNotifies(DeltaTime);
+
+		// 루트 모션: AnimInstance에 모인 delta를 월드 공간으로 바꿔 CharacterMovement가 가져갈 때까지 쌓아 둔다
+		const FRootMotionMovementParams RootMotion = AnimInstance->ConsumeExtractedRootMotion();
+		if (RootMotion.bHasRootMotion)
+		{
+			const FTransform WorldDelta = ConvertRootMotionToWorld(RootMotion.GetRootMotionTransform());
+			PendingRootMotion.Location = (bHasPendingRootMotion ? PendingRootMotion.Location : FVector::ZeroVector) + WorldDelta.Location;
+			PendingRootMotion.Rotation = bHasPendingRootMotion ? (WorldDelta.Rotation * PendingRootMotion.Rotation).Normalized() : WorldDelta.Rotation;
+			bHasPendingRootMotion = true;
+		}
 	}
 	Super::TickComponent(DeltaTime);
 }
@@ -188,4 +201,84 @@ void USkeletalMeshComponent::PlayBlendSpace(UBlendSpace1D* BlendSpace)
 	Instance->SetAnimationAsset(BlendSpace);
 	Instance->SetBlendSpaceInput(BlendSpaceInput);
 	SetEnableAnimation(true);
+}
+FTransform USkeletalMeshComponent::ConsumeRootMotion()
+{
+	const FTransform Result = PendingRootMotion;
+	PendingRootMotion = FTransform();
+	bHasPendingRootMotion = false;
+	return Result;
+}
+
+FTransform USkeletalMeshComponent::ConvertRootMotionToWorld(const FTransform& ParentSpaceDelta) const
+{
+	// delta는 root 본의 부모 공간 값이다. UAL은 Armature → root 구조라 부모(Armature)를 거쳐야 컴포넌트 공간이 된다.
+	const TArray<FBoneInfo>& Bones = GetBones();
+	const int32 RootIndex = GetRootMotionBoneIndex();
+	const int32 ParentIndex = RootIndex >= 0 ? Bones[RootIndex].ParentIndex : -1;
+
+	// 이동: 부모(바인드 포즈) → 컴포넌트 → 월드 행렬로 방향·스케일만 적용 (Armature 스케일, 메시 0.01, yaw −180 모두 여기서)
+	const FMatrix ComponentToWorld = GetWorldMatrix();
+	const FMatrix ParentToWorld = ParentIndex >= 0
+		? Bones[ParentIndex].InverseBindPose.Inverse() * ComponentToWorld
+		: ComponentToWorld;
+
+	FTransform Result;
+	Result.Location = ParentToWorld.TransformVector(ParentSpaceDelta.Location);
+
+	// 회전: 부모 공간 회전을 월드 공간 회전으로 바꾼다 (P × Δ × P⁻¹, P = 컴포넌트 월드 회전 × 부모 본 회전)
+	FQuat ParentRotation = FQuat(GetWorldRotation());
+	FQuat BoneChainRotation;
+	for (int32 Index = ParentIndex; Index >= 0; Index = Bones[Index].ParentIndex)
+	{
+		BoneChainRotation = Bones[Index].LocalBindPose.Rotation * BoneChainRotation;
+	}
+	ParentRotation = (ParentRotation * BoneChainRotation).Normalized();
+	Result.Rotation = (ParentRotation * ParentSpaceDelta.Rotation * ParentRotation.Inverse()).Normalized();
+	return Result;
+}
+
+int32 USkeletalMeshComponent::GetRootMotionBoneIndex() const
+{
+	const int32 RootIndex = FindBoneIndex("root");
+	if (RootIndex >= 0)
+	{
+		return RootIndex;
+	}
+	return GetBones().IsEmpty() ? -1 : 0;
+}
+
+void USkeletalMeshComponent::DrawRootDebug(FLineBatcher* LineBatcher) const
+{
+	const int32 RootIndex = GetRootMotionBoneIndex();
+	if (!LineBatcher || RootIndex < 0 || RootIndex >= ComponentSpaceTransforms.Num())
+	{
+		return;
+	}
+
+	// root 본 위치에 구체
+	const FVector Root = GetBoneWorldMatrix(RootIndex).TransformPosition(FVector::ZeroVector);
+	const FVector4 Color(1.0f, 0.3f, 0.8f, 1.0f);
+	LineBatcher->AddSphere(Root, 0.08f, Color);
+
+	// 액터 위치를 root 높이로 내린 점 → root. 선 길이 = root가 액터(캡슐)에서 벗어난 거리
+	if (const AActor* Owner = GetOwner())
+	{
+		const FVector ActorLocation = Owner->GetActorLocation();
+		const FVector Base(ActorLocation.X, ActorLocation.Y, Root.Z);
+		LineBatcher->AddLine(Base, Root, Color);
+		LineBatcher->AddSphere(Base, 0.03f, Color);
+	}
+}
+bool GShowSkeletalRootDebug = false;
+
+void DrawSkeletalRootDebug(UWorld* World, FLineBatcher* LineBatcher)
+{
+	if (!World || !LineBatcher) return;
+	for (TObjectIterator<USkeletalMeshComponent> It; It; ++It)
+	{
+		const USkeletalMeshComponent* Mesh = *It;
+		if (!Mesh || Mesh->GetWorld() != World || !Mesh->IsRegistered()) continue;
+		Mesh->DrawRootDebug(LineBatcher);
+	}
 }

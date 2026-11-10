@@ -48,6 +48,7 @@
 #include <sol/sol.hpp>
 
 #include "Components/ShapeComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 
 #include "Physics/Collision.h"
 
@@ -296,6 +297,26 @@ bool UEditorEngine::Init()
 
 	Save = { "Save",   "Save Current Scene",UAssetManager::GetAssetByPath<UTexture2D>("Assets/Icons/Toolbar/Save.png"),  White, { EKeyCode::S, true } };
 
+	Save.CanExecute = [this]()->bool {return !PlayWorld; };
+	Save.Execute = [this]() { SaveCurrentScene(); };
+
+	// UE: Save As = Ctrl+Alt+S
+	SaveAs = { "Save As", "Save Current Scene As", UAssetManager::GetAssetByPath<UTexture2D>("Assets/Icons/Toolbar/Save.png"),  White, { EKeyCode::S, true, true } };
+
+	SaveAs.CanExecute = [this]()->bool {return !PlayWorld; };
+	SaveAs.Execute = [this]() { SaveSceneAs(); };
+
+	// UE: New Level = Ctrl+N, Open Level = Ctrl+O
+	NewScene = { "New Scene", "Create a new scene", nullptr, White, { EKeyCode::N, true } };
+
+	NewScene.CanExecute = [this]()->bool {return !PlayWorld; };
+	NewScene.Execute = [this]() { CreateNewScene(); };
+
+	OpenSceneCommand = { "Open Scene", "Load an existing scene", nullptr, White, { EKeyCode::O, true } };
+
+	OpenSceneCommand.CanExecute = [this]()->bool {return !PlayWorld; };
+	OpenSceneCommand.Execute = [this]() { OpenScene(); };
+
 	Play = { "Play",   "Play World",        UAssetManager::GetAssetByPath<UTexture2D>("Assets/Icons/Toolbar/Play.png"),  Green, { EKeyCode::P, false, true } };
 
 	Play.CanExecute = [this]()->bool {return !PlayWorld; };
@@ -340,6 +361,10 @@ void UEditorEngine::Tick(const float DeltaTime)
 	// PIE 창 닫기 요청 처리
 	if (PIEWindow && PIEWindow->ConsumeCloseRequest())
 		RequestEndPlayMap();
+	// 에디터 단축키 (UE와 같은 키: Ctrl+N, Ctrl+O, Ctrl+S, Ctrl+Alt+S, Alt+P, Pause).
+	// Stop(Esc)은 PIE 입력 처리에서 따로 받으므로 여기서 빼서 두 번 실행되지 않게 한다.
+	EditorCommandUI::ProcessShortcuts({ &NewScene, &OpenSceneCommand, &Save, &SaveAs, &Play, &Pause, &Resume });
+
 	if (bRequestEndPlayMapQueued) { bRequestEndPlayMapQueued = false; EndPlayMap(); }
 	if (bPlaySessionRequested) { bPlaySessionRequested = false; if (!PlayWorld) StartPlayInEditorSession(); }
 	// PIE 중 OpenLevel 요청 처리. 월드 Tick 전에 해야 지운 월드를 Tick하지 않는다.
@@ -1095,15 +1120,22 @@ void UEditorEngine::RenderGameFrame(FGameViewportClient* GameClient, const FScen
 					UIRenderer->Render(UIDrawList, Width, Height);
 				};
 
-			if (!bIsSIEMode) return;
-
-			Overlays.EditorLines = [this, &SceneView, GameClient]
+			Overlays.EditorLines = [this, &SceneView, GameClient, bIsSIEMode]
 				{
-					LineBatcher->BeginFrame();
-					DrawCollisionShapes(GameClient->GetWorld(), LineBatcher.get(), nullptr);
-					DrawSpringArms(GameClient->GetWorld(), LineBatcher.get(), nullptr);
-					LineBatcher->OnRender(SceneView.ViewProjectionMatrix);
+					if (bIsSIEMode)
+					{
+						// SIE: 기존처럼 충돌 도형·스프링암을 항상 그린다
+						LineBatcher->BeginFrame();
+						DrawCollisionShapes(GameClient->GetWorld(), LineBatcher.get(), nullptr);
+						DrawSpringArms(GameClient->GetWorld(), LineBatcher.get(), nullptr);
+						LineBatcher->OnRender(SceneView.ViewProjectionMatrix);
+						return;
+					}
+					// PIE 게임 화면: Settings > Debug Draw (PIE)
+					DrawPIEDebug(GameClient->GetWorld(), SceneView.ViewProjectionMatrix);
 				};
+
+			if (!bIsSIEMode) return;
 			if (!bIsSIEMode) return;
 			const FViewportSettings ViewportSetting{ 0, 0, Targets.SceneColor->GetWidth(),
 				Targets.SceneColor->GetHeight(), 0.0f, 1.0f };
@@ -1309,9 +1341,9 @@ void UEditorEngine::RenderFrame(FEditorViewportClient* ViewClient,
 				Overlays.EditorLines = [this, &SceneView, TargetWorld]
 					{
 						LineBatcher->BeginFrame();
-						DrawCollisionShapes(TargetWorld, LineBatcher.get(), nullptr);
 						DrawSpringArms(TargetWorld, LineBatcher.get(), nullptr);
 						LineBatcher->OnRender(SceneView.ViewProjectionMatrix);
+						DrawPIEDebug(TargetWorld, SceneView.ViewProjectionMatrix);
 					};
 				return;
 			}
@@ -1754,4 +1786,26 @@ void UEditorEngine::SaveSceneAs()
 		return;
 	}
 	FEditorFileUtils::SaveSceneAs(EditorWorld);
+}
+
+// PIE 디버그 표시 (Settings > Debug Draw (PIE))
+void UEditorEngine::DrawPIEDebug(UWorld* World, const FMatrix& ViewProjection)
+{
+	const FEditorSettings& Settings = SettingsPanel->GetSettings();
+	GShowSkeletalRootDebug = Settings.bShowRootDebug;  // 런타임 "root" 라벨 표시용
+
+	LineBatcher->BeginFrame();
+	if (Settings.bShowCollision)
+		DrawCollisionShapes(World, LineBatcher.get(), nullptr);
+	LineBatcher->OnRender(ViewProjection);
+
+	// root는 바닥 높이라 가려지기 쉬우므로 깊이 테스트 없이 따로 그린다 (항상 위에 보임)
+	if (Settings.bShowRootDebug)
+	{
+		LineBatcher->BeginFrame();
+		DrawSkeletalRootDebug(World, LineBatcher.get());
+		LineBatcher->SetDepthTest(false);
+		LineBatcher->OnRender(ViewProjection);
+		LineBatcher->SetDepthTest(true);
+	}
 }

@@ -1579,6 +1579,18 @@ bool FFbxImporter::ImportToAssets(const FString& Path, EFbxImportMode Mode, FFbx
 				const auto Target = Folder / File;
 				const auto Temp = Staged.Folder / ("animation_" + std::to_string(SequenceIndex) + ".tmp");
 				Sequence.SetPreviewMeshPath(Utf8Path(SkeletalPath)); // 애님 시퀀스 뷰어가 이 메시로 미리보기한다
+
+				// 재임포트: 기존 파일의 루트 모션 설정을 이어받는다 (Unreal도 재임포트 때 에셋 설정을 유지한다)
+				if (std::filesystem::exists(Target))
+				{
+					const std::unique_ptr<UAnimSequence> Existing(NewObject<UAnimSequence>());
+					FString ExistingError;
+					if (AnimSequenceFile::Read(Target, *Existing, ExistingError))
+					{
+						Sequence.SetEnableRootMotion(Existing->GetEnableRootMotion());
+						Sequence.SetForceRootLock(Existing->GetForceRootLock());
+					}
+				}
 				if (!AnimSequenceFile::Write(Temp, Sequence, OutError)) return false;
 				Staged.Files.Add({ Temp, Target });
 				AnimationPaths.Add(Target);

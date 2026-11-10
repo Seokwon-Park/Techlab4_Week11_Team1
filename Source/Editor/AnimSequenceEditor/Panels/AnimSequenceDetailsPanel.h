@@ -11,4 +11,7 @@ public:
 
 protected:
     void DrawContent() override;
+
+private:
+    FString SaveMessage;   // 마지막 저장 결과 (성공/실패)
 };

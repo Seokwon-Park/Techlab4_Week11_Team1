@@ -18,6 +18,7 @@ public:
     void  StepFrame(int32 Delta);        // ±1프레임 (Pause)
     
     bool  IsPlaying() const { return bPlaying; }
+    void  MarkPoseDirty() { bPoseDirty = true; }  // 설정이 바뀌어 같은 시간의 포즈를 다시 계산해야 할 때
     float GetPlaybackTime() const { return CurrentTime; }
     float GetPlayLength() const;
     float GetFrameRate() const;
@@ -35,6 +36,7 @@ protected:
 
 private:
     bool IsCompatible(const USkeletalMesh& InMesh) const;
+    int32 FindRootBoneIndex() const;
 
     UAnimSequence* Sequence = nullptr;
     FCompactPose PlaybackPose;

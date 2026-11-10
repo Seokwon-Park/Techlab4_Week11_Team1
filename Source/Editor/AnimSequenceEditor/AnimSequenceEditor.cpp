@@ -6,6 +6,7 @@
 #include "Asset/AssetUtils.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Render/SkeletalMesh.h"
+#include "Render/LineBatcher.h"
 #include "UObject/Casts.h"
 
 #include <algorithm>
@@ -172,4 +173,26 @@ void FAnimSequenceEditor::TickBeforeWorld(float DeltaTime)
         MeshComponent->SetBoneSpaceTransforms(PlaybackPose);
         bPoseDirty = false;
     }
+}
+
+int32 FAnimSequenceEditor::FindRootBoneIndex() const
+{
+    if (!Mesh)
+    {
+        return -1;
+    }
+
+    // UAnimSequence::FindRootTrack과 같은 규칙: "root"를 먼저, 없으면 첫 트랙의 본
+    const int32 RootIndex = Mesh->FindBoneIndex("root");
+    if (RootIndex >= 0)
+    {
+        return RootIndex;
+    }
+
+    const UAnimDataModel* Model = Sequence ? Sequence->GetDataModel() : nullptr;
+    if (!Model || Model->GetBoneAnimationTracks().IsEmpty())
+    {
+        return -1;
+    }
+    return Mesh->FindBoneIndex(Model->GetBoneAnimationTracks()[0].Name);
 }

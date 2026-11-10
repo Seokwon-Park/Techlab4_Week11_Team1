@@ -1,5 +1,6 @@
 #include "EnginePCH.h"
 #include "Editor/Settings/SettingsPanel.h"
+#include "Animation/AnimSequence.h"
 #include "Asset/AssetManager.h"
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
@@ -83,6 +84,14 @@ void FSettingsPanel::OnRender()
 	}
 	ImGui::TextDisabled("Forward Lambert/Phong only; Off evaluates all uploaded local lights.");
 	ImGui::TextDisabled("Forward Lambert/Phong only; off evaluates all visible local lights.");
+
+	ImGui::Dummy(ImVec2(0.0f, SectionGap));
+	ImGui::SeparatorText("Debug Draw (PIE)");
+	ImGui::Checkbox("Show Collision", &Settings.bShowCollision);
+	ImGui::Checkbox("Show Root", &Settings.bShowRootDebug);
+	ImGui::TextDisabled("PIE only.");
+	// 저장하지 않는 디버그 토글. root 고정을 끄면 루트 모션 이동량이 캡슐 + 메시에 두 번 들어간다
+	ImGui::Checkbox("Skip Root Lock (2x move)", &GDebugSkipRootLock);
 
 	ImGui::Dummy(ImVec2(0.0f, SectionGap));
 	ImGui::SeparatorText("Scene Depth");
@@ -205,6 +214,8 @@ bool FSettingsPanel::SaveSettings() const
 	File << "PcfMode=" << static_cast<uint32_t>(Settings.PcfMode) << "\n";
 	File << "DrawBoundingBox=" << Settings.bDrawBoundingBox << "\n";
 	File << "ShowUUID=" << Settings.bShowUUID << "\n";
+	File << "ShowCollision=" << Settings.bShowCollision << "\n";
+	File << "ShowRootDebug=" << Settings.bShowRootDebug << "\n";
 	File << "DrawDecals=" << Settings.bDrawDecals << "\n";
 	File << "DecalCulling=" << Settings.bDecalCulling << "\n";
 	File << "DecalNarrowCulling=" << Settings.bDecalNarrowCulling << "\n";
@@ -361,6 +372,8 @@ bool FSettingsPanel::LoadSettings()
 				}
 				else if (Key == "DrawBoundingBox") Settings.bDrawBoundingBox = std::stoi(ValueStr);
 				else if (Key == "ShowUUID") Settings.bShowUUID = std::stoi(ValueStr);
+				else if (Key == "ShowCollision") Settings.bShowCollision = std::stoi(ValueStr);
+				else if (Key == "ShowRootDebug") Settings.bShowRootDebug = std::stoi(ValueStr);
 				else if (Key == "DrawDecals") Settings.bDrawDecals = std::stoi(ValueStr);
 				else if (Key == "DecalCulling") Settings.bDecalCulling = std::stoi(ValueStr);
 				else if (Key == "DecalNarrowCulling") Settings.bDecalNarrowCulling = std::stoi(ValueStr);

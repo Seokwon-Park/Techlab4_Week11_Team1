@@ -99,3 +99,16 @@ void UAnimInstance::AddNotifies(const TArray<FAnimNotifyEventReference>& ActiveN
 {
 	NotifyQueue.AddAnimNotifies(ActiveNotifies, Weight);
 }
+FRootMotionMovementParams UAnimInstance::ConsumeExtractedRootMotion()
+{
+	// Unreal UAnimInstance::ConsumeExtractedRootMotion: 꺼내 주고 비운다
+	FRootMotionMovementParams Result = ExtractedRootMotion;
+	ExtractedRootMotion.Clear();
+
+	// IgnoreRootMotion: 추출(→ root 고정)은 했지만 Actor로는 넘기지 않는다
+	if (RootMotionMode == ERootMotionMode::IgnoreRootMotion)
+	{
+		Result.Clear();
+	}
+	return Result;
+}

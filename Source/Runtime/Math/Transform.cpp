@@ -52,3 +52,21 @@ FQuat FTransform::GetOrientation() const
 }
 
 FTransform FTransform::Identity = FTransform(FVector(0, 0, 0), FVector(1, 1, 1), FRotator(0, 0, 0));
+FTransform FTransform::GetRelativeTransform(const FTransform& Other) const
+{
+	// Unreal FTransform::GetRelativeTransform
+	// Scale = this.Scale / Other.Scale
+	// Rotation = Other.Rotation⁻¹ * this.Rotation
+	// Location = (Other.Rotation⁻¹ 로 돌린 (this.Location - Other.Location)) / Other.Scale
+	auto SafeReciprocal = [](float V) { return std::fabs(V) > 1.e-8f ? 1.0f / V : 0.0f; };
+	const FVector InvScale(SafeReciprocal(Other.Scale.X), SafeReciprocal(Other.Scale.Y), SafeReciprocal(Other.Scale.Z));
+
+	const FQuat InvRotation = Other.Rotation.Inverse();
+	const FVector Delta = InvRotation.RotateVector(Location - Other.Location);
+
+	FTransform Result;
+	Result.Scale    = FVector(Scale.X * InvScale.X, Scale.Y * InvScale.Y, Scale.Z * InvScale.Z);
+	Result.Rotation = (InvRotation * Rotation).Normalized();
+	Result.Location = FVector(Delta.X * InvScale.X, Delta.Y * InvScale.Y, Delta.Z * InvScale.Z);
+	return Result;
+}

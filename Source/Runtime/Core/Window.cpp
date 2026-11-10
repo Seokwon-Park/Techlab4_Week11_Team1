@@ -166,6 +166,22 @@ LRESULT FWindow::HandleMessage(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
 		FInputSystem::OnKeyUp(wParam);
 		break;
 
+	// Alt를 누른 상태의 키(Alt 자체 포함)는 WM_KEY* 대신 WM_SYSKEY*로 온다. Alt+P 같은 단축키를 위해 같이 기록한다.
+	case WM_SYSKEYDOWN:
+		FInputSystem::OnKeyDown(wParam);
+		// Alt+F4(창 닫기)는 기본 처리로 넘긴다. 나머지는 넘기지 않아야 Alt가 시스템 메뉴를 열지 않는다
+		if (wParam == VK_F4)
+			return DefWindowProc(hWnd, msg, wParam, lParam);
+		break;
+
+	case WM_SYSKEYUP:
+		FInputSystem::OnKeyUp(wParam);
+		break;
+
+	// Alt+문자 조합이 메뉴 단축키를 찾다 경고음을 내지 않도록 먹는다
+	case WM_SYSCHAR:
+		break;
+
 	// 포커스를 잃으면 이후의 KeyUp/ButtonUp 메시지가 이 창으로 오지 않으므로
 	// 눌린 상태가 그대로 남는다. 여기서 전부 비워준다.
 	case WM_KILLFOCUS:

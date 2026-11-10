@@ -16,6 +16,8 @@ public:
 	virtual ~UAnimSequenceBase() override;
 
 	const UAnimDataModel* GetDataModel() const { return DataModel; }
+	// 클립 길이(초). 데이터가 없으면 0 (Unreal UAnimSequenceBase::GetPlayLength)
+	float GetPlayLength() const { return DataModel ? DataModel->GetPlayLength() : 0.0f; }
 	bool IsNotifyAvailable() const;
 	void GetAnimNotifies(float StartTime, float DeltaTime, FAnimNotifyContext& NotifyContext) const;
 	void GetAnimNotifiesFromDeltaPositions(const float& PreviousPosition, const float& CurrentPosition, FAnimNotifyContext& NotifyContext) const;

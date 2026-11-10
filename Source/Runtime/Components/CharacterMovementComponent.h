@@ -45,6 +45,8 @@ protected:
 	FVector ScaleInputAcceleration(const FVector& InputAcceleration) const;
 
 	void PerformMovement(float DeltaTime);
+	// UE: 메시에 루트 모션이 있으면 입력 대신 그 이동량으로 Actor를 옮긴다. 적용했으면 true
+	bool ApplyRootMotion(float DeltaTime);
 	void CalcVelocity(float DeltaTime, float Friction, float BrakingDeceleration);
 	// Sweep 이동. 막히면 표면을 따라 한 번 미끄러진다
 	void SafeMoveWithSlide(const FVector& Delta, const FRotator& NewRotation);

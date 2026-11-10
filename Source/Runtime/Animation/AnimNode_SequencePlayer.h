@@ -53,6 +53,13 @@ struct FAnimNode_SequencePlayer : public FAnimNode_Base
 		Sequence->GetAnimNotifies(PrevTime, Context.GetDeltaTime() * PlayRate, NotifyContext);
 		UAnimInstance* AnimInstance = Context.GetAnimInstance<UAnimInstance>();
 		AnimInstance->AddNotifies(NotifyContext.ActiveNotifies, Context.GetFinalBlendWeight());
+
+		// 루트 모션: Notify와 같은 구간(PrevTime부터 이번 프레임 이동량)에서 root delta를 뽑아 AnimInstance에 모은다
+		// 시퀀스 설정(에셋)과 AnimInstance 모드(캐릭터)가 둘 다 허락할 때만 뽑는다 (Unreal과 같음)
+		if (Sequence->GetEnableRootMotion() && AnimInstance->ShouldExtractRootMotion())
+		{
+			AnimInstance->AddRootMotion(Sequence->ExtractRootMotion(PrevTime, Context.GetDeltaTime() * PlayRate, bLooping));
+		}
 	}
 
 	void Evaluate(FPoseContext& Output) override
@@ -63,6 +70,9 @@ struct FAnimNode_SequencePlayer : public FAnimNode_Base
 			return;
 		}
 
-		Sequence->GetAnimationPose(CurrentTime, Output.Pose, Output.GetRefSkeleton());
+		// 추출하지 않는 모드면 root도 고정하지 않는다 (Update에서 뽑은 것과 짝을 맞춘다)
+		const UAnimInstance* AnimInstance = Output.GetAnimInstance<UAnimInstance>();
+		const bool bExtractRootMotion = !AnimInstance || AnimInstance->ShouldExtractRootMotion();
+		Sequence->GetAnimationPose(CurrentTime, Output.Pose, Output.GetRefSkeleton(), bExtractRootMotion);
 	}
 };

@@ -7,6 +7,13 @@
 class UAnimInstance;
 class UAnimSequence;
 class UBlendSpace1D;
+class UWorld;
+class FLineBatcher;
+
+// World의 SkeletalMeshComponent마다 root 디버그를 그린다 (DrawCollisionShapes와 같은 방식). PIE의 Show Root에서 호출
+void DrawSkeletalRootDebug(UWorld* World, FLineBatcher* LineBatcher);
+// Settings > Debug Draw (PIE) > Show Root 값. 에디터가 매 프레임 갱신하고, 런타임 액터("root" 라벨 등)가 읽는다
+extern bool GShowSkeletalRootDebug;
 
 UCLASS()
 class USkeletalMeshComponent : public USkinnedMeshComponent
@@ -41,6 +48,16 @@ public:
 	UPROPERTY(EditAnywhere)
 	float BlendSpaceInput = 300.0f;
 
+	// 루트 모션: 이번 Tick까지 모인 이동량(월드 공간). CharacterMovement가 가져가 Actor를 움직인다
+	bool HasPendingRootMotion() const { return bHasPendingRootMotion; }
+	FTransform ConsumeRootMotion();
+
+	// 루트 모션이 뽑히는 본. "root"를 먼저, 없으면 첫 본 (UAnimSequence::FindRootTrack과 같은 규칙)
+	int32 GetRootMotionBoneIndex() const;
+
+	// 디버그: root 본 구체 + 액터 위치(root 높이)에서 root까지의 선
+	void DrawRootDebug(FLineBatcher* LineBatcher) const;
+
 protected:
 	void RefreshBoneTransforms() override;
 	void OnSkeletalMeshChanged() override;
@@ -53,4 +70,10 @@ private:
 	bool bEnableAnimation = false;
 
 	TArray<FTransform> BoneSpaceTransforms;
+
+	// root 부모 공간 delta → 월드 공간 delta (Unreal ConvertLocalRootMotionToWorld + Armature 변환)
+	FTransform ConvertRootMotionToWorld(const FTransform& ParentSpaceDelta) const;
+
+	FTransform PendingRootMotion;           // 월드 공간 누적값
+	bool bHasPendingRootMotion = false;
 };

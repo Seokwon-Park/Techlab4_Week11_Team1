@@ -1,6 +1,9 @@
 #include "EnginePCH.h"
 #include "CharacterMovementComponent.h"
 #include "GameFramework/Pawn.h"
+#include "GameFramework/Character.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "UObject/Casts.h"
 #include <algorithm>
 #include <cmath>
 
@@ -42,6 +45,11 @@ FVector UCharacterMovementComponent::ScaleInputAcceleration(const FVector& Input
 
 void UCharacterMovementComponent::PerformMovement(float DeltaTime)
 {
+	if (ApplyRootMotion(DeltaTime))
+	{
+		return;
+	}
+
 	CalcVelocity(DeltaTime, GroundFriction, BrakingDecelerationWalking * CmToWorld);
 	Velocity.Z = 0.0f;
 
@@ -51,6 +59,33 @@ void UCharacterMovementComponent::PerformMovement(float DeltaTime)
 
 	PhysicsRotation(DeltaTime);
 	UpdateComponentVelocity();
+}
+
+bool UCharacterMovementComponent::ApplyRootMotion(float DeltaTime)
+{
+	const ACharacter* Character = Cast<ACharacter>(PawnOwner);
+	USkeletalMeshComponent* Mesh = Character ? Character->SkeletalMeshComponent : nullptr;
+	if (!Mesh || !Mesh->HasPendingRootMotion())
+	{
+		return false;
+	}
+
+	// 월드 공간 delta. 걷기 중이므로 UE처럼 수직 이동은 버린다
+	const FTransform Delta = Mesh->ConsumeRootMotion();
+	const FVector Move(Delta.Location.X, Delta.Location.Y, 0.0f);
+	Velocity = Move * (1.0f / DeltaTime);   // 애니메이션 등에서 속도를 읽을 수 있게 남긴다
+
+	// 회전은 현재 회전 앞에 곱해 누적하고, 캐릭터는 수직을 유지하도록 Yaw만 쓴다
+	const FQuat NewQuat = (Delta.Rotation * FQuat(UpdatedComponent->GetWorldRotation())).Normalized();
+	const FRotator NewRotation(0.0f, NewQuat.ToFRotator().Yaw, 0.0f);
+
+	if (Move.SizeSquared() > SMALL_NUMBER)
+		SafeMoveWithSlide(Move, NewRotation);   // Sweep: 벽에 막힌다
+	else
+		MoveUpdatedComponent(FVector::ZeroVector, NewRotation, false, nullptr);
+
+	UpdateComponentVelocity();
+	return true;
 }
 
 namespace

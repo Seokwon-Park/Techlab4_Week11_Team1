@@ -1,6 +1,8 @@
 #include "EnginePCH.h"
 #include "Animation/AnimSequence.h"
 #include "Animation/AnimSequenceFile.h"
+#include "Animation/AnimationAsset.h"
+#include "Animation/AnimationRuntime.h"
 #include "Serialization/MemoryReader.h"
 #include "Serialization/MemoryWriter.h"
 #include <algorithm>
@@ -11,7 +13,7 @@
 namespace
 {
 	constexpr uint32 AnimSequenceMagic = 0x4D494E41; // ANIM
-	constexpr uint32 AnimSequenceVersion = 2;        // 2: 미리보기 메시 경로 추가
+	constexpr uint32 AnimSequenceVersion = 3;        // 2: 미리보기 메시 경로 추가, 3: 루트 모션 설정 추가
 	constexpr int64 BytesPerBoneKey = 10 * sizeof(float);
 
 	void SerializeName(FArchive& Ar, FString& Name)
@@ -38,6 +40,36 @@ namespace
 			Ar << Key.X << Key.Y << Key.Z;
 			if constexpr (std::is_same_v<T, FQuat>) Ar << Key.W;
 		}
+	}
+
+	// 트랙 하나를 Frame 위치에서 보간한다. 위치는 Lerp, 회전은 Slerp (GetAnimationPose와 같은 방식)
+	// Scale은 루트 모션에 쓰지 않으므로 (1,1,1) 그대로 둔다
+	FTransform SampleTrack(const FRawAnimSequenceTrack& Keys, double Frame)
+	{
+		FTransform Result;
+
+		auto Sample = [Frame](const auto& Array, auto& Value, auto Interpolate)
+		{
+			if (Array.IsEmpty())
+			{
+				return;
+			}
+			const double KeyFrame = std::clamp(Frame, 0.0, static_cast<double>(Array.Num() - 1));
+			const int32 A = static_cast<int32>(KeyFrame);     // 앞 Key
+			const int32 B = std::min(A + 1, Array.Num() - 1);  // 뒤 Key
+			Value = Interpolate(Array[A], Array[B], static_cast<float>(KeyFrame - A));
+		};
+
+		Sample(Keys.PosKeys, Result.Location, [](const FVector& A, const FVector& B, float Alpha)
+		{
+			return FMath::Lerp(A, B, Alpha);
+		});
+		Sample(Keys.RotKeys, Result.Rotation, [](const FQuat& A, const FQuat& B, float Alpha)
+		{
+			return FMath::Slerp(A, B, Alpha).Normalized();
+		});
+
+		return Result;
 	}
 }
 
@@ -70,6 +102,14 @@ void UAnimSequence::Serialize(FArchive& Ar)
 	if (Version >= 2)
 	{
 		SerializeName(Ar, PreviewPath);
+	}
+
+	// 3: 루트 모션 설정. 이전 버전 파일은 둘 다 꺼진 채로 읽는다
+	uint8 bRootMotion = bLoading ? 0 : static_cast<uint8>(bEnableRootMotion);
+	uint8 bRootLock = bLoading ? 0 : static_cast<uint8>(bForceRootLock);
+	if (Version >= 3)
+	{
+		Ar << bRootMotion << bRootLock;
 	}
 	Ar << Rate.Numerator << Rate.Denominator << Length << TrackCount << KeyCount;
 	if (Ar.IsError() || Rate.Numerator <= 0 || Rate.Denominator <= 0
@@ -126,6 +166,8 @@ void UAnimSequence::Serialize(FArchive& Ar)
         }
         Initialize(std::move(Name), std::move(LoadedTracks), Rate, Length);
         SetPreviewMeshPath(std::move(PreviewPath));
+        bEnableRootMotion = bRootMotion != 0;
+        bForceRootLock = bRootLock != 0;
     }
 }
 
@@ -181,8 +223,91 @@ bool AnimSequenceFile::IsAnimSequencePath(const FString& Path)
 	return End == ".anim.bin";
 }
 
-void UAnimSequence::GetAnimationPose(float Time, FCompactPose& OutPose, const TArray<FBoneInfo>& RefSkeleton) const
-{         
+FTransform UAnimSequence::ExtractRootMotion(float StartTime, float DeltaTime, bool bAllowLooping) const
+{
+	FRootMotionMovementParams RootMotionParams;
+
+	if (DeltaTime != 0.f)
+	{
+		const bool bPlayingBackwards = (DeltaTime < 0.f);
+
+		float PreviousPosition = StartTime;
+		float CurrentPosition = StartTime;
+		float DesiredDeltaMove = DeltaTime;
+
+		do
+		{
+			// 루프 없이 목표 위치까지, 또는 끝(처음)까지 진행
+			const ETypeAdvanceAnim AdvanceType = FAnimationRuntime::AdvanceTime(false, DesiredDeltaMove, CurrentPosition, GetPlayLength());
+
+			// 루프 없이 [PreviousPosition, CurrentPosition] 구간의 root 이동량을 합친다
+			RootMotionParams.Accumulate(ExtractRootMotionFromRange(PreviousPosition, CurrentPosition));
+
+			// 끝에 닿았고 루프면 반대쪽 끝에서 이어감, 아니면 종료
+			if ((AdvanceType == ETypeAdvanceAnim::ETAA_Finished) && bAllowLooping)
+			{
+				const float ActualDeltaMove = (CurrentPosition - PreviousPosition);
+				DesiredDeltaMove -= ActualDeltaMove;
+
+				PreviousPosition = bPlayingBackwards ? GetPlayLength() : 0.f;
+				CurrentPosition = PreviousPosition;
+			}
+			else
+			{
+				break;
+			}
+		} while (true);
+	}
+
+	return RootMotionParams.GetRootMotionTransform();
+}
+
+FTransform UAnimSequence::ExtractRootMotionFromRange(float StartTime, float EndTime) const
+{
+	const FTransform RootStart = ExtractRootTrackTransform(StartTime);
+	const FTransform RootEnd = ExtractRootTrackTransform(EndTime);
+	return RootEnd.GetRelativeTransform(RootStart);
+}
+
+FTransform UAnimSequence::ExtractRootTrackTransform(float Time) const
+{
+	const UAnimDataModel* Model = GetDataModel();
+	const FBoneAnimationTrack* RootTrack = FindRootTrack();
+	if (!Model || !RootTrack)
+	{
+		return FTransform();
+	}
+
+	const double Frame = static_cast<double>(FMath::Clamp(Time, 0.0f, Model->GetPlayLength())) * Model->GetFrameRate().AsDecimal();
+	return SampleTrack(RootTrack->InternalTrack, Frame);
+}
+
+const FBoneAnimationTrack* UAnimSequence::FindRootTrack() const
+{
+	const UAnimDataModel* Model = GetDataModel();
+	if (!Model)
+	{
+		return nullptr;
+	}
+
+	// UAL은 최상위 "Armature"가 고정이고 실제 이동은 그 아래 "root"에 있다
+	const TArray<FBoneAnimationTrack>& Tracks = Model->GetBoneAnimationTracks();
+	for (const FBoneAnimationTrack& Track : Tracks)
+	{
+		if (Track.Name == "root")
+		{
+			return &Track;
+		}
+	}
+
+	// "root"가 없으면 첫 트랙(스켈레톤 순서상 최상위 본)을 쓴다 (Unreal: 본 인덱스 0)
+	return Tracks.IsEmpty() ? nullptr : &Tracks[0];
+}
+
+bool GDebugSkipRootLock = false;
+
+void UAnimSequence::GetAnimationPose(float Time, FCompactPose& OutPose, const TArray<FBoneInfo>& RefSkeleton, bool bExtractRootMotion) const
+{
     OutPose.ResetToRefPose(RefSkeleton);
     const UAnimDataModel* Model = GetDataModel();
 	if (!Model)
@@ -204,7 +329,7 @@ void UAnimSequence::GetAnimationPose(float Time, FCompactPose& OutPose, const TA
         int32 BoneIndex = -1;
         for (int32 Index = 0; Index < RefSkeleton.Num(); ++Index)
         {
-            if (RefSkeleton[Index].Name == Track.Name)
+			if (RefSkeleton[Index].Name == Track.Name)
             {
                 BoneIndex = Index;
                 break;
@@ -244,4 +369,27 @@ void UAnimSequence::GetAnimationPose(float Time, FCompactPose& OutPose, const TA
             return FMath::Slerp(A, B, Alpha).Normalized();
         });
     }
+
+	// root 고정 (Unreal ResetRootBoneForRootMotion, RootLock = AnimFirstFrame)
+	// - Enable Root Motion: 이동은 ExtractRootMotion으로 Actor에 넘겼으므로 포즈에서는 뺀다
+	// - Force Root Lock    : Actor로 넘기지 않아도 root를 묶어 제자리 재생한다 (RM 클립을 in-place처럼 사용)
+	if (!GDebugSkipRootLock && ((bExtractRootMotion && bEnableRootMotion) || bForceRootLock))
+	{
+		const FBoneAnimationTrack* RootTrack = FindRootTrack();
+		if (!RootTrack)
+		{
+			return;
+		}
+
+		for (int32 Index = 0; Index < RefSkeleton.Num(); ++Index)
+		{
+			if (RefSkeleton[Index].Name == RootTrack->Name)
+			{
+				const FTransform FirstKey = SampleTrack(RootTrack->InternalTrack, 0.0);
+				OutPose[Index].Location = FirstKey.Location;   // 위치 고정 → 이동 중복 제거
+				OutPose[Index].Rotation = FirstKey.Rotation;   // 회전 고정 → 회전 중복 제거 (Turn 클립)
+				break;                                          // Scale은 애니메이션 값 그대로
+			}
+		}
+	}
 }

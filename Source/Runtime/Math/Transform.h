@@ -21,7 +21,11 @@ struct FTransform
 	FVector GetForward() const;
 	FVector GetUp() const;
 	FVector GetRight() const;
-	FQuat GetOrientation() const;	
+	FQuat GetOrientation() const;
+
+	// Unreal FTransform::GetRelativeTransform: this를 Other 기준 공간으로 표현한 Transform (= this × Other⁻¹)
+	// 예) End.GetRelativeTransform(Start) = Start 시점 기준으로 End까지 이동/회전한 양
+	FTransform GetRelativeTransform(const FTransform& Other) const;
 
 	FVector Location = FVector(0, 0, 0);
 	FVector Scale = FVector(1, 1, 1);

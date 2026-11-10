@@ -2,6 +2,7 @@
 
 #include "UObject/Object.h"
 #include "Animation/AnimNotifyQueue.h"
+#include "Animation/AnimationAsset.h"
 #include "AnimInstance.generated.h"
 
 struct FAnimNode_Base;
@@ -10,6 +11,16 @@ class AActor;
 class APawn;
 class USkeletalMeshComponent;
 
+// Unreal ERootMotionMode. 이 AnimInstance(캐릭터)가 시퀀스의 루트 모션을 쓸지 정한다.
+// 시퀀스 설정(Enable Root Motion)은 "클립에 루트 모션이 있다", 이 모드는 "이 캐릭터가 그걸 쓴다"
+// 기본값은 하위 AnimInstance 생성자에서(언리얼 AnimBP Class Defaults), 런타임엔 SetRootMotionMode로 바꾼다
+UENUM()
+enum class ERootMotionMode : uint8
+{
+	NoRootMotionExtraction,    // 추출 안 함, root 고정 안 함 → 애니메이션 그대로
+	IgnoreRootMotion,          // 추출·root 고정은 하지만 버림 → 제자리 재생
+	RootMotionFromEverything,  // 추출·root 고정·Actor 이동 (기본값)
+};
 
 UCLASS()
 class UAnimInstance : public UObject
@@ -33,6 +44,15 @@ public:
 
 	void AddNotifies(const TArray<FAnimNotifyEventReference>& ActiveNotifies, const float Weight);
 
+	// 루트 모션: 노드가 Update 중에 뽑은 delta를 모으고, SkeletalMeshComponent가 한 번에 가져간다 (Notify와 같은 흐름)
+	void AddRootMotion(const FTransform& Delta) { ExtractedRootMotion.Accumulate(Delta); }
+	FRootMotionMovementParams ConsumeExtractedRootMotion();
+
+	ERootMotionMode GetRootMotionMode() const { return RootMotionMode; }
+	void SetRootMotionMode(ERootMotionMode InMode) { RootMotionMode = InMode; }
+	// 노드가 루트 모션을 뽑아야 하는가 (추출 여부 = root 고정 여부)
+	bool ShouldExtractRootMotion() const { return RootMotionMode != ERootMotionMode::NoRootMotionExtraction; }
+
 protected:
 	virtual void NativeInitializeAnimation() {}
 	virtual void NativeUpdateAnimation(float DeltaSeconds) {}
@@ -41,4 +61,6 @@ protected:
 protected:
 	FAnimNode_Base* RootNode = nullptr;
 	FAnimNotifyQueue NotifyQueue;
+	FRootMotionMovementParams ExtractedRootMotion;  // root 부모 공간 기준 누적값
+	ERootMotionMode RootMotionMode = ERootMotionMode::RootMotionFromEverything;
 };
