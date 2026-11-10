@@ -448,6 +448,33 @@ void UAnimSequenceBase::SerializeNotifyEvents(FArchive& Ar, TArray<FAnimNotifyTr
     }
 }
 
+bool UAnimSequenceBase::CaptureNotifySnapshot(TArray<uint8>& OutBytes)
+{
+    OutBytes.Reset();
+    FMemoryWriter Writer(OutBytes);
+    Writer.SetIsPersistent(true);
+    TArray<FAnimNotifyTrack> UnusedTracks;
+    TArray<FAnimNotifyEvent> UnusedEvents;
+    SerializeNotifyEvents(Writer, UnusedTracks, UnusedEvents);
+    return !Writer.IsError();
+}
+
+bool UAnimSequenceBase::RestoreNotifySnapshot(const TArray<uint8>& Bytes)
+{
+    FMemoryReader Reader(Bytes, true);
+    TArray<FAnimNotifyTrack> Tracks;
+    TArray<FAnimNotifyEvent> Events;
+    SerializeNotifyEvents(Reader, Tracks, Events);
+    if (Reader.IsError() || Reader.Tell() != Reader.TotalSize())
+    {
+        DeleteNotifyObjects(Events);
+        return false;
+    }
+
+    ReplaceNotifies(std::move(Tracks), std::move(Events));
+    return true;
+}
+
 void UAnimSequenceBase::ReplaceNotifies(TArray<FAnimNotifyTrack>&& Tracks, TArray<FAnimNotifyEvent>&& Events)
 {
     RemoveAllNotifies();

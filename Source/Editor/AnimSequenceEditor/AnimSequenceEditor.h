@@ -34,8 +34,9 @@ public:
         return (Sequence && SelectedNotify.IsValid()) ? Sequence->FindNotify(SelectedNotify) : nullptr;
     }
 
-    // 저장하지 않은 Notify/트랙 편집이 있는지
-    void MarkNotifiesDirty() { bNotifiesDirty = true; }
+    // 저장하지 않은 Notify/트랙 편집이 있는지.
+    // 편집한 곳은 MarkNotifiesDirty를 부르고, 마우스를 놓은 뒤 CommitNotifyUndo가 실행 취소 단계 하나로 묶는다.
+    void MarkNotifiesDirty() { bNotifiesDirty = true; bUndoCommitPending = true; }
     bool HasUnsavedNotifyChanges() const { return bNotifiesDirty; }
     bool IsDirty() const override { return bNotifiesDirty; }
 
@@ -53,8 +54,20 @@ public:
     // 확인 창의 선택 결과로 닫는다 (다시 묻지 않는다)
     void CloseWithoutPrompt();
 
+    // ---- 실행 취소 (Notify/트랙 편집) ----
+    // 매 프레임 끝에 부른다. 조작 중(드래그, 입력 중)이 아니고 편집이 있었으면 이전 상태를 Undo 스택에 넣는다.
+    void CommitNotifyUndo(bool bInteractionActive);
+    void UndoNotifyEdit();
+    void RedoNotifyEdit();
+    bool CanUndoNotifyEdit() const { return !UndoStack.IsEmpty(); }
+    bool CanRedoNotifyEdit() const { return !RedoStack.IsEmpty(); }
+
     bool  bLooping = true;
     float PlayRate = 1.0f;
+    bool  bPreviewNotifies = true;   // 재생 중 Notify를 실제로 발동 (사운드 등)
+
+    // 방금 발동한 Notify면 1 → 0으로 줄어드는 값 (타임라인 반짝임용)
+    float GetNotifyFlash(const FGuid& Guid) const;
 
 protected:
     TUniquePtr<IEditorTab> CreateTab() override;
@@ -78,4 +91,26 @@ private:
     FString SaveMessage;
     bool  bUnsavedPromptRequested = false;
     bool  bCloseConfirmed = false;
+
+    // ---- 미리보기 Notify ----
+    // 진행 중인 NotifyState는 포인터 대신 Guid로 기억한다. 재생 중에 Notify를 편집/삭제해도
+    // 배열 원소 주소가 바뀌는 문제를 피한다 (지워진 State는 End 없이 빠진다).
+    void TriggerPreviewNotifies(float PrevTime, float DeltaMove, float FrameDeltaTime);
+    void EndPreviewNotifyStates();
+    void FlashNotify(const FGuid& Guid);
+
+    // ---- 실행 취소 ----
+    void ResetNotifyHistory();          // 스택을 비우고 지금 상태를 저장된 상태로 본다
+    void ApplyNotifySnapshot(const TArray<uint8>& Snapshot);
+    TArray<TArray<uint8>> UndoStack;
+    TArray<TArray<uint8>> RedoStack;
+    TArray<uint8> CommittedSnapshot;    // 마지막으로 확정된 상태
+    TArray<uint8> SavedSnapshot;        // 파일에 있는 상태 (같으면 변경 없음)
+    bool bUndoCommitPending = false;
+    static constexpr int32 MaxUndoSteps = 100;
+
+    TArray<FGuid> ActivePreviewStates;
+    struct FNotifyFlash { FGuid Guid; float Time; };
+    TArray<FNotifyFlash> RecentFired;
+    float EditorTime = 0.0f;
 };

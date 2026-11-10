@@ -92,6 +92,11 @@ public:
 	bool RemoveNotifyTrack(int32 TrackIndex);
 	bool RenameNotifyTrack(int32 TrackIndex, const FString& Name);
 
+	// 실행 취소용 스냅샷: 트랙/Notify 전체(프로퍼티, Guid 포함)를 .anim.bin v3 Notify 섹션과 같은 형식으로 저장·복원한다.
+	// 복원하면 Notify 객체가 새로 만들어지므로, 진행 중인 NotifyState는 호출하는 쪽이 먼저 닫아야 한다.
+	bool CaptureNotifySnapshot(TArray<uint8>& OutBytes);
+	bool RestoreNotifySnapshot(const TArray<uint8>& Bytes);
+
 	bool RemoveNotify(const FGuid& NotifyGuid);
 	int32 RemoveNotifies(const TArray<FGuid>& NotifyGuids);   // 다중 선택 삭제, 삭제한 개수 반환
 	int32 RemoveNotifiesByName(const FName& NotifyName);      // 같은 이름 전부 삭제 (UE RemoveNotifies(Names))

@@ -20,6 +20,8 @@ namespace
     constexpr float DiamondRadius = 5.0f;
     constexpr float MinStateBarWidth = 4.0f;
     constexpr float TrackHeaderWidth = 110.0f;
+    constexpr float EndHandleWidth = 5.0f;   // 막대 안쪽으로 잡히는 폭
+    constexpr float EndHandleSlop = 3.0f;    // 막대 바깥으로 더 잡히는 폭 (짧은 막대도 잡기 쉽게)
 
     const ImU32 RowColorA = IM_COL32(30, 33, 36, 255);
     const ImU32 RowColorB = IM_COL32(35, 38, 42, 255);
@@ -167,6 +169,12 @@ void FAnimTimelinePanel::DrawTransport()
 
     ImGui::SameLine();
     ImGui::Checkbox("Loop", &Editor.bLooping);
+    ImGui::SameLine();
+    ImGui::Checkbox("Notifies", &Editor.bPreviewNotifies);
+    if (ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip("Fire notifies while playing (sounds etc.). Name-based notifies are logged.");
+    }
     ImGui::SameLine();
     ImGui::SetNextItemWidth(90.0f);
     ImGui::DragFloat("Rate", &Editor.PlayRate, 0.01f, -2.0f, 2.0f, "%.2fx");
@@ -432,6 +440,7 @@ float FAnimTimelinePanel::DrawNotifyTracks(const ImVec2& TracksOrigin, float Wid
     const bool bCanHover = ImGui::IsWindowHovered() && !ImGui::IsAnyItemActive()
         && ImGui::IsMouseHoveringRect(TracksOrigin, TracksMax);
     const FAnimNotifyEvent* Hovered = nullptr;
+    bool bHoveredEndHandle = false;   // NotifyState 막대 오른쪽 끝 (길이 조절)
     const FGuid& Selected = Editor.GetSelectedNotify();
     const ImU32 SelectedOutline = IM_COL32(255, 255, 255, 255);
 
@@ -465,8 +474,12 @@ float FAnimTimelinePanel::DrawNotifyTracks(const ImVec2& TracksOrigin, float Wid
                 Draw->AddText(ImVec2(BarMin.x + 4.0f, CenterY - ImGui::GetTextLineHeight() * 0.5f), IM_COL32(255, 255, 255, 230), Label.c_str());
                 Draw->PopClipRect();
 
+                // 선택되면 끝 핸들을 보여 준다
+                if (bSelected)
+                    Draw->AddRectFilled(ImVec2(BarMax.x - 3.0f, BarMin.y + 2.0f), ImVec2(BarMax.x - 1.0f, BarMax.y - 2.0f), SelectedOutline);
+
                 HitMin = BarMin;
-                HitMax = BarMax;
+                HitMax = ImVec2(BarMax.x + EndHandleSlop, BarMax.y);
             }
             else
             {
@@ -486,11 +499,28 @@ float FAnimTimelinePanel::DrawNotifyTracks(const ImVec2& TracksOrigin, float Wid
                 HitMax = ImVec2(StartX + DiamondRadius + 1.0f, RowTop + NotifyRowHeight);
             }
 
+            // 미리보기에서 방금 발동했으면 잠깐 빛난다
+            if (const float Flash = Editor.GetNotifyFlash(Event.Guid); Flash > 0.0f)
+            {
+                const int Alpha = static_cast<int>(Flash * 220.0f);
+                if (bIsState)
+                    Draw->AddRect(ImVec2(HitMin.x - 2.0f, HitMin.y - 2.0f), ImVec2(HitMax.x - EndHandleSlop + 2.0f, HitMax.y + 2.0f), IM_COL32(255, 255, 160, Alpha), 4.0f, 0, 2.0f);
+                else
+                    Draw->AddCircle(ImVec2(StartX, CenterY), DiamondRadius + 4.0f + (1.0f - Flash) * 4.0f, IM_COL32(255, 255, 160, Alpha), 0, 2.0f);
+            }
+
             // 나중에 그린 것(위에 보이는 것)이 우선
             if (bCanHover && Mouse.x >= HitMin.x && Mouse.x <= HitMax.x && Mouse.y >= HitMin.y && Mouse.y <= HitMax.y)
+            {
                 Hovered = &Event;
+                bHoveredEndHandle = bIsState && Mouse.x >= HitMax.x - EndHandleSlop - EndHandleWidth;
+            }
         }
     }
+
+    // 끝 핸들 위에서는 좌우 화살표 커서
+    if (bHoveredEndHandle || (DraggingNotify.IsValid() && bDragResize && bDragMoved))
+        ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
 
     // 트랙 영역 전체를 버튼으로 덮어 클릭/드래그를 받는다 (레이아웃 공간도 차지해 창 스크롤이 생긴다)
     ImGui::SetCursorScreenPos(TracksOrigin);
@@ -512,6 +542,7 @@ float FAnimTimelinePanel::DrawNotifyTracks(const ImVec2& TracksOrigin, float Wid
             DragGrabOffset = (Mouse.x - TracksOrigin.x) / PixelsPerSecond - Hovered->TriggerTime;
             DragStartMouse = Mouse;
             bDragMoved = false;
+            bDragResize = bHoveredEndHandle;
         }
         else
         {
@@ -678,6 +709,26 @@ void FAnimTimelinePanel::UpdateNotifyDrag(const ImVec2& TracksOrigin, float Pixe
         bDragMoved = true;
     }
 
+    const float Rate = Editor.GetFrameRate();
+    const float Length = Editor.GetPlayLength();
+    const bool bSnap = Rate > 0.0f && !ImGui::GetIO().KeyShift;
+
+    // 끝 핸들: 시작은 그대로 두고 길이만 바꾼다 (최소 1프레임)
+    if (bDragResize)
+    {
+        float EndTime = std::clamp((Mouse.x - TracksOrigin.x) / PixelsPerSecond, 0.0f, Length);
+        if (bSnap)
+            EndTime = std::round(EndTime * Rate) / Rate;
+        const float MinDuration = Rate > 0.0f ? 1.0f / Rate : 0.01f;
+        const float NewDuration = std::max(EndTime - Event->TriggerTime, MinDuration);
+        if (std::fabs(NewDuration - Event->Duration) > 1e-6f)
+        {
+            Sequence->SetNotifyDuration(DraggingNotify, NewDuration);
+            Editor.MarkNotifiesDirty();
+        }
+        return;
+    }
+
     ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
 
     // 세로: 마우스가 있는 줄로 트랙 이동
@@ -685,10 +736,8 @@ void FAnimTimelinePanel::UpdateNotifyDrag(const ImVec2& TracksOrigin, float Pixe
     const int32 TargetTrack = std::clamp(static_cast<int32>(std::floor((Mouse.y - TracksOrigin.y) / NotifyRowHeight)), 0, NumTracks - 1);
 
     // 가로: 시간 이동. 기본은 프레임 단위로 맞추고, Shift를 누르면 자유롭게.
-    const float Rate = Editor.GetFrameRate();
-    const float Length = Editor.GetPlayLength();
     float TargetTime = (Mouse.x - TracksOrigin.x) / PixelsPerSecond - DragGrabOffset;
-    if (Rate > 0.0f && !ImGui::GetIO().KeyShift)
+    if (bSnap)
         TargetTime = std::round(TargetTime * Rate) / Rate;
     // NotifyState는 끝이 시퀀스 밖으로 나가면 길이가 잘리므로, 길이를 지키도록 시작 시간을 제한한다
     const float MaxStart = std::max(Length - (Event->NotifyStateClass ? Event->Duration : 0.0f), 0.0f);

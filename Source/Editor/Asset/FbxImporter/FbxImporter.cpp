@@ -1579,6 +1579,24 @@ bool FFbxImporter::ImportToAssets(const FString& Path, EFbxImportMode Mode, FFbx
 				const auto Target = Folder / File;
 				const auto Temp = Staged.Folder / ("animation_" + std::to_string(SequenceIndex) + ".tmp");
 				Sequence.SetPreviewMeshPath(Utf8Path(SkeletalPath)); // 애님 시퀀스 뷰어가 이 메시로 미리보기한다
+
+				// 다시 임포트할 때 에디터에서 붙인 Notify/트랙을 잃지 않도록 기존 파일에서 옮겨 온다 (UE 재임포트와 같음).
+				// 새 길이를 넘는 Notify는 ReplaceNotifies가 잘라 준다.
+				std::error_code ExistsError;
+				if (std::filesystem::exists(Target, ExistsError))
+				{
+					std::unique_ptr<UAnimSequence> Previous(NewObject<UAnimSequence>());
+					FString PreviousError;
+					TArray<uint8> NotifySnapshot;
+					if (AnimSequenceFile::Read(Target, *Previous, PreviousError)
+						&& !Previous->GetNotifies().IsEmpty()
+						&& Previous->CaptureNotifySnapshot(NotifySnapshot)
+						&& Sequence.RestoreNotifySnapshot(NotifySnapshot))
+					{
+						HTR_LOG(Info, "FBX reimport kept {} notifies: {}", Sequence.GetNotifies().Num(), Utf8Path(Target));
+					}
+				}
+
 				if (!AnimSequenceFile::Write(Temp, Sequence, OutError)) return false;
 				Staged.Files.Add({ Temp, Target });
 				AnimationPaths.Add(Target);

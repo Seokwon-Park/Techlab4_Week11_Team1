@@ -37,6 +37,15 @@ void FAnimSequenceEditorTab::DrawMenuBar()
             AnimEditor.RevertToSaved();
         }
         ImGui::Separator();
+        if (ImGui::MenuItem("Undo", "Ctrl+Z", false, AnimEditor.CanUndoNotifyEdit()))
+        {
+            AnimEditor.UndoNotifyEdit();
+        }
+        if (ImGui::MenuItem("Redo", "Ctrl+Y", false, AnimEditor.CanRedoNotifyEdit()))
+        {
+            AnimEditor.RedoNotifyEdit();
+        }
+        ImGui::Separator();
         if (ImGui::MenuItem("Close Viewer"))
         {
             AnimEditor.Close();
@@ -110,10 +119,26 @@ void FAnimSequenceEditorTab::OnRender(bool bActive)
         }
     }
 
-    // Ctrl+S: 이 탭이 보이고 있을 때만 (레벨 에디터 등 다른 탭과 겹치지 않게)
-    if (bActive && ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false) && AnimEditor.IsDirty())
+    // 이번 프레임의 편집을 실행 취소 단계로 확정 (드래그/입력 중이면 놓을 때까지 미룬다)
+    AnimEditor.CommitNotifyUndo(ImGui::IsAnyItemActive());
+
+    // 단축키: 이 탭이 보이고 있을 때만 (레벨 에디터 등 다른 탭과 겹치지 않게)
+    const ImGuiIO& IO = ImGui::GetIO();
+    if (bActive && IO.KeyCtrl && !IO.WantTextInput)
     {
-        AnimEditor.Save();
+        if (ImGui::IsKeyPressed(ImGuiKey_S, false) && AnimEditor.IsDirty())
+        {
+            AnimEditor.Save();
+        }
+        else if (ImGui::IsKeyPressed(ImGuiKey_Z, false))
+        {
+            if (IO.KeyShift) AnimEditor.RedoNotifyEdit();
+            else             AnimEditor.UndoNotifyEdit();
+        }
+        else if (ImGui::IsKeyPressed(ImGuiKey_Y, false))
+        {
+            AnimEditor.RedoNotifyEdit();
+        }
     }
 
     DrawUnsavedChangesPrompt();

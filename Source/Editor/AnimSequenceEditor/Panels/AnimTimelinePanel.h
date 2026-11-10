@@ -33,6 +33,7 @@ private:
     float DragGrabOffset = 0.0f;
     ImVec2 DragStartMouse;
     bool bDragMoved = false;
+    bool bDragResize = false;     // NotifyState 끝 핸들을 잡았으면 이동 대신 길이 조절
 
     // Notify 우클릭 메뉴가 가리키는 자리
     float ContextTime = 0.0f;

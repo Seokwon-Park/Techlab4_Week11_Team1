@@ -3,43 +3,9 @@
 #include "Animation/AnimSequenceFile.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFrameWork/Pawn.h"
-#include "Animation/AnimNotify.h"
-#include "AnimNotifyState_AttackWindow.h"
 
-namespace
-{
-	// Punch_Jab(30fps)에서 왼팔이 가장 뻗는 순간은 프레임 7.
-	// 뻗기 시작하는 5부터 거두기 시작하는 9까지를 판정 구간으로 둔다.
-	constexpr float AttackWindowStartFrame = 5.0f;
-	constexpr float AttackWindowEndFrame = 9.0f;
-
-	// 발이 바닥에 닿는 프레임 (발목/발끝 높이가 최저점에 닿는 순간, 30fps 기준)
-	// 프레임 0은 (Prev, Curr] 검사에 걸리지 않으므로 반 프레임 뒤로 둔다
-	constexpr float WalkFootstepFrameL = 0.5f;
-	constexpr float WalkFootstepFrameR = 20.0f;
-	constexpr float JogFootstepFrameL = 1.0f;
-	constexpr float JogFootstepFrameR = 15.0f;
-
-	const char* FootstepSoundL = "Assets/Sounds/Footstep_StoneL.flac";
-	const char* FootstepSoundR = "Assets/Sounds/Footstep_StoneR.flac";
-
-	void AddFootstepNotify(UAnimSequence* Sequence, float Frame, const char* SoundPath)
-	{
-		if (!Sequence || !Sequence->GetDataModel())
-			return;
-
-		const FFrameRate Rate = Sequence->GetDataModel()->GetFrameRate();
-		const float Time = Frame * static_cast<float>(Rate.Denominator) / static_cast<float>(Rate.Numerator);
-
-		FGuid Guid;
-		UAnimNotify_PlaySound* Notify = Sequence->AddNotify<UAnimNotify_PlaySound>(Time, 0.f, &Guid);
-		Notify->SoundPath = SoundPath;
-		Notify->Volume = 1.0f;
-
-		// BlendSpace 구간에서 Walk/Jog 발소리가 겹치지 않도록 우세한 샘플만 울린다
-		Sequence->SetNotifyTriggerWeightThreshold(Guid, 0.5f);
-	}
-}
+// 발소리(Walk/Jog의 PlaySound)와 공격 판정(Punch_Jab의 AttackWindow) Notify는 .anim.bin에 저장돼 있다.
+// AnimSequence 에디터의 타임라인에서 편집한다.
 
 void UMyAnimInstance::NativeInitializeAnimation()
 {
@@ -84,11 +50,6 @@ void UMyAnimInstance::NativeInitializeAnimation()
 	auto* Running = LoadSequence(
 		"Assets/FBX/UAL1_Standard/UAL1_Standard_Armature_Jog_Fwd_Loop.anim.bin");
 
-	AddFootstepNotify(Walk, WalkFootstepFrameL, FootstepSoundL);
-	AddFootstepNotify(Walk, WalkFootstepFrameR, FootstepSoundR);
-	AddFootstepNotify(Running, JogFootstepFrameL, FootstepSoundL);
-	AddFootstepNotify(Running, JogFootstepFrameR, FootstepSoundR);
-
 	auto* BlendSpace = NewObject<UBlendSpace1D>();
 
 	BlendSpace->AddSample(Idle, FVector(0, 0, 0));
@@ -100,16 +61,6 @@ void UMyAnimInstance::NativeInitializeAnimation()
 	AttackPlayer.Sequence = LoadSequence(
 		"Assets/FBX/UAL1_Standard/UAL1_Standard_Armature_Punch_Jab.anim.bin");
 	AttackPlayer.bLooping = false;
-
-	// Attack Sequence에 공격 판정 구간 추가 (구간 동안 매 프레임 Sweep, 같은 상대는 한 번만)
-	if (AttackPlayer.Sequence && AttackPlayer.Sequence->GetDataModel())
-	{
-		const FFrameRate Rate = AttackPlayer.Sequence->GetDataModel()->GetFrameRate();
-		const float SecondsPerFrame = static_cast<float>(Rate.Denominator) / static_cast<float>(Rate.Numerator);
-		AttackPlayer.Sequence->AddNotify<UAnimNotifyState_AttackWindow>(
-			AttackWindowStartFrame * SecondsPerFrame,
-			(AttackWindowEndFrame - AttackWindowStartFrame) * SecondsPerFrame);
-	}
 
 	HitPlayer.Sequence = LoadSequence(
 		"Assets/FBX/UAL1_Standard/UAL1_Standard_Armature_Hit_Chest.anim.bin");
