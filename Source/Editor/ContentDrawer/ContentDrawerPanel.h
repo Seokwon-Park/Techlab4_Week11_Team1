@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Editor/EditorUI/EditorPanel.h"
+#include "Editor/BlendSpaceEditor/BlendSpaceAssetCreator.h"
 
 #include <filesystem>
 #include <functional>
@@ -21,6 +22,10 @@ public:
 	void SetCreateWidgetCallback(std::function<void(const FString&)> InCallback) { OnCreateWidget = std::move(InCallback); }
 	// OBJ 또는 베이크된 FBX 메시를 더블클릭하면 Viewer를 엽니다.
 	void SetOpenMeshCallback(std::function<void(const FString&)> InCallback) { OnOpenMesh = std::move(InCallback); }
+	void SetBlendSpaceCreatedCallback(std::function<void(const FString&)> InCallback)
+	{
+		BlendSpaceCreator.SetCreatedCallback(std::move(InCallback));
+	}
 
 private:
 	std::function<void(const FString&)> OnOpenWidget;
@@ -34,5 +39,6 @@ private:
 
 	const FString FolderIconPath = "Assets/Icons/Folder.png";
 	const FString FileIconPath = "Assets/Icons/File.png";
-	
+
+	FBlendSpaceAssetCreator BlendSpaceCreator;
 };

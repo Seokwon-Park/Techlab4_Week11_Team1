@@ -81,22 +81,51 @@ void UBlendSpace1D::Serialize(FStructuredArchive::FRecord Record)
 	Super::Serialize(Record);
 
 	FArchive& Ar = Record.GetUnderlyingArchive();
+
+	int32 Version = Ar.IsSaving() ? 1 : 0;
+	Record << SA_VALUE("Version", Version);
+	if (Version != 1)
+	{
+		Ar.SetError();
+		return;
+	}
+
+	FString PreviewMeshPath = Ar.IsSaving() ? GetPreviewMeshPath() : FString{};
+	Record << SA_VALUE("PreviewMesh", PreviewMeshPath);
+	if (Ar.IsLoading())
+		SetPreviewMeshPath(std::move(PreviewMeshPath));
+
 	int32 Count = Ar.IsSaving() ? BlendSampleData.Num() : 0;
 	auto Samples = Record.EnterArray("Samples", Count);
 
 	if (Ar.IsLoading())
+	{
 		BlendSampleData.SetNum(Count);
+	}
 
 	for (int32 Index = 0; Index < Count; ++Index)
 	{
 		auto SampleRecord = Samples.EnterElement().EnterRecord();
 		FBlendSample& Sample = BlendSampleData[Index];
-		UObject* Animation = Sample.Animation;
+		UObject* Animation = Ar.IsLoading() ? nullptr : Sample.Animation;
 
 		SampleRecord << SA_VALUE("Animation", Animation);
 		SampleRecord << SA_VALUE("SampleValue", Sample.SampleValue);
 
 		if (Ar.IsLoading())
+		{
 			Sample.Animation = static_cast<UAnimSequence*>(Animation);
+		}
 	}
+}
+
+bool UBlendSpace1D::RemoveSample(int32 Index)
+{
+	if (Index < 0 || Index >= BlendSampleData.Num())
+	{
+		return false;
+	}
+	
+	BlendSampleData.RemoveAt(Index);
+	return true;
 }

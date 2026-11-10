@@ -19,6 +19,9 @@ public:
 	bool AddSample(UAnimSequence* Animation, const FVector& SampleValue);
 	bool GetSamples(float X, FBlendSample& OutA, FBlendSample& OutB, float& OutAlpha) const;
 
+	const TArray<FBlendSample>& GetSampleData() const { return BlendSampleData; }
+	bool RemoveSample(int32 Index);
+
 	using Super::Serialize;
 	void Serialize(FStructuredArchive::FRecord Record) override;
 

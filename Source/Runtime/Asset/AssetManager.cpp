@@ -20,6 +20,8 @@
 
 #include "Animation/AnimSequence.h"
 #include "Animation/AnimSequenceFile.h"
+#include "Animation/BlendSpace1D.h"
+#include "Animation/BlendSpaceFile.h"
 #include "Asset/AssetUtils.h"
 
 #include "Render/ImageLoader.h"
@@ -463,6 +465,7 @@ void UAssetManager::Shutdown()
 	Get().AssetMap.Empty();
 	Get().SoundMap.Empty();
 	Get().AnimSequenceMap.Empty();
+	Get().BlendSpaceMap.Empty();
 }
 
 
@@ -779,4 +782,27 @@ bool UAssetManager::BuildMaterialsFromSlots(const TArray<FStaticMaterialSlot>& S
 bool UAssetManager::BuildMaterialsFromSlots(const TArray<FSkeletalMaterialSlot>& Slots, TArray<UMaterial*>& OutMaterials)
 {
 	return BuildMaterialsFromSlotsImpl(Slots, OutMaterials);
+}
+
+UBlendSpace1D* UAssetManager::LoadBlendSpace(const FString& Path)
+{
+	const FString Key = MakeLookupKey(Path);
+	if (UBlendSpace1D** Found = Get().BlendSpaceMap.Find(Key))
+	{
+		return *Found;
+	}
+
+	const FString FilePath = FAssetUtils::ResolveAssetFilePath(Path);
+	UBlendSpace1D* BlendSpace = NewObject<UBlendSpace1D>();
+
+	FString Error;
+	if (!BlendSpaceFile::Read(std::filesystem::path(FilePath.empty() ? Path : FilePath), *BlendSpace, Error))
+	{
+		HTR_LOG(Warning, "Failed to load BlendSpace: {} ({})", Path, Error);
+		delete BlendSpace;
+		return nullptr;
+	}
+
+	Get().BlendSpaceMap[Key] = BlendSpace;
+	return BlendSpace;
 }

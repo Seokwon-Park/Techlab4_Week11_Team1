@@ -55,7 +55,7 @@ void ASkeletalMeshActor::BeginPlay()
     BlendSpace->AddSample(Walk, FVector(200, 0, 0));
 
     SkeletalMeshComponent->BlendSpaceInput = 0.0f;
-    SkeletalMeshComponent->PlayBlendSpace(BlendSpace);
+    SkeletalMeshComponent->PlayAnimation(BlendSpace);
 }
 
 ASkeletalMeshActor::ASkeletalMeshActor()
