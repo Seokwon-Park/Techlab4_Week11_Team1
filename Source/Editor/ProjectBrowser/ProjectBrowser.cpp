@@ -16,6 +16,7 @@
 #include "Core/Misc/Paths.h"
 #include "Core/Window.h"
 #include "Editor/EditorUI/EditorTitleBar.h"
+#include "Render/ImageLoader.h"
 
 #pragma comment(lib, "d3d11.lib")
 
@@ -215,6 +216,33 @@ namespace
 		ComPtr<ID3D11Texture2D> BackBuffer;
 		if (SUCCEEDED(Window.SwapChain->GetBuffer(0, IID_PPV_ARGS(&BackBuffer))))
 			Window.Device->CreateRenderTargetView(BackBuffer.Get(), nullptr, &Window.RenderTarget);
+	}
+
+	// 엔진 콘텐츠의 로고 이미지를 텍스처로 만든다. 파일이 없거나 읽지 못하면 nullptr이고, 제목 표시줄은 빈 칸으로 남는다.
+	ComPtr<ID3D11ShaderResourceView> CreateLogoTexture(ID3D11Device* Device)
+	{
+		const FImageData Image = ImageLoader::Load(FPaths::ResolveContentPath("Engine/Icons/Logo.png"));
+		if (!Image.IsValid()) return nullptr;
+
+		D3D11_TEXTURE2D_DESC Desc{};
+		Desc.Width = Image.Width;
+		Desc.Height = Image.Height;
+		Desc.MipLevels = 1;
+		Desc.ArraySize = 1;
+		Desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		Desc.SampleDesc.Count = 1;
+		Desc.Usage = D3D11_USAGE_IMMUTABLE;
+		Desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+
+		D3D11_SUBRESOURCE_DATA Data{};
+		Data.pSysMem = Image.Pixels.GetData();
+		Data.SysMemPitch = Image.GetRowPitch();
+
+		ComPtr<ID3D11Texture2D> Texture;
+		ComPtr<ID3D11ShaderResourceView> View;
+		if (FAILED(Device->CreateTexture2D(&Desc, &Data, &Texture))) return nullptr;
+		if (FAILED(Device->CreateShaderResourceView(Texture.Get(), nullptr, &View))) return nullptr;
+		return View;
 	}
 
 	bool CreateDevice(FBrowserWindow& Window)
@@ -554,6 +582,9 @@ fs::path ProjectBrowser::Run(HINSTANCE hInstance)
 
 		// 기본 제목 표시줄을 없애고 메뉴 바를 제목 표시줄로 쓴다. 클라이언트 크기가 바뀌므로 아래 루프에서 스왑체인을 맞춘다.
 		EditorTitleBar::Install(MainWindow);
+		// 에디터와 같은 로고를 왼쪽 위에 그린다. 엔진(UAssetManager)이 아직 없으므로 이 창의 장치로 직접 텍스처를 만든다.
+		const ComPtr<ID3D11ShaderResourceView> Logo = CreateLogoTexture(Window.Device.Get());
+		if (Logo) EditorTitleBar::SetLogo((ImTextureID)Logo.Get());
 		MainWindow.Show();
 
 		FBrowserUI UI;
