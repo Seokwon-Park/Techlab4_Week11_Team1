@@ -1,6 +1,5 @@
 #pragma once
 
-#include "AnimSequenceEditorPanel.h"
 #include "Core/Misc/Guid.h"
 #include "Editor/AssetEditor/AssetEditorPanel.h"
 #include "Editor/AnimSequenceEditor/AnimSequenceEditor.h"

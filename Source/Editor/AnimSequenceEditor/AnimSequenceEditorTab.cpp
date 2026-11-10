@@ -49,6 +49,8 @@ void FAnimSequenceEditorTab::DrawMenuBar()
         ImGui::EndMenu();
     }
 
+}
+
 void FAnimSequenceEditorTab::BuildDefaultLayout(ImGuiID InDockSpaceId, const ImVec2& Size)
 {
     ImGui::DockBuilderAddNode(InDockSpaceId, ImGuiDockNodeFlags_DockSpace);
@@ -66,40 +68,11 @@ void FAnimSequenceEditorTab::BuildDefaultLayout(ImGuiID InDockSpaceId, const ImV
 
 void FAnimSequenceEditorTab::OnRender(bool bActive)
 {
-    // 뷰포트 패널이 그리지 않은 프레임은 보이지 않는 것으로 처리한다
-    AnimEditor.SetViewportState(0, 0, {});
+    FDockedAssetEditorTab::OnRender(bActive);
+
     if (AnimEditor.IsCloseRequested())
     {
         return;
-    }
-
-    if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_DockingEnable)
-    {
-        const ImVec2 Size = ImGui::GetContentRegionAvail();
-        if (bActive && Size.x > 0.0f && Size.y > 0.0f &&
-            (!bLayoutInitialized || !ImGui::DockBuilderGetNode(DockSpaceId)))
-        {
-            ImGui::DockBuilderRemoveNode(DockSpaceId);
-            BuildDefaultLayout(DockSpaceId, Size);
-            bLayoutInitialized = true;
-        }
-
-        ImGuiWindowClass WindowClass;
-        WindowClass.ClassId = PanelClassId;
-        WindowClass.DockingAllowUnclassed = false;
-        const ImGuiDockNodeFlags Flags = bActive ? ImGuiDockNodeFlags_None : ImGuiDockNodeFlags_KeepAliveOnly;
-        if (bActive || ImGui::DockBuilderGetNode(DockSpaceId))
-        {
-            ImGui::DockSpace(DockSpaceId, ImVec2(0.0f, 0.0f), Flags, &WindowClass);
-        }
-    }
-
-    for (auto& Panel : Panels)
-    {
-        if (Panel->IsOpen() && (bActive || Panel->IsDetached(DockSpaceId)))
-        {
-            Panel->OnRender();
-        }
     }
 
     // 이번 프레임의 편집을 실행 취소 단계로 확정 (드래그/입력 중이면 놓을 때까지 미룬다)
