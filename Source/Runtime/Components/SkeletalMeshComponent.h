@@ -9,6 +9,7 @@ class UAnimSequence;
 class UBlendSpace1D;
 class UAnimationAsset;
 class UAnimSingleNodeInstance;
+class UAnimGraphInstance;
 
 UCLASS()
 class USkeletalMeshComponent : public USkinnedMeshComponent
@@ -16,6 +17,13 @@ class USkeletalMeshComponent : public USkinnedMeshComponent
 	GENERATED_BODY()
 
 public:
+    USkeletalMeshComponent();
+    ~USkeletalMeshComponent() override;
+    bool SetAnimBlueprint(const FString& Path);
+    bool ReloadAnimBlueprint();
+    UAnimGraphInstance* CreateAnimGraph();
+    const FString& GetAnimBlueprintPath() const;
+    const FString& GetAnimBlueprintError() const;
 	void SetAnimInstance(UAnimInstance* InInstance);
 	UAnimSingleNodeInstance* GetSingleNodeInstance() const;
 	UAnimInstance* GetAnimInstance() const { return AnimInstance; }
@@ -55,6 +63,14 @@ protected:
 	void OnSkeletalMeshChanged() override;
 
 private:
+    UPROPERTY()
+    FString AnimBlueprintPath;
+
+    TUniquePtr<UAnimGraphInstance> ManagedAnimGraph;
+    FString AnimBlueprintError;
+    bool bBlueprintReloadRequested = false;
+    bool bUpdatingAnimation = false;
+
 	UPROPERTY()
 	UAnimInstance* AnimInstance = nullptr;
 

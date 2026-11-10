@@ -1,9 +1,9 @@
 #include "EnginePCH.h"
-#include "AnimViewportPanel.h"
-#include "Editor/AnimSequenceEditor/AnimSequenceEditor.h"
+#include "SkeletalPreviewViewportPanel.h"
+#include "Editor/SkeletalPreviewEditor/SkeletalPreviewEditor.h"
 #include "Editor/Viewports/EditorViewportClient.h"
 
-void FAnimViewportPanel::DrawContent()
+void FSkeletalPreviewViewportPanel::DrawContent()
 {
     FEditorViewportClient* Client = Editor.GetViewportClient();
     const ImVec2 Size = ImGui::GetContentRegionAvail();

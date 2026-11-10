@@ -8,6 +8,7 @@
 #include "Editor/HitoriEd/EditorDragDrop.h"
 #include "Animation/AnimSequenceFile.h"
 #include "Animation/BlendSpaceFile.h"
+#include "Animation/AnimBlueprintFile.h"
 
 bool FContentDrawerPanel::Init()
 {
@@ -173,7 +174,15 @@ void FContentDrawerPanel::OnRender()
 
 					if (!bIsDirectory)
 					{
-						BlendSpaceCreator.DrawContextMenu(PathString, CurrentPath);
+                        URenderAsset* ContextAsset = UAssetManager::FindLoadedAsset(PathString);
+                        const bool bSkeletalMesh = (ContextAsset && ContextAsset->IsA<USkeletalMesh>()) || UAssetManager::GetUnloadedAssetType(PathString) == EAssetType::SkeletalMesh;
+
+                        if (bSkeletalMesh && ImGui::BeginPopupContextItem("##AssetContext"))
+                        {
+                            BlendSpaceCreator.DrawMenuItems(PathString, CurrentPath);
+                            AnimBlueprintCreator.DrawMenuItems(PathString, CurrentPath);
+                            ImGui::EndPopup();
+                        }
 					}
 				}
 
@@ -216,7 +225,7 @@ void FContentDrawerPanel::OnRender()
 						OnOpenMesh(PathString);
 					}
 
-					else if (BlendSpaceFile::IsBlendSpacePath(PathString) && OnOpenMesh)
+					else if ((BlendSpaceFile::IsBlendSpacePath(PathString) || AnimBlueprintFile::IsAnimBlueprintPath(PathString)) && OnOpenMesh)
 					{
 						OnOpenMesh(PathString);
 					}
@@ -231,6 +240,7 @@ void FContentDrawerPanel::OnRender()
 		}
 	}
 	BlendSpaceCreator.ProcessCreateRequest();
+    AnimBlueprintCreator.ProcessCreateRequest();
 
 	ImGui::EndChild();
 	ImGui::End();

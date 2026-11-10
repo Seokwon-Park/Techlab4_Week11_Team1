@@ -41,7 +41,7 @@ void AMyCharacter::BeginPlay()
 	// Super::BeginPlay 안에서 Lua BeginPlay가 돈다. 스크립트가 AnimGraph를 만들었으면 그대로 쓴다.
 	Super::BeginPlay();
 
-	if (!Cast<UAnimGraphInstance>(SkeletalMeshComponent->GetAnimInstance()))
+	if (SkeletalMeshComponent->GetAnimBlueprintPath().empty() && !Cast<UAnimGraphInstance>(SkeletalMeshComponent->GetAnimInstance()))
 	{
 		UMyAnimInstance* Instance = NewObject<UMyAnimInstance>(SkeletalMeshComponent);
 		SkeletalMeshComponent->SetAnimInstance(Instance);

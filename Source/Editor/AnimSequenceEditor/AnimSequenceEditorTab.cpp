@@ -1,27 +1,23 @@
 #include "EnginePCH.h"
 #include "AnimSequenceEditorTab.h"
 #include "AnimSequenceEditor.h"
-#include "Panels/AnimViewportPanel.h"
+#include "Editor/SkeletalPreviewEditor/SkeletalPreviewViewportPanel.h"
 #include "Panels/AnimTimelinePanel.h"
 #include "Panels/AnimSequenceDetailsPanel.h"
 
 FAnimSequenceEditorTab::FAnimSequenceEditorTab(FAnimSequenceEditor& InEditor)
-    : FAssetEditorTab(InEditor)
+    : FDockedAssetEditorTab(InEditor, "AnimSequenceDockSpace", "AnimSequencePanelClass")
     , AnimEditor(InEditor)
 {
-    // 같은 시퀀스를 다시 열어도 배치가 유지되고, 다른 에셋 창과 섞이지 않도록 에셋 경로로 ID를 만든다
-    const ImGuiID AssetId = ImHashStr(InEditor.GetAssetPath().c_str());
-    DockSpaceId = ImHashStr("AnimSequenceDockSpace", 0, AssetId);
-    PanelClassId = ImHashStr("AnimSequencePanelClass", 0, AssetId);
+    RegisterPanel(MakeUnique<FSkeletalPreviewViewportPanel>(InEditor));
+    RegisterPanel(MakeUnique<FAnimTimelinePanel>(InEditor));
+    RegisterPanel(MakeUnique<FAnimSequenceDetailsPanel>(InEditor));
+}
 
-    Panels.Add(MakeUnique<FAnimViewportPanel>(InEditor));         // 0
-    Panels.Add(MakeUnique<FAnimTimelinePanel>(InEditor));         // 1
-    Panels.Add(MakeUnique<FAnimSequenceDetailsPanel>(InEditor));  // 2
-    for (auto& Panel : Panels)
-    {
-        Panel->SetDockClass(PanelClassId);
-        Panel->Init();
-    }
+void FAnimSequenceEditorTab::BeforeRender()
+{
+    // 패널이 그려지지 않은 프레임에는 프리뷰 입력을 비운다.
+    AnimEditor.SetViewportState(0, 0, {});
 }
 
 void FAnimSequenceEditorTab::DrawMenuBar()
@@ -52,19 +48,6 @@ void FAnimSequenceEditorTab::DrawMenuBar()
         }
         ImGui::EndMenu();
     }
-
-    if (ImGui::BeginMenu("Window"))
-    {
-        for (auto& Panel : Panels)
-        {
-            if (ImGui::MenuItem(Panel->GetPanelName(), nullptr, Panel->IsOpen()))
-            {
-                Panel->SetOpen(!Panel->IsOpen());
-            }
-        }
-        ImGui::EndMenu();
-    }
-}
 
 void FAnimSequenceEditorTab::BuildDefaultLayout(ImGuiID InDockSpaceId, const ImVec2& Size)
 {

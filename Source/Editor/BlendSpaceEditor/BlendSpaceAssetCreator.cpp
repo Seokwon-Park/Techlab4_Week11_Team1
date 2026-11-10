@@ -25,16 +25,24 @@ void FBlendSpaceAssetCreator::DrawContextMenu(const FString& AssetPath, const st
 
     if (ImGui::BeginPopupContextItem("##BlendSpaceContext"))
     {
-        if (ImGui::MenuItem("Create BlendSpace 1D"))
-        {
-            PreviewMeshPath = AssetPath;
-            CreateDirectory = Directory;
-            bOpenDialog = true;
-        }
+        DrawMenuItems(AssetPath, Directory);
         ImGui::EndPopup();
     }
 }
 
+
+void FBlendSpaceAssetCreator::DrawMenuItems(const FString& AssetPath, const std::filesystem::path& Directory)
+{
+    URenderAsset* Loaded = UAssetManager::FindLoadedAsset(AssetPath);
+    const bool bSkeletalMesh = (Loaded && Loaded->IsA<USkeletalMesh>()) || UAssetManager::GetUnloadedAssetType(AssetPath) == EAssetType::SkeletalMesh;
+
+    if (bSkeletalMesh && ImGui::MenuItem("Create BlendSpace 1D"))
+    {
+        PreviewMeshPath = AssetPath;
+        CreateDirectory = Directory;
+        bOpenDialog = true;
+    }
+}
 
 void FBlendSpaceAssetCreator::ProcessCreateRequest()
 {

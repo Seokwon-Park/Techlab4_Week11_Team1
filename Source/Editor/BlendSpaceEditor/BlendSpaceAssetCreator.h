@@ -9,6 +9,7 @@ class FBlendSpaceAssetCreator
 {
 public:
     void DrawContextMenu(const FString& AssetPath, const std::filesystem::path& Directory);
+    void DrawMenuItems(const FString& AssetPath, const std::filesystem::path& Directory);
     void ProcessCreateRequest();
     void SetCreatedCallback(std::function<void(const FString&)> InCallback)
     {

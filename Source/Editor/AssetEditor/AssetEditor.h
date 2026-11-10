@@ -35,7 +35,7 @@ public:
 	void Activate();
 
 	// Editor를 종료합니다.
-	void Close();
+	virtual void Close();
 
 	// Editor를 정리합니다.
 	void Shutdown();
@@ -61,6 +61,8 @@ public:
 	virtual bool ConfirmClose() { return true; }
 
 protected:
+	void SetAssetPath(const FString& InAssetPath);
+
 	// 이 에디터에 연결된 탭을 생성합니다.
 	virtual TUniquePtr<class IEditorTab> CreateTab();
 

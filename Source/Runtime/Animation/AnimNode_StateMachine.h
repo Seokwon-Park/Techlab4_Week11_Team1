@@ -49,6 +49,7 @@ struct FAnimNode_StateMachine : public FAnimNode_Base
     int32 AddTransition(const FAnimTransitionDesc& Desc);
     void  SetInitialState(int32 StateIndex);
     FName GetCurrentStateName() const;     // ImGui 디버그용
+    int32 GetCurrentStateIndex() const;
 
     void Update(const FAnimationUpdateContext& Context) override;
     void Evaluate(FPoseContext& Output) override;
@@ -67,7 +68,6 @@ private:
     int32 InitialState = 0;
     float ElapsedTime = 0.0f;
 
-    //TODO : ActiveBlend?
     struct FActiveBlend { int32 FromState; float Elapsed; float Duration; };
     TArray<FActiveBlend> ActiveBlends;
 

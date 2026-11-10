@@ -1,13 +1,14 @@
 #pragma once
 
-#include "BlendSpaceEditorPanel.h"
+#include "Editor/AssetEditor/AssetEditorPanel.h"
+#include "Editor/BlendSpaceEditor/BlendSpaceEditor.h"
 #include <vector>
 
-class FBlendSpacePlayPanel : public FBlendSpaceEditorPanel
+class FBlendSpacePlayPanel : public TAssetEditorPanel<FBlendSpaceEditor>
 {
 public:
     explicit FBlendSpacePlayPanel(FBlendSpaceEditor& InEditor)
-        : FBlendSpaceEditorPanel(InEditor, "Preview Controls")
+        : TAssetEditorPanel<FBlendSpaceEditor>(InEditor, "Preview Controls", "AnimSequencePanel")
     {
     }
 
@@ -18,7 +19,6 @@ private:
     void DrawSamples();
     void RefreshAnimationList();
 
-private:
     bool bLoop = true;
 
     std::vector<FString> AnimationPaths;

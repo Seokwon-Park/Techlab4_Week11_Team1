@@ -967,15 +967,52 @@ namespace
 	struct FLuaBlendSpaceRef { FLuaAnimGraphRef Graph; UBlendSpace1D* Ptr = nullptr; };
 	struct FLuaAnimNodeRef { FLuaAnimGraphRef Graph; int32 Index = INDEX_NONE; };
 
-	// Lua가 만든 그래프. ReleaseCallbacks에서 리셋해 Lua 함수를 잡은 규칙/콜백을 놓는다.
+	//  Lua가 만든 그래프. ReleaseCallbacks에서 리셋해 Lua 함수를 잡은 규칙/콜백을 놓는다.
 	struct FLuaAnimGraphBinding { AActor* Owner; FLuaAnimGraphRef Graph; };
 	TArray<FLuaAnimGraphBinding> AnimGraphBindings;
+
+    void TrackAnimGraph(AActor& Owner, const FLuaAnimGraphRef& Ref)
+    {
+        for (int32 Index = AnimGraphBindings.Num() - 1; Index >= 0; --Index)
+        {
+            if (AnimGraphBindings[Index].Owner != &Owner)
+            {
+                continue;
+            }
+
+            UAnimGraphInstance* Existing = AnimGraphBindings[Index].Graph.Get();
+
+            if (!Existing)
+            {
+                AnimGraphBindings.RemoveAt(Index);
+            }
+            else if (Existing == Ref.Get())
+            {
+                return;
+            }
+        }
+
+        AnimGraphBindings.Add({ &Owner, Ref });
+    }
+
 
 	UAnimGraphInstance& DerefGraph(const FLuaAnimGraphRef& Ref)
 	{
 		if (UAnimGraphInstance* Graph = Ref.Get()) return *Graph;
 		throw sol::error("AnimGraph is no longer valid (reset, replaced, or mesh destroyed).");
 	}
+
+    UAnimGraphInstance& DerefEditableGraph(const FLuaAnimGraphRef& Ref)
+    {
+        USkeletalMeshComponent* Component = Cast<USkeletalMeshComponent>(Ref.Mesh.Get());
+
+        if (Component && !Component->GetAnimBlueprintPath().empty())
+        {
+            throw sol::error("Edit Animation Blueprint graph structure in its editor. Lua can update variables and bind named notifications.");
+        }
+
+        return DerefGraph(Ref);
+    }
 
 	UAnimSequence& DerefSequence(const FLuaAnimSequenceRef& Ref)
 	{
@@ -1314,24 +1351,35 @@ namespace
 			// 그래프를 비운다. 이 그래프에서 받은 모든 핸들이 무효가 되므로 새 핸들을 돌려준다.
 			"Reset", [](const FLuaAnimGraphRef& R)
 				{
-					UAnimGraphInstance& Graph = DerefGraph(R);
+					USkeletalMeshComponent* Component = Cast<USkeletalMeshComponent>(R.Mesh.Get());
+                    if (Component && !Component->GetAnimBlueprintPath().empty())
+                    {
+                        throw sol::error("Use ReloadAnimBlueprint to rebuild an asset-backed graph.");
+                    }
+
+                    UAnimGraphInstance& Graph = DerefGraph(R);
 					Graph.ResetGraph();
-					return RefOf(R, Graph);
+					const FLuaAnimGraphRef Updated = RefOf(R, Graph);
+                    if (Component && Component->GetOwner())
+                    {
+                        TrackAnimGraph(*Component->GetOwner(), Updated);
+                    }
+                    return Updated;
 				},
 
 			// ---- 에셋 ----
 			"LoadSequence", [](const FLuaAnimGraphRef& R, const std::string& Path) -> sol::optional<FLuaAnimSequenceRef>
 				{
-					UAnimSequence* Sequence = DerefGraph(R).LoadSequence(Path);
+					UAnimSequence* Sequence = DerefEditableGraph(R).LoadSequence(Path);
 					return Sequence ? sol::optional<FLuaAnimSequenceRef>(FLuaAnimSequenceRef{ R, Sequence }) : sol::nullopt;
 				},
 			"CreateBlendSpace", [](const FLuaAnimGraphRef& R)
 				{
-					return FLuaBlendSpaceRef{ R, DerefGraph(R).CreateBlendSpace() };
+					return FLuaBlendSpaceRef{ R, DerefEditableGraph(R).CreateBlendSpace() };
 				},
 			"LoadBlendSpace", [](const FLuaAnimGraphRef& R, const std::string& Path) -> sol::optional<FLuaBlendSpaceRef>
 				{
-					UBlendSpace1D* BlendSpace = DerefGraph(R).LoadBlendSpace(Path);
+					UBlendSpace1D* BlendSpace = DerefEditableGraph(R).LoadBlendSpace(Path);
 					return BlendSpace ? sol::optional<FLuaBlendSpaceRef>(FLuaBlendSpaceRef{ R, BlendSpace }) : sol::nullopt;
 				},
 
@@ -1339,7 +1387,7 @@ namespace
 			// Options = { Loop = false, PlayRate = 1 }
 			"SequencePlayer", [](const FLuaAnimGraphRef& R, const FLuaAnimSequenceRef& Sequence, sol::optional<sol::table> Options)
 				{
-					UAnimGraphInstance& Graph = DerefGraph(R);
+					UAnimGraphInstance& Graph = DerefEditableGraph(R);
 					const bool bLoop = Options ? Options->get_or("Loop", false) : false;
 					const float PlayRate = Options ? Options->get_or("PlayRate", 1.0f) : 1.0f;
 					return MakeNodeRef(R, Graph.AddSequencePlayer(&DerefSequence(Sequence), bLoop, PlayRate), "SequencePlayer");
@@ -1347,24 +1395,24 @@ namespace
 			// X 입력을 Float 변수에 바인딩한다. Options = { PlayRate = 1 }
 			"BlendSpacePlayer", [](const FLuaAnimGraphRef& R, const FLuaBlendSpaceRef& BlendSpace, const std::string& XVariable, sol::optional<sol::table> Options)
 				{
-					UAnimGraphInstance& Graph = DerefGraph(R);
+					UAnimGraphInstance& Graph = DerefEditableGraph(R);
 					const float PlayRate = Options ? Options->get_or("PlayRate", 1.0f) : 1.0f;
 					return MakeNodeRef(R, Graph.AddBlendSpacePlayer(&DerefBlendSpace(BlendSpace), XVariable, PlayRate), "BlendSpacePlayer");
 				},
 			// Alpha 입력을 Float 변수에 바인딩한다 (0 = A, 1 = B)
 			"TwoWayBlend", [](const FLuaAnimGraphRef& R, const FLuaAnimNodeRef& A, const FLuaAnimNodeRef& B, const std::string& AlphaVariable)
 				{
-					UAnimGraphInstance& Graph = DerefGraph(R);
+					UAnimGraphInstance& Graph = DerefEditableGraph(R);
 					return MakeNodeRef(R, Graph.AddTwoWayBlend(NodeIndexIn(Graph, A), NodeIndexIn(Graph, B), AlphaVariable), "TwoWayBlend");
 				},
 			"StateMachine", [](const FLuaAnimGraphRef& R)
 				{
-					return MakeNodeRef(R, DerefGraph(R).AddStateMachine(), "StateMachine");
+					return MakeNodeRef(R, DerefEditableGraph(R).AddStateMachine(), "StateMachine");
 				},
 			// 그래프 출력. 조립을 마친 뒤 마지막에 부른다.
 			"SetRoot", [](const FLuaAnimGraphRef& R, const FLuaAnimNodeRef& Node)
 				{
-					UAnimGraphInstance& Graph = DerefGraph(R);
+					UAnimGraphInstance& Graph = DerefEditableGraph(R);
 					Graph.SetRoot(NodeIndexIn(Graph, Node));
 				},
 
@@ -1393,33 +1441,74 @@ namespace
 		// RegisterActor가 만든 Actor 타입에 애니메이션 메서드를 덧붙인다
 		sol::usertype<FLuaActorRef> ActorType = Lua["Actor"];
 
-		// 액터의 첫 SkeletalMeshComponent에 AnimGraph를 붙인다. 이미 AnimGraph가 있으면 비우고 재사용한다.
-		ActorType["CreateAnimGraph"] = [](const FLuaActorRef& Ref)
-			{
-				AActor& Owner = Deref(Ref);
-				USkeletalMeshComponent& MeshComp = FirstSkeletalMesh(Ref);
+        // Manual graph creation remains explicit; asset-backed graphs use GetAnimGraph.
+        ActorType["CreateAnimGraph"] = [](const FLuaActorRef& Ref)
+        {
+            AActor& Owner = Deref(Ref);
+            USkeletalMeshComponent& Component = FirstSkeletalMesh(Ref);
+            UAnimGraphInstance* Graph = Component.CreateAnimGraph();
 
-				UAnimGraphInstance* Graph = Cast<UAnimGraphInstance>(MeshComp.GetAnimInstance());
-				if (Graph)
-				{
-					Graph->ResetGraph();
-				}
-				else
-				{
-					Graph = NewObject<UAnimGraphInstance>(&MeshComp);
-					MeshComp.SetAnimInstance(Graph);
-				}
+            if (!Graph)
+            {
+                throw sol::error(Component.GetAnimBlueprintError());
+            }
 
-				const FLuaAnimGraphRef GraphRef = FLuaAnimGraphRef::Make(&MeshComp, Graph);
-				AnimGraphBindings.Add({ &Owner, GraphRef });
-				return GraphRef;
-			};
-		ActorType["GetAnimGraph"] = [](const FLuaActorRef& Ref) -> sol::optional<FLuaAnimGraphRef>
-			{
-				USkeletalMeshComponent& MeshComp = FirstSkeletalMesh(Ref);
-				UAnimGraphInstance* Graph = Cast<UAnimGraphInstance>(MeshComp.GetAnimInstance());
-				return Graph ? sol::optional<FLuaAnimGraphRef>(FLuaAnimGraphRef::Make(&MeshComp, Graph)) : sol::nullopt;
-			};
+            const FLuaAnimGraphRef GraphRef = FLuaAnimGraphRef::Make(&Component, Graph);
+            TrackAnimGraph(Owner, GraphRef);
+            return GraphRef;
+        };
+
+        ActorType["GetAnimGraph"] = [](const FLuaActorRef& Ref) -> sol::optional<FLuaAnimGraphRef>
+        {
+            USkeletalMeshComponent& Component = FirstSkeletalMesh(Ref);
+            UAnimGraphInstance* Graph = Cast<UAnimGraphInstance>(Component.GetAnimInstance());
+
+            if (!Graph)
+            {
+                return sol::nullopt;
+            }
+
+            const FLuaAnimGraphRef GraphRef = FLuaAnimGraphRef::Make(&Component, Graph);
+            TrackAnimGraph(Deref(Ref), GraphRef);
+            return GraphRef;
+        };
+
+        ActorType["LoadAnimBlueprint"] = [](const FLuaActorRef& Ref, const std::string& Path) -> sol::optional<FLuaAnimGraphRef>
+        {
+            USkeletalMeshComponent& Component = FirstSkeletalMesh(Ref);
+
+            if (!Component.SetAnimBlueprint(Path))
+            {
+                throw sol::error(Component.GetAnimBlueprintError());
+            }
+
+            UAnimGraphInstance* Graph = Cast<UAnimGraphInstance>(Component.GetAnimInstance());
+
+            if (!Graph)
+            {
+                return sol::nullopt;
+            }
+
+            const FLuaAnimGraphRef GraphRef = FLuaAnimGraphRef::Make(&Component, Graph);
+            TrackAnimGraph(Deref(Ref), GraphRef);
+            return GraphRef;
+        };
+
+        ActorType["ReloadAnimBlueprint"] = [](const FLuaActorRef& Ref) -> sol::optional<FLuaAnimGraphRef>
+        {
+            USkeletalMeshComponent& Component = FirstSkeletalMesh(Ref);
+
+            if (!Component.ReloadAnimBlueprint())
+            {
+                throw sol::error(Component.GetAnimBlueprintError().empty() ? "No Animation Blueprint is assigned." : Component.GetAnimBlueprintError());
+            }
+
+            UAnimGraphInstance* Graph = Cast<UAnimGraphInstance>(Component.GetAnimInstance());
+            const FLuaAnimGraphRef GraphRef = FLuaAnimGraphRef::Make(&Component, Graph);
+            TrackAnimGraph(Deref(Ref), GraphRef);
+            return GraphRef;
+        };
+
 	}
 }
 
@@ -1469,12 +1558,23 @@ namespace FLuaBindings
 		}
 
 		// Lua 함수를 잡고 있는 전환 규칙/상태 콜백/Notify 핸들러를 놓는다.
-		// 핫 리로드 때도 불리므로, 스크립트는 OnReload에서 그래프를 다시 조립해야 한다.
+		// Manual graphs rebuild in OnReload; asset graphs only rebind notification callbacks.
 		for (int32 i = AnimGraphBindings.Num() - 1; i >= 0; --i)
 		{
 			if (AnimGraphBindings[i].Owner != Owner) continue;
-			if (UAnimGraphInstance* Graph = AnimGraphBindings[i].Graph.Get())
-				Graph->ResetGraph();
+            if (UAnimGraphInstance* Graph = AnimGraphBindings[i].Graph.Get())
+            {
+                USkeletalMeshComponent* Component = Graph->GetSkelMeshComponent();
+
+                if (Component && !Component->GetAnimBlueprintPath().empty())
+                {
+                    Graph->ClearNotifyBindings();
+                }
+                else
+                {
+                    Graph->ResetGraph();
+                }
+            }
 			AnimGraphBindings.RemoveAt(i);
 		}
 	}

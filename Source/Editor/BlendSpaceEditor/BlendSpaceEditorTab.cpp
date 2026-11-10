@@ -1,50 +1,21 @@
 #include "EnginePCH.h"
 #include "BlendSpaceEditorTab.h"
 #include "BlendSpaceEditor.h"
-#include "Panels/BlendSpaceViewportPanel.h"
+#include "Editor/SkeletalPreviewEditor/SkeletalPreviewViewportPanel.h"
 #include "Panels/BlendSpacePlayPanel.h"
 
 FBlendSpaceEditorTab::FBlendSpaceEditorTab(FBlendSpaceEditor& InEditor)
-    : FAssetEditorTab(InEditor)
+    : FDockedAssetEditorTab(InEditor, "BlendSpaceDockSpace", "BlendSpacePanelClass")
     , BlendSpaceEditor(InEditor)
 {
-    // 같은 시퀀스를 다시 열어도 배치가 유지되고, 다른 에셋 창과 섞이지 않도록 에셋 경로로 ID를 만든다
-    const ImGuiID AssetId = ImHashStr(InEditor.GetAssetPath().c_str());
-    DockSpaceId = ImHashStr("BlendSpaceDockSpace", 0, AssetId);
-    PanelClassId = ImHashStr("BlendSpacePanelClass", 0, AssetId);
-
-    Panels.Add(MakeUnique<FBlendSpaceViewportPanel>(InEditor));  
-    Panels.Add(MakeUnique<FBlendSpacePlayPanel>(InEditor));
-
-    for (auto& Panel : Panels)
-    {
-        Panel->SetDockClass(PanelClassId);
-        Panel->Init();
-    }
+    RegisterPanel(MakeUnique<FSkeletalPreviewViewportPanel>(InEditor));
+    RegisterPanel(MakeUnique<FBlendSpacePlayPanel>(InEditor));
 }
 
-void FBlendSpaceEditorTab::DrawMenuBar()
+void FBlendSpaceEditorTab::BeforeRender()
 {
-    if (ImGui::BeginMenu("Viewer"))
-    {
-        if (ImGui::MenuItem("Close Viewer"))
-        {
-            BlendSpaceEditor.Close();
-        }
-        ImGui::EndMenu();
-    }
-
-    if (ImGui::BeginMenu("Window"))
-    {
-        for (auto& Panel : Panels)
-        {
-            if (ImGui::MenuItem(Panel->GetPanelName(), nullptr, Panel->IsOpen()))
-            {
-                Panel->SetOpen(!Panel->IsOpen());
-            }
-        }
-        ImGui::EndMenu();
-    }
+    // 패널이 그려지지 않은 프레임에는 프리뷰 입력을 비운다.
+    BlendSpaceEditor.SetViewportState(0, 0, {});
 }
 
 void FBlendSpaceEditorTab::BuildDefaultLayout(ImGuiID InDockSpaceId, const ImVec2& Size)
@@ -59,43 +30,4 @@ void FBlendSpaceEditorTab::BuildDefaultLayout(ImGuiID InDockSpaceId, const ImVec
     ImGui::DockBuilderDockWindow(Panels[1]->GetWindowName(), ControlsId);
     ImGui::DockBuilderFinish(InDockSpaceId);
 
-}
-
-void FBlendSpaceEditorTab::OnRender(bool bActive)
-{
-    // 뷰포트 패널이 그리지 않은 프레임은 보이지 않는 것으로 처리한다
-    BlendSpaceEditor.SetViewportState(0, 0, {});
-    if (BlendSpaceEditor.IsCloseRequested())
-    {
-        return;
-    }
-
-    if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_DockingEnable)
-    {
-        const ImVec2 Size = ImGui::GetContentRegionAvail();
-        if (bActive && Size.x > 0.0f && Size.y > 0.0f &&
-            (!bLayoutInitialized || !ImGui::DockBuilderGetNode(DockSpaceId)))
-        {
-            ImGui::DockBuilderRemoveNode(DockSpaceId);
-            BuildDefaultLayout(DockSpaceId, Size);
-            bLayoutInitialized = true;
-        }
-
-        ImGuiWindowClass WindowClass;
-        WindowClass.ClassId = PanelClassId;
-        WindowClass.DockingAllowUnclassed = false;
-        const ImGuiDockNodeFlags Flags = bActive ? ImGuiDockNodeFlags_None : ImGuiDockNodeFlags_KeepAliveOnly;
-        if (bActive || ImGui::DockBuilderGetNode(DockSpaceId))
-        {
-            ImGui::DockSpace(DockSpaceId, ImVec2(0.0f, 0.0f), Flags, &WindowClass);
-        }
-    }
-
-    for (auto& Panel : Panels)
-    {
-        if (Panel->IsOpen() && (bActive || Panel->IsDetached(DockSpaceId)))
-        {
-            Panel->OnRender();
-        }
-    }
 }

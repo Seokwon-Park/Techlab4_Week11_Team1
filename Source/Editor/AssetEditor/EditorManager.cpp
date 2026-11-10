@@ -12,6 +12,9 @@
 #include "Editor/UIEditor/UIEditor.h"
 #include "Animation/AnimSequenceFile.h"
 #include "Animation/BlendSpaceFile.h"
+#include "Animation/AnimBlueprintFile.h"
+#include "Core/Misc/Paths.h"
+#include "Editor/AnimBlueprintEditor/AnimBlueprintEditor.h"
 
 #include <filesystem>
 
@@ -60,6 +63,33 @@ void FEditorManager::CreateEditor(const FString& AssetPath)
 		Existing->Activate();
 		return;
 	}
+
+    if (AnimBlueprintFile::IsAnimBlueprintPath(AssetPath))
+    {
+        const FString FilePath = FAssetUtils::ResolveAssetFilePath(AssetPath);
+        FAnimBlueprintData Data;
+        FString Error;
+
+        if (!AnimBlueprintFile::Read(FPaths::FromUtf8(FilePath.empty() ? AssetPath : FilePath), Data, Error))
+        {
+            HTR_LOG(Warning, "Failed to open AnimBlueprint: {} ({})", AssetPath, Error);
+            const std::wstring Message = FPaths::FromUtf8(Error).wstring();
+            MessageBoxW(GetActiveWindow(), Message.c_str(), L"Open Animation Blueprint", MB_OK | MB_ICONERROR);
+            return;
+        }
+
+        TUniquePtr<FAssetEditor> Editor = MakeUnique<FAnimBlueprintEditor>(EditorEngine, *this, AssetPath, std::move(Data));
+
+        if (!Editor->Initialize())
+        {
+            Editor->Shutdown();
+            MessageBoxW(GetActiveWindow(), L"Cannot initialize the preview mesh. See Output Log.", L"Open Animation Blueprint", MB_OK | MB_ICONERROR);
+            return;
+        }
+
+        Editors.Add(std::move(Editor));
+        return;
+    }
 
 	// 애니메이션 시퀀스는 렌더 에셋이 아니므로 먼저 분기한다
 	if (AnimSequenceFile::IsAnimSequencePath(AssetPath))
@@ -242,6 +272,14 @@ void FEditorManager::LateTick()
 	{
 		CreateEditor(Path);
 	}
+
+	TArray<FString> PreviewRequests = std::move(PendingAnimBlueprintPreviews);
+	PendingAnimBlueprintPreviews = {};
+
+	for (const FString& Path : PreviewRequests)
+	{
+		CreateAnimBlueprintPreview(Path);
+	}
 }
 
 void FEditorManager::Shutdown()
@@ -254,6 +292,7 @@ void FEditorManager::Shutdown()
 	bShuttingDown = true;
 	
 	PendingOpens.Empty();
+	PendingAnimBlueprintPreviews.Empty();
 
 	for (auto& Editor : Editors)
 	{
@@ -265,7 +304,51 @@ void FEditorManager::Shutdown()
 	LevelEditorTab.reset();
 }
 
+//void FEditorManager::DrawEditorUI()
+//{
+//	TabContainer.OnRender();
+//}
+
 void FEditorManager::DrawEditorUI()
 {
-	TabContainer.OnRender();
+    TabContainer.OnRender();
+}
+
+void FEditorManager::OpenAnimBlueprintPreview(const FString& PreviewMeshPath)
+{
+	if (bShuttingDown)
+	{
+		return;
+	}
+
+	const FString Path = FAssetUtils::GetAssetKey(PreviewMeshPath);
+
+	if (Path.empty())
+	{
+		return;
+	}
+
+	PendingAnimBlueprintPreviews.Add(Path);
+}
+
+void FEditorManager::CreateAnimBlueprintPreview(const FString& PreviewMeshPath)
+{
+	const FString DocumentKey = PreviewMeshPath + ".animblueprint-preview";
+
+	if (FAssetEditor* Existing = FindEditor(DocumentKey))
+	{
+		Existing->Activate();
+		return;
+	}
+
+	TUniquePtr<FAssetEditor> Editor = MakeUnique<FAnimBlueprintEditor>(EditorEngine, *this, PreviewMeshPath);
+
+	if (!Editor->Initialize())
+	{
+		Editor->Shutdown();
+		HTR_LOG(Warning, "AnimBlueprint preview initialization failed: {}", PreviewMeshPath);
+		return;
+	}
+
+	Editors.Add(std::move(Editor));
 }

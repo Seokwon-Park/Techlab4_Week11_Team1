@@ -1,6 +1,7 @@
 #include "EnginePCH.h"
 #include "AnimNode_StateMachine.h"
 #include <algorithm>
+#include "AnimationRuntime.h"
 
 int32 FAnimNode_StateMachine::AddState(const FAnimStateDesc& Desc)
 {
@@ -44,6 +45,7 @@ void FAnimNode_StateMachine::SetInitialState(int32 StateIndex)
 	assert(StateIndex >= 0 && StateIndex < States.Num());
 	InitialState = StateIndex;
     CurrentState = StateIndex;
+    ActiveBlends.Empty();
 	ElapsedTime = 0.f;
 	bFirstEnter = true;
 }
@@ -54,44 +56,139 @@ FName FAnimNode_StateMachine::GetCurrentStateName() const
     return States[CurrentState].Name;
 }
 
-void FAnimNode_StateMachine::Update(const FAnimationUpdateContext& Context)
+int32 FAnimNode_StateMachine::GetCurrentStateIndex() const
 {
-	if (States.Num() == 0) return;
-
-	UAnimInstance* AnimInstance = Context.GetAnimInstance<UAnimInstance>();
-	if (bFirstEnter)
-	{
-		if (States[CurrentState].OnEnter)
-			States[CurrentState].OnEnter(AnimInstance);
-		bFirstEnter = false;
-	}
-
-	if (bTransitionDirty)
-	{
-		Bake();
-		bTransitionDirty = false;
-	}
-
-	ProcessState(AnimInstance);
-	States[CurrentState].Pose.Update(Context);
-	ElapsedTime += Context.GetDeltaTime();
+    return States.IsEmpty() ? INDEX_NONE : CurrentState;
 }
 
-void FAnimNode_StateMachine::Evaluate(FPoseContext &Output)
+void FAnimNode_StateMachine::Update(const FAnimationUpdateContext& Context)
 {
-	// 상태가 0개인 상태 머신을 통과하므로 RefPose로 초기화한다.
-	if (States.Num() == 0)
-	{
-		Output.ResetToRefPose();
-		return;
-	}
+    if (States.IsEmpty())
+    {
+        return;
+    }
 
-	States[CurrentState].Pose.Evaluate(Output);
+    UAnimInstance* AnimInstance = Context.GetAnimInstance<UAnimInstance>();
+
+    if (bFirstEnter)
+    {
+        if (States[CurrentState].OnEnter)
+        {
+            States[CurrentState].OnEnter(AnimInstance);
+        }
+
+        bFirstEnter = false;
+    }
+
+    if (bTransitionDirty)
+    {
+        Bake();
+        bTransitionDirty = false;
+    }
+
+    ProcessState(AnimInstance);
+    const float DeltaTime = Context.GetDeltaTime();
+    int32 LastCompletedBlend = INDEX_NONE;
+
+    for (int32 Index = 0; Index < ActiveBlends.Num(); ++Index)
+    {
+        FActiveBlend& Blend = ActiveBlends[Index];
+        Blend.Elapsed += DeltaTime;
+
+        if (Blend.Elapsed >= Blend.Duration)
+        {
+            LastCompletedBlend = Index;
+        }
+    }
+
+    if (LastCompletedBlend != INDEX_NONE)
+    {
+        ActiveBlends.RemoveAt(0, LastCompletedBlend + 1);
+    }
+
+    TArray<float> StateWeights;
+    StateWeights.SetNum(States.Num());
+
+    for (float& Weight : StateWeights)
+    {
+        Weight = 0.0f;
+    }
+
+    if (ActiveBlends.IsEmpty())
+    {
+        StateWeights[CurrentState] = 1.0f;
+    }
+    else
+    {
+        StateWeights[ActiveBlends[0].FromState] = 1.0f;
+
+        for (int32 Index = 0; Index < ActiveBlends.Num(); ++Index)
+        {
+            const FActiveBlend& Blend = ActiveBlends[Index];
+            const float Alpha = FMath::Clamp(Blend.Elapsed / Blend.Duration, 0.0f, 1.0f);
+            const int32 TargetState = Index + 1 < ActiveBlends.Num() 
+                                ? ActiveBlends[Index + 1].FromState 
+                                : CurrentState;
+
+            for (float& Weight : StateWeights)
+            {
+                Weight *= 1.0f - Alpha;
+            }
+
+            StateWeights[TargetState] += Alpha;
+        }
+    }
+
+    for (int32 StateIndex = 0; StateIndex < States.Num(); ++StateIndex)
+    {
+        if (StateWeights[StateIndex] > 0.0f)
+        {
+            States[StateIndex].Pose.Update(Context.FractionalWeight(StateWeights[StateIndex]));
+        }
+    }
+
+    ElapsedTime += DeltaTime;
+}
+
+void FAnimNode_StateMachine::Evaluate(FPoseContext& Output)
+{
+    if (States.IsEmpty())
+    {
+        Output.ResetToRefPose();
+        return;
+    }
+
+    if (ActiveBlends.IsEmpty())
+    {
+        States[CurrentState].Pose.Evaluate(Output);
+        return;
+    }
+
+    FPoseContext Blended(Output);
+    States[ActiveBlends[0].FromState].Pose.Evaluate(Blended);
+
+    for (int32 Index = 0; Index < ActiveBlends.Num(); ++Index)
+    {
+        const FActiveBlend& Blend = ActiveBlends[Index];
+        const float Alpha = FMath::Clamp(Blend.Elapsed / Blend.Duration, 0.0f, 1.0f);
+        const int32 TargetState = Index + 1 < ActiveBlends.Num() ? ActiveBlends[Index + 1].FromState : CurrentState;
+        FPoseContext Target(Output);
+        FPoseContext Combined(Output);
+        States[TargetState].Pose.Evaluate(Target);
+
+        FAnimationRuntime::BlendTwoPosesTogether(Blended.Pose, Target.Pose, Blended.Curve, Target.Curve, 1.0f - Alpha, Combined.Pose, Combined.Curve);
+        Blended.Pose = std::move(Combined.Pose);
+        Blended.Curve = std::move(Combined.Curve);
+    }
+
+    Output.Pose = std::move(Blended.Pose);
+    Output.Curve = std::move(Blended.Curve);
 }
 
 void FAnimNode_StateMachine::Initialize(const FAnimationInitializeContext& Context)
 {
 	CurrentState = InitialState;
+    ActiveBlends.Empty();
 	if (States.Num() > 0)
 	{
 		States[CurrentState].Pose.Initialize(Context);
@@ -148,6 +245,15 @@ void FAnimNode_StateMachine::ChangeState(const FAnimTransitionDesc& Transition, 
 
 	if (States[CurrentState].OnExit)
 		States[CurrentState].OnExit(AnimInstance);
+
+    if (Transition.CrossfadeDuration > 0.0f)
+    {
+        ActiveBlends.Add({ CurrentState, 0.0f, Transition.CrossfadeDuration });
+    }
+    else
+    {
+        ActiveBlends.Empty();
+    }
 
 	CurrentState = Transition.To;
 	ElapsedTime = 0.0f;
