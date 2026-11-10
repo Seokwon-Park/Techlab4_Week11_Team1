@@ -80,6 +80,12 @@ void FEditorTabContainer::RequestCloseTab(IEditorTab* Tab)
 		return;
 	}
 
+	// 탭을 지우기 전에 묻는다. 지운 뒤에는 되돌릴 수 없다.
+	if (!Tab->ConfirmClose())
+	{
+		return;
+	}
+
 	for (IEditorTab* Existing : PendingCloseTabs)
 	{
 		if (Existing == Tab)

@@ -175,6 +175,31 @@ void FAnimTimelinePanel::DrawTransport()
     ImGui::SameLine();
     ImGui::Text("%.2f / %.2f s   Frame %d / %d", Time, Length,
         static_cast<int>(std::lround(Time * Rate)), Editor.GetNumFrames());
+
+    // 저장: 변경이 있을 때만 누를 수 있다 (Ctrl+S와 같음)
+    ImGui::SameLine(0.0f, 24.0f);
+    const bool bDirty = Editor.IsDirty();
+    ImGui::BeginDisabled(!bDirty);
+    if (ImGui::Button("Save"))
+    {
+        Editor.Save();
+    }
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+    {
+        ImGui::SetTooltip("Save notifies to the .anim.bin (Ctrl+S)");
+    }
+
+    ImGui::SameLine();
+    if (bDirty)
+    {
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "Unsaved changes");
+    }
+    else if (!Editor.GetSaveMessage().empty())
+    {
+        const bool bFailed = Editor.GetSaveMessage().rfind("failed") != FString::npos;
+        ImGui::TextColored(bFailed ? ImVec4(1.0f, 0.4f, 0.3f, 1.0f) : ImVec4(0.6f, 0.8f, 0.6f, 1.0f), "%s", Editor.GetSaveMessage().c_str());
+    }
 }
 
 void FAnimTimelinePanel::DrawTrack()

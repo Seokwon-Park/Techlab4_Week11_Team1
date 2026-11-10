@@ -28,6 +28,15 @@ void FAnimSequenceEditorTab::DrawMenuBar()
 {
     if (ImGui::BeginMenu("Viewer"))
     {
+        if (ImGui::MenuItem("Save", "Ctrl+S", false, AnimEditor.IsDirty()))
+        {
+            AnimEditor.Save();
+        }
+        if (ImGui::MenuItem("Revert to Saved", nullptr, false, AnimEditor.IsDirty()))
+        {
+            AnimEditor.RevertToSaved();
+        }
+        ImGui::Separator();
         if (ImGui::MenuItem("Close Viewer"))
         {
             AnimEditor.Close();
@@ -99,5 +108,62 @@ void FAnimSequenceEditorTab::OnRender(bool bActive)
         {
             Panel->OnRender();
         }
+    }
+
+    // Ctrl+S: 이 탭이 보이고 있을 때만 (레벨 에디터 등 다른 탭과 겹치지 않게)
+    if (bActive && ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false) && AnimEditor.IsDirty())
+    {
+        AnimEditor.Save();
+    }
+
+    DrawUnsavedChangesPrompt();
+}
+
+void FAnimSequenceEditorTab::DrawUnsavedChangesPrompt()
+{
+    // 닫기가 막히면 에디터가 요청을 남긴다. 팝업은 이 탭의 ImGui 문맥에서 연다.
+    if (AnimEditor.IsUnsavedPromptRequested())
+    {
+        AnimEditor.ClearUnsavedPromptRequest();
+        ImGui::OpenPopup("Unsaved Notify Changes");
+    }
+
+    // 창 가운데에 띄운다
+    const ImGuiViewport* Viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(Viewport->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+    if (ImGui::BeginPopupModal("Unsaved Notify Changes", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        ImGui::Text("%s has unsaved notify changes.", AnimEditor.GetAssetPath().c_str());
+        ImGui::TextDisabled("Closing without saving reverts them (the sequence is shared at runtime).");
+        ImGui::Spacing();
+
+        if (ImGui::Button("Save and Close"))
+        {
+            // 저장에 실패하면 닫지 않고 메시지를 보여 준다
+            if (AnimEditor.Save())
+            {
+                ImGui::CloseCurrentPopup();
+                AnimEditor.CloseWithoutPrompt();
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Discard and Close"))
+        {
+            AnimEditor.RevertToSaved();
+            ImGui::CloseCurrentPopup();
+            AnimEditor.CloseWithoutPrompt();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+        {
+            ImGui::CloseCurrentPopup();
+        }
+
+        if (!AnimEditor.GetSaveMessage().empty() && AnimEditor.GetSaveMessage().rfind("Save failed", 0) == 0)
+        {
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "%s", AnimEditor.GetSaveMessage().c_str());
+        }
+        ImGui::EndPopup();
     }
 }

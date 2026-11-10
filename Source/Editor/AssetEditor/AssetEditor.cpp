@@ -81,6 +81,12 @@ void FAssetEditor::Close()
 		return;
 	}
 
+	// 메뉴의 Close 같은 경로도 저장 확인을 거친다 (탭 X 버튼은 탭 컨테이너가 먼저 묻는다)
+	if (!ConfirmClose())
+	{
+		return;
+	}
+
 	bCloseRequested = true;
 	if (Tab)
 	{

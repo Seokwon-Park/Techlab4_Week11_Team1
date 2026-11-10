@@ -2,6 +2,7 @@
 #include "Editor/AnimSequenceEditor/AnimSequenceEditor.h"
 #include "Editor/AnimSequenceEditor/AnimSequenceEditorTab.h"
 #include "Animation/AnimSequence.h"
+#include "Animation/AnimSequenceFile.h"
 #include "Asset/AssetManager.h"
 #include "Asset/AssetUtils.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -10,12 +11,94 @@
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 
 FAnimSequenceEditor::FAnimSequenceEditor(UEditorEngine& InEditorEngine, FEditorManager& InEditorManager,
     const FString& InAssetPath, UAnimSequence* InSequence)
     : FSkeletalPreviewEditor(InEditorEngine, InEditorManager, InAssetPath)
     , Sequence(InSequence)
 {
+}
+
+bool FAnimSequenceEditor::Save()
+{
+    if (!Sequence)
+    {
+        return false;
+    }
+
+    const FString Resolved = FAssetUtils::ResolveAssetFilePath(GetAssetPath());
+    const std::filesystem::path FilePath(Resolved.empty() ? GetAssetPath() : Resolved);
+    std::filesystem::path TempPath = FilePath;
+    TempPath += ".saving";
+
+    // 임시 파일에 쓰고 바꿔치기한다. 쓰다가 실패해도 원본 .anim.bin은 그대로 남는다.
+    FString Error;
+    if (!AnimSequenceFile::Write(TempPath, *Sequence, Error))
+    {
+        std::error_code Ignored;
+        std::filesystem::remove(TempPath, Ignored);
+        SaveMessage = "Save failed: " + Error;
+        HTR_LOG(Error, "AnimSequence save failed: {} ({})", GetAssetPath(), Error);
+        return false;
+    }
+
+    std::error_code Ec;
+    std::filesystem::rename(TempPath, FilePath, Ec);   // 같은 볼륨이면 기존 파일을 교체한다
+    if (Ec)
+    {
+        std::error_code Ignored;
+        std::filesystem::remove(TempPath, Ignored);
+        SaveMessage = "Save failed: cannot replace file (" + Ec.message() + ")";
+        HTR_LOG(Error, "AnimSequence save failed: {} ({})", GetAssetPath(), Ec.message());
+        return false;
+    }
+
+    bNotifiesDirty = false;
+    SaveMessage = "Saved.";
+    HTR_LOG(Info, "AnimSequence saved: {}", GetAssetPath());
+    return true;
+}
+
+bool FAnimSequenceEditor::RevertToSaved()
+{
+    if (!Sequence)
+    {
+        return false;
+    }
+
+    const FString Resolved = FAssetUtils::ResolveAssetFilePath(GetAssetPath());
+    FString Error;
+    if (!AnimSequenceFile::Read(std::filesystem::path(Resolved.empty() ? GetAssetPath() : Resolved), *Sequence, Error))
+    {
+        SaveMessage = "Revert failed: " + Error;
+        HTR_LOG(Error, "AnimSequence revert failed: {} ({})", GetAssetPath(), Error);
+        return false;
+    }
+
+    ClearNotifySelection();
+    bNotifiesDirty = false;
+    bPoseDirty = true;
+    SaveMessage = "Reverted to saved file.";
+    return true;
+}
+
+bool FAnimSequenceEditor::ConfirmClose()
+{
+    if (!bNotifiesDirty || bCloseConfirmed)
+    {
+        return true;
+    }
+
+    // 탭이 다음 프레임에 확인 창을 연다
+    bUnsavedPromptRequested = true;
+    return false;
+}
+
+void FAnimSequenceEditor::CloseWithoutPrompt()
+{
+    bCloseConfirmed = true;
+    Close();
 }
 
 bool FAnimSequenceEditor::InitializeResources()

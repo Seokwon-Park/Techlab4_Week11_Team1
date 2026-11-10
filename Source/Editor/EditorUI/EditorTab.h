@@ -12,5 +12,7 @@ public:
 	virtual void DrawMenuBar() {}
 	virtual bool CanClose() const { return false; }
 	virtual void OnCloseRequested() {}
+	// 닫아도 되면 true. false면 닫기를 취소한다 (탭이 저장 확인 같은 UI를 직접 띄운다).
+	virtual bool ConfirmClose() { return true; }
 	virtual void OnRender(bool bActive) = 0;
 };
