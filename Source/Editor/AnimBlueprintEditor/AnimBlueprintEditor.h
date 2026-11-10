@@ -6,12 +6,20 @@
 
 class UAnimGraphInstance;
 class UAnimSequence;
+class IEditorTab;
 
 class FAnimBlueprintEditor : public FSkeletalPreviewEditor
 {
 public:
     FAnimBlueprintEditor(UEditorEngine& InEditorEngine, FEditorManager& InEditorManager, const FString& InPreviewMeshPath);
     ~FAnimBlueprintEditor() override;
+    FAnimBlueprintEditor(UEditorEngine& InEditorEngine, FEditorManager& InEditorManager, const FString& InAssetPath, FAnimBlueprintData InData);
+    void RequestSave();
+    bool Save();
+    bool HasUnsavedChanges() const;
+    const FString& GetSaveMessage() const;
+    void Close() override;
+    void HandleTabClose(IEditorTab& Tab);
 
     const char* GetEditorTypeName() const override { return "AnimBlueprint"; }
 
@@ -83,14 +91,7 @@ private:
     bool HasPosePath(int32 FromNodeId, int32 ToNodeId);
 
     bool ValidateVariableName(const FString& Name, const FString& PreviousName);
-    bool ValidateFloatInput(const FAnimBlueprintNode& Node);
-    bool ValidateSequence(UAnimSequence* Sequence, int32 NodeId);
 
-    int32 BuildPreviewNode(const FAnimBlueprintGraph& Graph, int32 NodeId, UAnimGraphInstance& Instance, TArray<int32>& Visiting, TMap<int32, TArray<int32>>& NodeIndices);
-    int32 BuildPreviewInput(const FAnimBlueprintGraph& Graph, int32 NodeId, int32 PinId, UAnimGraphInstance& Instance, TArray<int32>& Visiting, TMap<int32, TArray<int32>>& NodeIndices);
-    int32 BuildPreviewPoseGraph(const FAnimBlueprintGraph& Graph, EAnimBlueprintNodeType ResultType, UAnimGraphInstance& Instance, TArray<int32>& Visiting, TMap<int32, TArray<int32>>& NodeIndices);
-    int32 BuildPreviewStateMachine(const FAnimBlueprintGraph& ParentGraph, const FAnimBlueprintNode& MachineNode, UAnimGraphInstance& Instance, TArray<int32>& Visiting, TMap<int32, TArray<int32>>& NodeIndices);
-    bool BuildPreviewTransitions(const FAnimBlueprintGraph& Graph, int32 MachineIndex, UAnimGraphInstance& Instance, const TMap<int32, int32>& StateIndices);
     
     bool ApplyPreview();
     bool SetPreviewError(int32 NodeId, const FString& Message);
@@ -107,4 +108,8 @@ private:
     FString VariableMessage;
     FString PreviewMessage;
     bool bApplyPreviewRequested = false;
+    bool bSaveRequested = false;
+    bool bDocumentLoaded = false;
+    FString SavedSnapshot;
+    FString SaveMessage;
 };

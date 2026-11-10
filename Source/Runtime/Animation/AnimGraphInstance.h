@@ -33,6 +33,8 @@ class UAnimGraphInstance : public UAnimInstance
 	GENERATED_BODY()
 
 public:
+    UAnimGraphInstance();
+    void ClearNotifyBindings();
 	using FStateCallback = std::function<void(UAnimInstance*)>;
 	using FNotifyCallback = std::function<void()>;
 	using FNotifyStateCallback = std::function<void(float)>;   // Begin: 전체 길이, Tick: DeltaTime, End: 0
@@ -51,7 +53,6 @@ public:
 	// ---------------- 에셋 (이 인스턴스가 소유) ----------------
 	UAnimSequence* LoadSequence(const FString& Path);
 	UBlendSpace1D* CreateBlendSpace();
-	// .blendspace 파일을 읽는다. 샘플 시퀀스는 AssetManager 캐시를 공유하므로 Notify를 붙이면 다른 곳에도 보인다.
 	UBlendSpace1D* LoadBlendSpace(const FString& Path);
 	bool OwnsSequence(const UAnimSequence* Sequence) const;
 	bool OwnsBlendSpace(const UBlendSpace1D* BlendSpace) const;

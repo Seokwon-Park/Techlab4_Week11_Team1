@@ -4,6 +4,11 @@
 #include "Animation/BonePose.h"
 #include "Animation/AnimNodeBase.h"
 #include "Animation/AnimSingleNodeInstance.h"
+#include "Animation/AnimGraphInstance.h"
+#include "Animation/AnimBlueprintCompiler.h"
+#include "Animation/AnimBlueprintFile.h"
+#include "Asset/AssetUtils.h"
+#include "Core/Misc/Paths.h"
 #include "UObject/UObjectGlobals.h"
 #include "UObject/Casts.h"
 
@@ -17,7 +22,16 @@ void USkeletalMeshComponent::SetAnimInstance(UAnimInstance* InInstance)
 	{
 		AnimInstance->UninitializeAnimation();
 	}
-	AnimInstance = InInstance;
+    AnimInstance = InInstance;
+
+    if (ManagedAnimGraph && ManagedAnimGraph.get() != InInstance)
+    {
+        ManagedAnimGraph.reset();
+    }
+
+    AnimBlueprintPath.clear();
+    bBlueprintReloadRequested = false;
+
 	if (AnimInstance)
 	{
 		AnimInstance->InitializeAnimation();
@@ -27,6 +41,11 @@ void USkeletalMeshComponent::SetAnimInstance(UAnimInstance* InInstance)
 void USkeletalMeshComponent::BeginPlay()
 {
 	Super::BeginPlay();
+
+    if (!AnimBlueprintPath.empty() && (bBlueprintReloadRequested || !ManagedAnimGraph))
+    {
+        ReloadAnimBlueprint();
+    }
 
 	if (AnimInstance)
 	{
@@ -44,8 +63,15 @@ void USkeletalMeshComponent::BeginPlay()
 
 void USkeletalMeshComponent::TickComponent(float DeltaTime)
 {
+    if (bBlueprintReloadRequested)
+    {
+        bBlueprintReloadRequested = false;
+        ReloadAnimBlueprint();
+    }
+
 	if (AnimInstance && GetSkeletalMesh())
 	{
+        bUpdatingAnimation = true;
 		if (auto* Instance = Cast<UAnimSingleNodeInstance>(AnimInstance))
 		{
 			Instance->SetBlendSpaceInput(BlendSpaceInput);
@@ -56,6 +82,7 @@ void USkeletalMeshComponent::TickComponent(float DeltaTime)
 		AnimInstance->EvaluateAnimation(Pose);
 		SetBoneSpaceTransforms(Pose.Pose);
 		AnimInstance->TriggerAnimNotifies(DeltaTime);
+        bUpdatingAnimation = false;
 	}
 	Super::TickComponent(DeltaTime);
 }
@@ -143,9 +170,21 @@ void USkeletalMeshComponent::RefreshBoneTransforms()
 
 void USkeletalMeshComponent::Serialize(FStructuredArchive::FRecord Record)
 {
-	Super::Serialize(Record);   // 메시를 먼저 정해서 포즈를 바인드 포즈로 초기화한다
+    FArchive& Ar = Record.GetUnderlyingArchive();
+    UAnimInstance* SavedInstance = AnimInstance;
 
-	FArchive& Ar = Record.GetUnderlyingArchive();
+    if (Ar.IsSaving() && (!AnimBlueprintPath.empty() || ManagedAnimGraph))
+    {
+        AnimInstance = nullptr;
+    }
+
+    Super::Serialize(Record);
+
+    if (Ar.IsSaving())
+    {
+        AnimInstance = SavedInstance;
+    }
+
 	int32 Num = Ar.IsSaving() ? BoneSpaceTransforms.Num() : 0;
 	FStructuredArchive::FArray PoseArray = Record.EnterArray("BonePose", Num);
 
@@ -165,12 +204,20 @@ void USkeletalMeshComponent::Serialize(FStructuredArchive::FRecord Record)
 		}
 	}
 
-	if (Ar.IsLoading())
-		RefreshBoneTransformsNow();   // 에디터 월드에서 Tick이 안 돌아도 포즈가 바로 반영된다
+    if (Ar.IsLoading())
+    {
+        if (!AnimBlueprintPath.empty())
+        {
+            ReloadAnimBlueprint();
+        }
+
+        RefreshBoneTransformsNow();
+    }
 }
 
 void USkeletalMeshComponent::OnSkeletalMeshChanged()
 {
+    bBlueprintReloadRequested = !AnimBlueprintPath.empty();
 	BoneSpaceTransforms.Reset();
 	for (const FBoneInfo& Bone : GetBones())
 		BoneSpaceTransforms.Add(Bone.LocalBindPose);
@@ -187,6 +234,9 @@ void USkeletalMeshComponent::SetAnimation(UAnimationAsset* NewAnimToPlay)
 		HTR_LOG(Warning, "SetAnimation: unsupported animation asset type");
 		return;
 	}
+    AnimBlueprintPath.clear();
+    AnimBlueprintError.clear();
+    bBlueprintReloadRequested = false;
 	auto* SingleNodeInstance = Cast<UAnimSingleNodeInstance>(AnimInstance);
 
 	if (!SingleNodeInstance)
@@ -237,6 +287,13 @@ void USkeletalMeshComponent::PlayAnimation(UAnimationAsset* NewAnimToPlay, bool 
 
 void USkeletalMeshComponent::RefreshAnimationPose()
 {
+    if (!AnimInstance)
+    {
+        ResetPose();
+        RefreshBoneTransformsNow();
+        return;
+    }
+
 	if (auto* Instance = GetSingleNodeInstance())
 	{
 		Instance->SetBlendSpaceInput(BlendSpaceInput);
@@ -246,4 +303,137 @@ void USkeletalMeshComponent::RefreshAnimationPose()
 	AnimInstance->EvaluateAnimation(Pose);
 	SetBoneSpaceTransforms(Pose.Pose);
 	RefreshBoneTransformsNow();
+}
+
+USkeletalMeshComponent::USkeletalMeshComponent()
+{
+}
+
+USkeletalMeshComponent::~USkeletalMeshComponent()
+{
+    if (ManagedAnimGraph)
+    {
+        if (AnimInstance == ManagedAnimGraph.get())
+        {
+            SetAnimInstance(nullptr);
+        }
+        else
+        {
+            ManagedAnimGraph->UninitializeAnimation();
+        }
+    }
+}
+
+const FString& USkeletalMeshComponent::GetAnimBlueprintPath() const
+{
+    return AnimBlueprintPath;
+}
+
+const FString& USkeletalMeshComponent::GetAnimBlueprintError() const
+{
+    return AnimBlueprintError;
+}
+
+bool USkeletalMeshComponent::SetAnimBlueprint(const FString& Path)
+{
+    if (bUpdatingAnimation)
+    {
+        AnimBlueprintError = "Load or reload Animation Blueprints from actor Tick, outside animation callbacks.";
+        return false;
+    }
+
+    if (Path.empty())
+    {
+        const bool bHadBlueprint = !AnimBlueprintPath.empty();
+        AnimBlueprintPath.clear();
+        AnimBlueprintError.clear();
+        bBlueprintReloadRequested = false;
+
+        if (ManagedAnimGraph && bHadBlueprint)
+        {
+            SetAnimInstance(nullptr);
+            ResetPose();
+            RefreshBoneTransformsNow();
+        }
+
+        return true;
+    }
+
+    AnimBlueprintError.clear();
+    const FString Key = FAssetUtils::GetAssetKey(Path);
+    const FString FilePath = FAssetUtils::ResolveAssetFilePath(Key);
+    FAnimBlueprintData Data;
+
+    if (!AnimBlueprintFile::IsAnimBlueprintPath(Key) || !AnimBlueprintFile::Read(FPaths::FromUtf8(FilePath.empty() ? Key : FilePath), Data, AnimBlueprintError))
+    {
+        if (AnimBlueprintError.empty())
+        {
+            AnimBlueprintError = "Use an .animblueprint asset.";
+        }
+
+        return false;
+    }
+
+    TUniquePtr<UAnimGraphInstance> Instance;
+    AnimBlueprintCompiler::FNodeMap NodeIndices;
+
+    if (!AnimBlueprintCompiler::Build(Data, *this, Instance, NodeIndices, AnimBlueprintError))
+    {
+        return false;
+    }
+
+    SetAnimInstance(Instance.get());
+    ManagedAnimGraph = std::move(Instance);
+    AnimBlueprintPath = Key;
+    bBlueprintReloadRequested = false;
+    AnimBlueprintError.clear();
+    RefreshAnimationPose();
+    return true;
+}
+
+bool USkeletalMeshComponent::ReloadAnimBlueprint()
+{
+    const FString Path = AnimBlueprintPath;
+    bBlueprintReloadRequested = false;
+
+    if (Path.empty())
+    {
+        return false;
+    }
+
+    if (!SetAnimBlueprint(Path))
+    {
+        HTR_LOG(Warning, "AnimBlueprint load failed: {} ({})", Path, AnimBlueprintError);
+        return false;
+    }
+
+    return true;
+}
+
+UAnimGraphInstance* USkeletalMeshComponent::CreateAnimGraph()
+{
+    if (bUpdatingAnimation)
+    {
+        AnimBlueprintError = "Create animation graphs outside animation callbacks.";
+        return nullptr;
+    }
+
+    if (!AnimBlueprintPath.empty())
+    {
+        AnimBlueprintError = "An Animation Blueprint is assigned. Use GetAnimGraph to update its variables.";
+        return nullptr;
+    }
+
+    AnimBlueprintError.clear();
+
+    if (UAnimGraphInstance* Existing = Cast<UAnimGraphInstance>(AnimInstance))
+    {
+        Existing->ResetGraph();
+        return Existing;
+    }
+
+    TUniquePtr<UAnimGraphInstance> Instance(NewObject<UAnimGraphInstance>(this));
+    SetAnimInstance(Instance.get());
+    ManagedAnimGraph = std::move(Instance);
+    return ManagedAnimGraph.get();
 }

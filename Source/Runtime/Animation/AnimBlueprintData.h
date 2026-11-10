@@ -4,6 +4,7 @@
 #include "Math/MathUtility.h"
 #include "Containers/Array.h"
 
+// Version 1 files store enum values. Append new values instead of reordering them.
 enum class EAnimBlueprintGraphType : uint8
 {
     Pose,
@@ -121,6 +122,7 @@ struct FAnimBlueprintGraph
     TArray<FAnimBlueprintNode> Nodes;
     TArray<FAnimBlueprintLink> Links;
     TArray<FAnimBlueprintTransition> Transitions;
+    FString EditorSettings;
 };
 
 struct FAnimBlueprintVariable

@@ -27,6 +27,9 @@
 #include "Animation/AnimSingleNodeInstance.h"
 #include "Animation/AnimSequence.h"
 #include "Animation/AnimSequenceFile.h"
+#include "Animation/AnimBlueprintFile.h"
+#include <algorithm>
+#include <vector>
 
 #include "Asset/AssetManager.h"
 #include "Asset/AssetUtils.h"
@@ -409,6 +412,97 @@ namespace
 		}
 		ImGui::EndCombo();
 	}
+
+    void DrawAnimBlueprintSlot(USkeletalMeshComponent* Component)
+    {
+        static std::vector<FString> Paths;
+        static FString ScanMessage;
+        const FString& CurrentPath = Component->GetAnimBlueprintPath();
+        const FString Name = CurrentPath.empty() ? "None" : GetAssetDisplayName(CurrentPath);
+        ImGui::SetNextItemWidth(-1.0f);
+
+        if (ImGui::BeginCombo("##AnimBlueprintAsset", Name.c_str()))
+        {
+            if (ImGui::IsWindowAppearing())
+            {
+                Paths.clear();
+                ScanMessage.clear();
+                std::error_code Error;
+                std::filesystem::recursive_directory_iterator It("Assets", Error);
+                const std::filesystem::recursive_directory_iterator End;
+
+                while (!Error && It != End)
+                {
+                    if (It->is_regular_file(Error))
+                    {
+                        const FString Path = FPaths::ToUtf8(It->path());
+
+                        if (AnimBlueprintFile::IsAnimBlueprintPath(Path))
+                        {
+                            Paths.push_back(FAssetUtils::GetAssetKey(Path));
+                        }
+                    }
+
+                    if (!Error)
+                    {
+                        It.increment(Error);
+                    }
+                }
+
+                std::sort(Paths.begin(), Paths.end());
+
+                if (Error)
+                {
+                    ScanMessage = "Cannot read the asset folder: " + Error.message();
+                }
+            }
+
+            if (ImGui::Selectable("None", CurrentPath.empty()))
+            {
+                Component->SetAnimBlueprint(FString());
+            }
+
+            for (const FString& Path : Paths)
+            {
+                ImGui::PushID(Path.c_str());
+
+                if (ImGui::Selectable(GetAssetDisplayName(Path).c_str(), CurrentPath == Path))
+                {
+                    Component->SetAnimBlueprint(Path);
+                }
+
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("%s", Path.c_str());
+                }
+
+                ImGui::PopID();
+            }
+
+            if (!ScanMessage.empty())
+            {
+                ImGui::TextWrapped("%s", ScanMessage.c_str());
+            }
+            else if (Paths.empty())
+            {
+                ImGui::TextUnformatted("No .animblueprint files in Assets.");
+            }
+
+            ImGui::EndCombo();
+        }
+
+        if (!Component->GetAnimBlueprintPath().empty() && ImGui::SmallButton("Reload Animation Blueprint"))
+        {
+            Component->ReloadAnimBlueprint();
+        }
+
+        const FString& Error = Component->GetAnimBlueprintError();
+
+        if (!Error.empty())
+        {
+            ImGui::TextWrapped("%s", Error.c_str());
+        }
+    }
 
 	void DrawAnimationSlot(USkeletalMeshComponent* Component)
 	{
@@ -1377,8 +1471,18 @@ void FDetailsPanel::OnRender()
 			}
 			if (auto* Component = Cast<USkeletalMeshComponent>(TargetComponent))
 			{
-				ImGui::TextUnformatted("Single Anim Asset");
-				DrawAnimationSlot(Component);
+                ImGui::TextUnformatted("Animation Blueprint");
+                DrawAnimBlueprintSlot(Component);
+                const bool bUseBlueprint = !Component->GetAnimBlueprintPath().empty();
+                ImGui::BeginDisabled(bUseBlueprint);
+                ImGui::TextUnformatted("Single Anim Asset");
+                DrawAnimationSlot(Component);
+                ImGui::EndDisabled();
+
+                if (bUseBlueprint)
+                {
+                    ImGui::TextWrapped("Choose None in Animation Blueprint to use a single animation.");
+                }
 			}
 			DrawShadowPreview();
 

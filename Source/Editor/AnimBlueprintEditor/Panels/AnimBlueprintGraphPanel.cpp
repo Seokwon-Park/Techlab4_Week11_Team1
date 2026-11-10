@@ -1,6 +1,7 @@
 #include "EnginePCH.h"
 #include "AnimBlueprintGraphPanel.h"
 #include "Editor/AnimBlueprintEditor/AnimBlueprintEditor.h"
+#include <cstring>
 
 namespace NodeEditor = ax::NodeEditor;
 
@@ -87,6 +88,13 @@ void FAnimBlueprintGraphPanel::DrawContent()
         return;
     }
 
+    if (ImGui::Button("Save"))
+    {
+        Editor.RequestSave();
+    }
+
+    ImGui::SameLine();
+
     if (ImGui::Button("Apply Preview"))
     {
         Editor.RequestApplyPreview();
@@ -96,6 +104,12 @@ void FAnimBlueprintGraphPanel::DrawContent()
     ImGui::Text("%s | Nodes: %d", Graph->Type == EAnimBlueprintGraphType::Pose ? "Pose Graph" : "State Machine", Graph->Nodes.Num());
 
     const FString& PreviewMessage = Editor.GetPreviewMessage();
+    const FString& SaveMessage = Editor.GetSaveMessage();
+
+    if (!SaveMessage.empty())
+    {
+        ImGui::TextWrapped("%s", SaveMessage.c_str());
+    }
 
     if (!PreviewMessage.empty())
     {
@@ -116,6 +130,12 @@ void FAnimBlueprintGraphPanel::DrawContent()
     {
         NodeEditor::Config Config;
         Config.SettingsFile = nullptr;
+        CurrentView->Owner = &Editor;
+        CurrentView->GraphId = Graph->Id;
+        CurrentView->bInitialViewApplied = !Graph->EditorSettings.empty();
+        Config.UserPointer = CurrentView;
+        Config.SaveSettings = &FAnimBlueprintGraphPanel::SaveViewSettings;
+        Config.LoadSettings = &FAnimBlueprintGraphPanel::LoadViewSettings;
         CurrentView->Context = NodeEditor::CreateEditor(&Config);
     }
 
@@ -461,4 +481,44 @@ void FAnimBlueprintGraphPanel::UpdateSelection()
     {
         Editor.SelectNode(INDEX_NONE);
     }
+}
+
+bool FAnimBlueprintGraphPanel::SaveViewSettings(const char* Data, size_t Size, NodeEditor::SaveReasonFlags Reason, void* UserPointer)
+{
+    FGraphView* View = static_cast<FGraphView*>(UserPointer);
+    FAnimBlueprintGraph* Graph = View->Owner->FindGraph(View->GraphId);
+
+    if (!Graph)
+    {
+        return true;
+    }
+
+    const json Settings = json::parse(FString(Data, Size), nullptr, false);
+
+    if (Settings.is_discarded() || !Settings.contains("view"))
+    {
+        return false;
+    }
+
+    // Positions belong to our nodes. Keep only navigation, without transient selection.
+    Graph->EditorSettings = json({ { "view", Settings.at("view") } }).dump();
+    return true;
+}
+
+size_t FAnimBlueprintGraphPanel::LoadViewSettings(char* Data, void* UserPointer)
+{
+    FGraphView* View = static_cast<FGraphView*>(UserPointer);
+    const FAnimBlueprintGraph* Graph = View->Owner->FindGraph(View->GraphId);
+
+    if (!Graph)
+    {
+        return 0;
+    }
+
+    if (Data && !Graph->EditorSettings.empty())
+    {
+        std::memcpy(Data, Graph->EditorSettings.data(), Graph->EditorSettings.size());
+    }
+
+    return Graph->EditorSettings.size();
 }

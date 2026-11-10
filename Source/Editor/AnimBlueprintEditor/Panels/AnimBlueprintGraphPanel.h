@@ -26,9 +26,13 @@ private:
         ax::NodeEditor::EditorContext* Context = nullptr;
         std::unordered_set<int32> PositionedNodeIds;
         bool bInitialViewApplied = false;
+        FAnimBlueprintEditor* Owner = nullptr;
+        int32 GraphId = INDEX_NONE;
     };
 
     void DrawGraphPath();
+    static bool SaveViewSettings(const char* Data, size_t Size, ax::NodeEditor::SaveReasonFlags Reason, void* UserPointer);
+    static size_t LoadViewSettings(char* Data, void* UserPointer);
     void RemoveDeletedGraphViews();
     void DrawNodes(FAnimBlueprintGraph& Graph);
     void DrawLinks(const FAnimBlueprintGraph& Graph);

@@ -74,6 +74,11 @@ void FAssetEditor::Activate()
 	}
 }
 
+void FAssetEditor::SetAssetPath(const FString& InAssetPath)
+{
+    AssetPath = InAssetPath;
+}
+
 void FAssetEditor::Close()
 {
 	if (bCloseRequested)

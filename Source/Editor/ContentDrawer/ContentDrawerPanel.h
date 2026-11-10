@@ -2,6 +2,7 @@
 
 #include "Editor/EditorUI/EditorPanel.h"
 #include "Editor/BlendSpaceEditor/BlendSpaceAssetCreator.h"
+#include "Editor/AnimBlueprintEditor/AnimBlueprintAssetCreator.h"
 
 #include <filesystem>
 #include <functional>
@@ -27,6 +28,11 @@ public:
 		BlendSpaceCreator.SetCreatedCallback(std::move(InCallback));
 	}
 
+    void SetAnimBlueprintCreatedCallback(std::function<void(const FString&)> InCallback)
+    {
+        AnimBlueprintCreator.SetCreatedCallback(std::move(InCallback));
+    }
+
 private:
 	std::function<void(const FString&)> OnOpenWidget;
 	std::function<void(const FString&)> OnCreateWidget;
@@ -41,4 +47,5 @@ private:
 	const FString FileIconPath = "Engine/Icons/File.png";
 
 	FBlendSpaceAssetCreator BlendSpaceCreator;
+    FAnimBlueprintAssetCreator AnimBlueprintCreator;
 };
