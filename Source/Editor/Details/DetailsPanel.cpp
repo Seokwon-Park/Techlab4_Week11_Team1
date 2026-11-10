@@ -2,10 +2,13 @@
 #include "Editor/Details/DetailsPanel.h"
 #include "Editor/Details/PropertyEditor.h"
 
+#include <filesystem>
+
 #include "imgui_internal.h"
 #include "Editor/HitoriEd/EditorDragDrop.h"
 #include "Components/PrimitiveComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Components/SkinnedMeshComponent.h"
 #include "Components/TextRenderComponent.h"
 #include "Components/ParticleSubUVComponent.h"
@@ -19,9 +22,16 @@
 #include "Components/RotatingMovementComponent.h"
 #include "Components/ProjectileMovementComponent.h"
 #include "Components/FireBallComponent.h"
+
+#include "Animation/AnimSingleNodeInstance.h"
+#include "Animation/AnimSequence.h"
+#include "Animation/AnimSequenceFile.h"
+
 #include "Asset/AssetManager.h"
+#include "Asset/AssetUtils.h"
 #include "Render/Material.h"
 #include "Render/Texture2D.h"
+#include "Render/SkeletalMesh.h"
 #include "Text/Font.h"
 #include "UObject/UObjectIterator.h"
 #include "GameFramework/Actor.h"
@@ -395,6 +405,68 @@ namespace
 			}
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", ItemPath.c_str());
 			ImGui::PopID();
+		}
+		ImGui::EndCombo();
+	}
+
+	void DrawAnimationSlot(USkeletalMeshComponent* Component)
+	{
+		auto* Instance = Component->GetSingleNodeInstance();
+		UAnimationAsset* Current = Instance ? Instance->GetCurrentAsset() : nullptr;
+
+		const FString Name = Current ? GetAssetDisplayName(Current->GetAssetPath()) : "None";
+
+		ImGui::SetNextItemWidth(-1.0f);
+		if (!ImGui::BeginCombo("##SingleAnimAsset", Name.c_str()))
+		{
+			return;
+		}
+
+		if (ImGui::Selectable("None", Current == nullptr))
+		{
+			Component->SetAnimation(nullptr);
+			Component->ResetPose();
+			Component->RefreshBoneTransformsNow();
+		}
+
+		USkeletalMesh* Mesh = Component->GetSkeletalMesh();
+		if (Mesh)
+		{
+			FString FilePath = FAssetUtils::ResolveAssetFilePath(Mesh->GetPath());
+
+			if (FilePath.empty())
+			{
+				FilePath = Mesh->GetPath();
+			}
+
+			const std::filesystem::path Directory = std::filesystem::path(FilePath).parent_path();
+			if (!Directory.empty() && std::filesystem::is_directory(Directory))
+			{
+				for (const auto& Entry : std::filesystem::directory_iterator(Directory))
+				{
+					if (!Entry.is_regular_file())
+					{
+						continue;
+					}
+
+					const FString Path = Entry.path().generic_string();
+					if (!AnimSequenceFile::IsAnimSequencePath(Path))
+					{
+						continue;
+					}
+
+					ImGui::PushID(Path.c_str());
+
+					if (ImGui::Selectable(GetAssetDisplayName(Path).c_str()))
+					{
+						if (UAnimSequence* Sequence = UAssetManager::LoadAnimSequence(Path))
+						{
+							Component->PlayAnimation(Sequence, true);
+						}
+					}
+					ImGui::PopID();
+				}
+			}
 		}
 		ImGui::EndCombo();
 	}
@@ -1295,6 +1367,11 @@ void FDetailsPanel::OnRender()
 			{
 				ImGui::TextUnformatted("Skeletal Mesh");
 				DrawSkeletalMeshSlot(Component);
+			}
+			if (auto* Component = Cast<USkeletalMeshComponent>(TargetComponent))
+			{
+				ImGui::TextUnformatted("Single Anim Asset");
+				DrawAnimationSlot(Component);
 			}
 			DrawShadowPreview();
 
