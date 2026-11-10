@@ -42,6 +42,42 @@ void FAnimBlueprintDetailsPanel::DrawContent()
             DrawFloatInput("Alpha", Node->FloatInput, true);
             break;
 
+        case EAnimBlueprintNodeType::StateMachine:
+        case EAnimBlueprintNodeType::State:
+            if (Node->Type == EAnimBlueprintNodeType::State)
+            {
+                ImGui::Checkbox("Reset On Entry", &Node->bResetOnEntry);
+            }
+
+            if (NamingNodeId != Node->Id)
+            {
+                NamingNodeId = Node->Id;
+                std::snprintf(NodeNameBuffer, sizeof(NodeNameBuffer), "%s", Node->Name.c_str());
+            }
+
+            if (ImGui::InputText("Name", NodeNameBuffer, sizeof(NodeNameBuffer), ImGuiInputTextFlags_EnterReturnsTrue))
+            {
+                Editor.RenameNode(Node->Id, NodeNameBuffer);
+            }
+
+            ImGui::TextUnformatted("Press Enter to rename.");
+
+            if (ImGui::Button("Open Graph"))
+            {
+                Editor.OpenNodeGraph(Node->Id);
+            }
+
+            ImGui::TextWrapped(Node->Type == EAnimBlueprintNodeType::State ? "Connect Entry to choose the initial state. Connect State Out to another State In to create a transition." : "Double-click this node to edit states and transitions.");
+            break;
+
+        case EAnimBlueprintNodeType::Entry:
+            ImGui::TextWrapped("Connect this output to a State input to choose the initial state. A new connection replaces the previous initial state.");
+            break;
+
+        case EAnimBlueprintNodeType::AnyState:
+            ImGui::TextWrapped("Connect to a State to create a transition from any current State. It will not transition to itself.");
+            break;
+
         default:
             ImGui::TextUnformatted("Connect a pose to this output.");
             break;
@@ -58,7 +94,22 @@ void FAnimBlueprintDetailsPanel::DrawContent()
     }
     else
     {
-        ImGui::TextUnformatted("Select a node.");
+        NamingNodeId = INDEX_NONE;
+        FAnimBlueprintTransition* Transition = Editor.GetSelectedTransition();
+
+        if (Transition)
+        {
+            const FAnimBlueprintNode* From = Editor.FindNode(Transition->FromStateId);
+            const FAnimBlueprintNode* To = Editor.FindNode(Transition->ToStateId);
+            ImGui::TextUnformatted("State Transition");
+            ImGui::Text("%s -> %s", From ? From->Name.c_str() : "Missing State", To ? To->Name.c_str() : "Missing State");
+            DrawTransitionDetails(*Transition);
+            ImGui::TextWrapped("Select the transition and press Delete to remove it. Each direction is a separate transition.");
+        }
+        else
+        {
+            ImGui::TextUnformatted("Select a node or state transition.");
+        }
     }
 
     ImGui::Separator();
@@ -193,25 +244,7 @@ void FAnimBlueprintDetailsPanel::DrawFloatInput(const char* Label, FAnimBlueprin
 
     if (Input.bUseVariable)
     {
-        const char* Selected = Input.Variable.empty() ? "Select Float variable" : Input.Variable.c_str();
-
-        if (ImGui::BeginCombo("Variable", Selected))
-        {
-            for (const FAnimBlueprintVariable& Variable : Editor.GetBlueprintData().Variables)
-            {
-                if (Variable.Type != EAnimBlueprintVariableType::Float)
-                {
-                    continue;
-                }
-
-                if (ImGui::Selectable(Variable.Name.c_str(), Input.Variable == Variable.Name))
-                {
-                    Input.Variable = Variable.Name;
-                }
-            }
-
-            ImGui::EndCombo();
-        }
+        DrawVariableSelector("Variable", Input.Variable, EAnimBlueprintVariableType::Float);
     }
     else if (bAlpha)
     {
@@ -367,4 +400,74 @@ void FAnimBlueprintDetailsPanel::DrawPreviewVariables()
 
         ImGui::PopID();
     }
+}
+
+void FAnimBlueprintDetailsPanel::DrawVariableSelector(const char* Label, FString& Name, EAnimBlueprintVariableType Type)
+{
+    const char* Selected = Name.empty() ? "Select variable" : Name.c_str();
+
+    if (ImGui::BeginCombo(Label, Selected))
+    {
+        for (const FAnimBlueprintVariable& Variable : Editor.GetBlueprintData().Variables)
+        {
+            if (Variable.Type != Type)
+            {
+                continue;
+            }
+
+            if (ImGui::Selectable(Variable.Name.c_str(), Name == Variable.Name))
+            {
+                Name = Variable.Name;
+            }
+        }
+
+        ImGui::EndCombo();
+    }
+}
+
+void FAnimBlueprintDetailsPanel::DrawTransitionDetails(FAnimBlueprintTransition& Transition)
+{
+    ImGui::PushID(Transition.Id);
+    int Rule = static_cast<int>(Transition.Rule);
+
+    if (ImGui::Combo("Condition", &Rule, "Disabled\0Bool\0Float Compare\0Sequence Finished\0"))
+    {
+        Transition.Rule = static_cast<EAnimBlueprintTransitionRule>(Rule);
+        Transition.Variable.clear();
+    }
+
+    switch (Transition.Rule)
+    {
+    case EAnimBlueprintTransitionRule::Disabled:
+        ImGui::TextWrapped("This transition is disabled until a condition is selected.");
+        break;
+
+    case EAnimBlueprintTransitionRule::Bool:
+        DrawVariableSelector("Variable", Transition.Variable, EAnimBlueprintVariableType::Bool);
+        ImGui::Checkbox("Expected Value", &Transition.bExpected);
+        break;
+
+    case EAnimBlueprintTransitionRule::Float:
+    {
+        DrawVariableSelector("Variable", Transition.Variable, EAnimBlueprintVariableType::Float);
+        int Compare = static_cast<int>(Transition.Compare);
+
+        if (ImGui::Combo("Compare", &Compare, "<\0<=\0>\0>=\0==\0!=\0"))
+        {
+            Transition.Compare = static_cast<EAnimBlueprintCompare>(Compare);
+        }
+
+        ImGui::DragFloat("Value", &Transition.Value, 0.1f);
+        break;
+    }
+
+    case EAnimBlueprintTransitionRule::Finished:
+        ImGui::TextWrapped("The source State must output a non-looping Sequence Player directly. This condition cannot be used with Any State.");
+        break;
+    }
+
+    ImGui::DragFloat("Crossfade (seconds)", &Transition.CrossfadeDuration, 0.01f, 0.0f, 10.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
+    ImGui::InputInt("Priority", &Transition.Priority);
+    ImGui::TextWrapped("Smaller priority values are checked first. Apply Preview to update transitions.");
+    ImGui::PopID();
 }

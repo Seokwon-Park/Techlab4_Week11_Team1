@@ -9,6 +9,7 @@
 #include "BlendSpaceFile.h"
 #include "Asset/AssetUtils.h"
 #include "GameFramework/Pawn.h"
+#include <cmath>
 
 UAnimGraphInstance::~UAnimGraphInstance()
 {
@@ -197,7 +198,7 @@ int32 UAnimGraphInstance::AddTransition(int32 MachineNode, int32 FromState, int3
 
 	const int32 NumStates = States->Num();
 	const bool bValidFrom = FromState == INDEX_NONE || (FromState >= 0 && FromState < NumStates);
-	if (!bValidFrom || ToState < 0 || ToState >= NumStates || !Rule)
+	if (!bValidFrom || ToState < 0 || ToState >= NumStates || FromState == ToState || !Rule || !std::isfinite(CrossfadeDuration))
 		return INDEX_NONE;
 
 	FAnimTransitionDesc Desc;

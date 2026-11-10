@@ -14,13 +14,16 @@
 #include "Animation/AnimGraphInstance.h"
 #include "Animation/AnimSequence.h"
 #include "Animation/BlendSpace1D.h"
+#include "Core/NameTypes.h"
 
 #include "Animation/AnimNode_BlendSpacePlayer.h"
+#include "Animation/AnimNode_SequencePlayer.h"
 #include "Animation/AnimNode_TwoWayBlend.h"
 
 #include "Components/SkeletalMeshComponent.h"
 
-FAnimBlueprintEditor::FAnimBlueprintEditor(UEditorEngine& InEditorEngine, FEditorManager& InEditorManager, const FString& InPreviewMeshPath)
+FAnimBlueprintEditor::FAnimBlueprintEditor(UEditorEngine& InEditorEngine, FEditorManager& InEditorManager, 
+    const FString& InPreviewMeshPath)
     : FSkeletalPreviewEditor(InEditorEngine, InEditorManager, InPreviewMeshPath + ".animblueprint-preview")
 {
     BlueprintData.PreviewMeshPath = InPreviewMeshPath;
@@ -95,7 +98,7 @@ bool FAnimBlueprintEditor::SetPreviewError(int32 NodeId, const FString& Message)
 
     if (NodeId != INDEX_NONE)
     {
-        PreviewMessage += " (Node " + std::to_string(NodeId) + ")";
+        PreviewMessage += " (ID " + std::to_string(NodeId) + ")";
     }
 
     return false;
@@ -157,7 +160,8 @@ bool FAnimBlueprintEditor::ValidateFloatInput(const FAnimBlueprintNode& Node)
     return SetPreviewError(Node.Id, "Select a valid Float variable for the input.");
 }
 
-int32 FAnimBlueprintEditor::BuildPreviewInput(const FAnimBlueprintGraph& Graph, int32 NodeId, int32 PinId, UAnimGraphInstance& Instance, TArray<int32>& Visiting, TMap<int32, TArray<int32>>& NodeIndices)
+int32 FAnimBlueprintEditor::BuildPreviewInput(const FAnimBlueprintGraph& Graph, int32 NodeId, 
+    int32 PinId, UAnimGraphInstance& Instance, TArray<int32>& Visiting, TMap<int32, TArray<int32>>& NodeIndices)
 {
     const FAnimBlueprintLink* InputLink = nullptr;
 
@@ -177,7 +181,7 @@ int32 FAnimBlueprintEditor::BuildPreviewInput(const FAnimBlueprintGraph& Graph, 
 
     if (!InputLink || PinId <= 0)
     {
-        SetPreviewError(NodeId, "Connect every required pose input.");
+        SetPreviewError(NodeId, "Connect every required pose input in graph: " + Graph.Name);
         return INDEX_NONE;
     }
 
@@ -233,7 +237,12 @@ int32 FAnimBlueprintEditor::BuildPreviewNode(const FAnimBlueprintGraph& Graph, i
     switch (Node->Type)
     {
     case EAnimBlueprintNodeType::OutputPose:
+    case EAnimBlueprintNodeType::StateResult:
         RuntimeIndex = BuildPreviewInput(Graph, NodeId, Node->InputPosePinId, Instance, Visiting, NodeIndices);
+        break;
+
+    case EAnimBlueprintNodeType::StateMachine:
+        RuntimeIndex = BuildPreviewStateMachine(Graph, *Node, Instance, Visiting, NodeIndices);
         break;
 
     case EAnimBlueprintNodeType::SequencePlayer:
@@ -337,6 +346,180 @@ int32 FAnimBlueprintEditor::BuildPreviewNode(const FAnimBlueprintGraph& Graph, i
     return RuntimeIndex;
 }
 
+int32 FAnimBlueprintEditor::BuildPreviewPoseGraph(const FAnimBlueprintGraph& Graph, EAnimBlueprintNodeType ResultType, 
+    UAnimGraphInstance& Instance, TArray<int32>& Visiting, TMap<int32, TArray<int32>>& NodeIndices)
+{
+    if (Graph.Type != EAnimBlueprintGraphType::Pose)
+    {
+        SetPreviewError(Graph.OwnerNodeId, "A state must contain a pose graph.");
+        return INDEX_NONE;
+    }
+
+    const FAnimBlueprintNode* ResultNode = nullptr;
+
+    for (const FAnimBlueprintNode& Node : Graph.Nodes)
+    {
+        if (Node.Type == EAnimBlueprintNodeType::OutputPose || Node.Type == EAnimBlueprintNodeType::StateResult)
+        {
+            if (Node.Type != ResultType || ResultNode)
+            {
+                SetPreviewError(Node.Id, "The pose graph must have exactly one matching result node.");
+                return INDEX_NONE;
+            }
+
+            ResultNode = &Node;
+        }
+    }
+
+    if (!ResultNode)
+    {
+        SetPreviewError(Graph.OwnerNodeId, "The pose graph result is missing: " + Graph.Name);
+        return INDEX_NONE;
+    }
+
+    return BuildPreviewNode(Graph, ResultNode->Id, Instance, Visiting, NodeIndices);
+}
+
+int32 FAnimBlueprintEditor::BuildPreviewStateMachine(const FAnimBlueprintGraph& ParentGraph, const FAnimBlueprintNode& MachineNode, UAnimGraphInstance& Instance, TArray<int32>& Visiting, TMap<int32, TArray<int32>>& NodeIndices)
+{
+    const FAnimBlueprintGraph* MachineGraph = FindGraph(MachineNode.ChildGraphId);
+
+    if (!MachineGraph || MachineGraph->Type != EAnimBlueprintGraphType::StateMachine || MachineGraph->ParentGraphId != ParentGraph.Id || MachineGraph->OwnerNodeId != MachineNode.Id)
+    {
+        SetPreviewError(MachineNode.Id, "The State Machine graph is missing or belongs to another node.");
+        return INDEX_NONE;
+    }
+
+    const FAnimBlueprintNode* Entry = nullptr;
+    int32 StateCount = 0;
+    int32 AnyStateCount = 0;
+
+    for (const FAnimBlueprintNode& Node : MachineGraph->Nodes)
+    {
+        if (Node.Type == EAnimBlueprintNodeType::Entry)
+        {
+            if (Entry)
+            {
+                SetPreviewError(Node.Id, "A State Machine must have exactly one Entry.");
+                return INDEX_NONE;
+            }
+
+            Entry = &Node;
+        }
+        else if (Node.Type == EAnimBlueprintNodeType::State)
+        {
+            ++StateCount;
+        }
+        else if (Node.Type == EAnimBlueprintNodeType::AnyState)
+        {
+            ++AnyStateCount;
+
+            if (AnyStateCount > 1)
+            {
+                SetPreviewError(Node.Id, "Only one Any State node is allowed.");
+                return INDEX_NONE;
+            }
+        }
+        else
+        {
+            SetPreviewError(Node.Id, "Only Entry, State and Any State nodes are allowed inside a State Machine.");
+            return INDEX_NONE;
+        }
+    }
+
+    if (!Entry || Entry->TransitionOutputPinId <= 0 || StateCount == 0)
+    {
+        SetPreviewError(MachineNode.Id, "A State Machine needs an Entry and at least one State.");
+        return INDEX_NONE;
+    }
+
+    if (MachineGraph->Links.Num() != 1)
+    {
+        SetPreviewError(Entry->Id, "Connect Entry to exactly one initial State.");
+        return INDEX_NONE;
+    }
+
+    const FAnimBlueprintLink& InitialLink = MachineGraph->Links[0];
+
+    if (InitialLink.FromNodeId != Entry->Id || InitialLink.FromPinId != Entry->TransitionOutputPinId)
+    {
+        SetPreviewError(Entry->Id, "The initial State connection must start at Entry.");
+        return INDEX_NONE;
+    }
+
+    const int32 MachineIndex = Instance.AddStateMachine();
+    TMap<int32, int32> StateIndices;
+    TArray<FName> StateNames;
+
+    for (const FAnimBlueprintNode& State : MachineGraph->Nodes)
+    {
+        if (State.Type != EAnimBlueprintNodeType::State)
+        {
+            continue;
+        }
+
+        const FName StateName(State.Name);
+
+        if (State.Name.find_first_not_of(" \t\r\n") == FString::npos || StateNames.Find(StateName) != INDEX_NONE)
+        {
+            SetPreviewError(State.Id, "State names must be non-empty and unique within the State Machine.");
+            return INDEX_NONE;
+        }
+
+        StateNames.Add(StateName);
+        const FAnimBlueprintGraph* StateGraph = FindGraph(State.ChildGraphId);
+
+        if (!StateGraph || StateGraph->ParentGraphId != MachineGraph->Id || StateGraph->OwnerNodeId != State.Id)
+        {
+            SetPreviewError(State.Id, "The State pose graph is missing or belongs to another node.");
+            return INDEX_NONE;
+        }
+
+        const int32 PoseIndex = BuildPreviewPoseGraph(*StateGraph, EAnimBlueprintNodeType::StateResult, 
+            Instance, Visiting, NodeIndices);
+
+        if (PoseIndex == INDEX_NONE)
+        {
+            return INDEX_NONE;
+        }
+
+        const int32 StateIndex = Instance.AddState(MachineIndex, StateName, PoseIndex, State.bResetOnEntry);
+
+        if (StateIndex == INDEX_NONE)
+        {
+            SetPreviewError(State.Id, "Failed to register the State pose.");
+            return INDEX_NONE;
+        }
+
+        StateIndices.Add(State.Id, StateIndex);
+        NodeIndices[State.Id].Add(PoseIndex);
+
+        if (State.Id == InitialLink.ToNodeId)
+        {
+            if (State.TransitionInputPinId <= 0 || InitialLink.ToPinId != State.TransitionInputPinId)
+            {
+                SetPreviewError(State.Id, "Entry is connected to an invalid State input pin.");
+                return INDEX_NONE;
+            }
+        }
+    }
+
+    const int32* InitialStateIndex = StateIndices.Find(InitialLink.ToNodeId);
+
+    if (!InitialStateIndex || !Instance.SetInitialState(MachineIndex, *InitialStateIndex))
+    {
+        SetPreviewError(Entry->Id, "Entry must point to a State in this State Machine.");
+        return INDEX_NONE;
+    }
+
+    if (!BuildPreviewTransitions(*MachineGraph, MachineIndex, Instance, StateIndices))
+    {
+        return INDEX_NONE;
+    }
+
+    return MachineIndex;
+}
+
 bool FAnimBlueprintEditor::ApplyPreview()
 {
     if (!MeshComponent || !Mesh)
@@ -360,26 +543,6 @@ bool FAnimBlueprintEditor::ApplyPreview()
         return SetPreviewError(INDEX_NONE, "The root pose graph is missing.");
     }
 
-    int32 OutputNodeId = INDEX_NONE;
-
-    for (const FAnimBlueprintNode& Node : RootGraph->Nodes)
-    {
-        if (Node.Type == EAnimBlueprintNodeType::OutputPose)
-        {
-            if (OutputNodeId != INDEX_NONE)
-            {
-                return SetPreviewError(Node.Id, "Only one Output Pose is allowed.");
-            }
-
-            OutputNodeId = Node.Id;
-        }
-    }
-
-    if (OutputNodeId == INDEX_NONE)
-    {
-        return SetPreviewError(INDEX_NONE, "Output Pose is missing.");
-    }
-
     TUniquePtr<UAnimGraphInstance> NewInstance(NewObject<UAnimGraphInstance>(MeshComponent));
 
     for (const FAnimBlueprintVariable& Variable : BlueprintData.Variables)
@@ -401,7 +564,7 @@ bool FAnimBlueprintEditor::ApplyPreview()
 
     TArray<int32> Visiting;
     TMap<int32, TArray<int32>> NewNodeIndices;
-    const int32 RootIndex = BuildPreviewNode(*RootGraph, OutputNodeId, *NewInstance, Visiting, NewNodeIndices);
+    const int32 RootIndex = BuildPreviewPoseGraph(*RootGraph, EAnimBlueprintNodeType::OutputPose, *NewInstance, Visiting, NewNodeIndices);
 
     if (RootIndex == INDEX_NONE)
     {
@@ -410,7 +573,7 @@ bool FAnimBlueprintEditor::ApplyPreview()
 
     if (!NewInstance->SetRoot(RootIndex))
     {
-        return SetPreviewError(OutputNodeId, "Failed to initialize the preview graph.");
+        return SetPreviewError(INDEX_NONE, "Failed to initialize the preview graph.");
     }
 
     // Refresh variable bindings before evaluating the first pose.
@@ -422,6 +585,7 @@ bool FAnimBlueprintEditor::ApplyPreview()
 
     MeshComponent->RefreshAnimationPose();
     PreviewMessage = "Preview applied. Playback restarted from the beginning.";
+
     return true;
 }
 
@@ -467,9 +631,14 @@ void FAnimBlueprintEditor::CreateInitialGraph()
 
 FAnimBlueprintGraph* FAnimBlueprintEditor::GetCurrentGraph()
 {
+    return FindGraph(CurrentGraphId);
+}
+
+FAnimBlueprintGraph* FAnimBlueprintEditor::FindGraph(int32 GraphId)
+{
     for (FAnimBlueprintGraph& Graph : BlueprintData.Graphs)
     {
-        if (Graph.Id == CurrentGraphId)
+        if (Graph.Id == GraphId)
         {
             return &Graph;
         }
@@ -478,7 +647,7 @@ FAnimBlueprintGraph* FAnimBlueprintEditor::GetCurrentGraph()
     return nullptr;
 }
 
-FAnimBlueprintNode* FAnimBlueprintEditor::GetSelectedNode()
+FAnimBlueprintNode* FAnimBlueprintEditor::FindNode(int32 NodeId)
 {
     FAnimBlueprintGraph* Graph = GetCurrentGraph();
 
@@ -489,7 +658,7 @@ FAnimBlueprintNode* FAnimBlueprintEditor::GetSelectedNode()
 
     for (FAnimBlueprintNode& Node : Graph->Nodes)
     {
-        if (Node.Id == SelectedNodeId)
+        if (Node.Id == NodeId)
         {
             return &Node;
         }
@@ -498,9 +667,15 @@ FAnimBlueprintNode* FAnimBlueprintEditor::GetSelectedNode()
     return nullptr;
 }
 
+FAnimBlueprintNode* FAnimBlueprintEditor::GetSelectedNode()
+{
+    return FindNode(SelectedNodeId);
+}
+
 void FAnimBlueprintEditor::SelectNode(int32 NodeId)
 {
     SelectedNodeId = INDEX_NONE;
+    SelectedLinkId = INDEX_NONE;
 
     FAnimBlueprintGraph* Graph = GetCurrentGraph();
 
@@ -533,6 +708,8 @@ int32 FAnimBlueprintEditor::AddPoseNode(EAnimBlueprintNodeType Type, const FAnim
         return INDEX_NONE;
     }
 
+    const int32 ParentGraphId = Graph->Id;
+
     FAnimBlueprintNode Node;
     Node.Type = Type;
     Node.Position = Position;
@@ -545,6 +722,10 @@ int32 FAnimBlueprintEditor::AddPoseNode(EAnimBlueprintNodeType Type, const FAnim
 
     case EAnimBlueprintNodeType::BlendSpacePlayer:
         Node.Name = "BlendSpace Player";
+        break;
+
+    case EAnimBlueprintNodeType::StateMachine:
+        Node.Name = "State Machine";
         break;
 
     case EAnimBlueprintNodeType::TwoWayBlend:
@@ -561,6 +742,13 @@ int32 FAnimBlueprintEditor::AddPoseNode(EAnimBlueprintNodeType Type, const FAnim
     Node.Id = BlueprintData.AllocateId();
     Node.OutputPosePinId = BlueprintData.AllocateId();
     const int32 NodeId = Node.Id;
+
+    if (Type == EAnimBlueprintNodeType::StateMachine)
+    {
+        Node.ChildGraphId = CreateChildGraph(ParentGraphId, NodeId, Node.Name, EAnimBlueprintGraphType::StateMachine);
+        Graph = FindGraph(ParentGraphId);
+    }
+
     Graph->Nodes.Add(Node);
     return NodeId;
 }
@@ -581,7 +769,11 @@ FAnimBlueprintNode* FAnimBlueprintEditor::FindNodeByPin(int32 PinId)
 
     for (FAnimBlueprintNode& Node : Graph->Nodes)
     {
-        if (Node.InputPosePinId == PinId || Node.SecondInputPosePinId == PinId || Node.OutputPosePinId == PinId)
+        if (Node.InputPosePinId == PinId 
+            || Node.SecondInputPosePinId == PinId 
+            || Node.OutputPosePinId == PinId 
+            || Node.TransitionInputPinId == PinId 
+            || Node.TransitionOutputPinId == PinId)
         {
             return &Node;
         }
@@ -626,7 +818,9 @@ bool FAnimBlueprintEditor::ResolvePoseConnection(int32 FirstPinId, int32 SecondP
         return false;
     }
 
-    if (TargetNode->Type != EAnimBlueprintNodeType::OutputPose && TargetNode->Type != EAnimBlueprintNodeType::TwoWayBlend)
+    if (TargetNode->Type != EAnimBlueprintNodeType::OutputPose 
+        && TargetNode->Type != EAnimBlueprintNodeType::StateResult 
+        && TargetNode->Type != EAnimBlueprintNodeType::TwoWayBlend)
     {
         return false;
     }
@@ -693,7 +887,11 @@ bool FAnimBlueprintEditor::CanRemoveNode(int32 NodeId)
     {
         if (Node.Id == NodeId)
         {
-            return Node.Type == EAnimBlueprintNodeType::SequencePlayer || Node.Type == EAnimBlueprintNodeType::BlendSpacePlayer || Node.Type == EAnimBlueprintNodeType::TwoWayBlend;
+            return Node.Type == EAnimBlueprintNodeType::SequencePlayer 
+                || Node.Type == EAnimBlueprintNodeType::BlendSpacePlayer 
+                || Node.Type == EAnimBlueprintNodeType::TwoWayBlend 
+                || Node.Type == EAnimBlueprintNodeType::StateMachine 
+                || Node.Type == EAnimBlueprintNodeType::State || Node.Type == EAnimBlueprintNodeType::AnyState;
         }
     }
 
@@ -708,11 +906,7 @@ bool FAnimBlueprintEditor::RemoveNode(int32 NodeId)
     }
 
     FAnimBlueprintGraph* Graph = GetCurrentGraph();
-
-    if (!Graph)
-    {
-        return false;
-    }
+    int32 ChildGraphId = INDEX_NONE;
 
     for (int32 Index = Graph->Links.Num() - 1; Index >= 0; --Index)
     {
@@ -724,22 +918,35 @@ bool FAnimBlueprintEditor::RemoveNode(int32 NodeId)
         }
     }
 
+    for (int32 Index = Graph->Transitions.Num() - 1; Index >= 0; --Index)
+    {
+        const FAnimBlueprintTransition& Transition = Graph->Transitions[Index];
+
+        if (Transition.FromStateId == NodeId || Transition.ToStateId == NodeId)
+        {
+            Graph->Transitions.RemoveAt(Index);
+        }
+    }
+
     for (int32 Index = 0; Index < Graph->Nodes.Num(); ++Index)
     {
         if (Graph->Nodes[Index].Id == NodeId)
         {
+            ChildGraphId = Graph->Nodes[Index].ChildGraphId;
             Graph->Nodes.RemoveAt(Index);
-
-            if (SelectedNodeId == NodeId)
-            {
-                SelectedNodeId = INDEX_NONE;
-            }
-
-            return true;
+            break;
         }
     }
 
-    return false;
+    SelectedNodeId = INDEX_NONE;
+    SelectedLinkId = INDEX_NONE;
+
+    if (ChildGraphId != INDEX_NONE)
+    {
+        RemoveChildGraphs(ChildGraphId);
+    }
+
+    return true;
 }
 
 bool FAnimBlueprintEditor::RemoveLink(int32 LinkId)
@@ -756,6 +963,17 @@ bool FAnimBlueprintEditor::RemoveLink(int32 LinkId)
         if (Graph->Links[Index].Id == LinkId)
         {
             Graph->Links.RemoveAt(Index);
+            SelectedLinkId = INDEX_NONE;
+            return true;
+        }
+    }
+
+    for (int32 Index = 0; Index < Graph->Transitions.Num(); ++Index)
+    {
+        if (Graph->Transitions[Index].Id == LinkId)
+        {
+            Graph->Transitions.RemoveAt(Index);
+            SelectedLinkId = INDEX_NONE;
             return true;
         }
     }
@@ -870,6 +1088,14 @@ bool FAnimBlueprintEditor::RenameVariable(const FString& PreviousName, const FSt
 
             for (FAnimBlueprintGraph& Graph : BlueprintData.Graphs)
             {
+                for (FAnimBlueprintTransition& Transition : Graph.Transitions)
+                {
+                    if (Transition.Variable == PreviousName)
+                    {
+                        Transition.Variable = Name;
+                    }
+                }
+
                 for (FAnimBlueprintNode& Node : Graph.Nodes)
                 {
                     if (Node.FloatInput.Variable == PreviousName)
@@ -899,6 +1125,15 @@ void FAnimBlueprintEditor::RemoveVariable(const FString& Name)
 
     for (FAnimBlueprintGraph& Graph : BlueprintData.Graphs)
     {
+        for (FAnimBlueprintTransition& Transition : Graph.Transitions)
+        {
+            if (Transition.Variable == Name)
+            {
+                Transition.Variable.clear();
+                Transition.Rule = EAnimBlueprintTransitionRule::Disabled;
+            }
+        }
+
         for (FAnimBlueprintNode& Node : Graph.Nodes)
         {
             if (Node.FloatInput.Variable == Name)
@@ -909,7 +1144,7 @@ void FAnimBlueprintEditor::RemoveVariable(const FString& Name)
         }
     }
 
-    VariableMessage = "Variable removed. Bound inputs now use constants. Apply Preview to update playback.";
+    VariableMessage = "Variable removed. Bound inputs use constants and affected transitions are disabled. Apply Preview to update playback.";
 }
 
 float FAnimBlueprintEditor::GetPreviewFloat(const FString& Name) const
@@ -936,4 +1171,542 @@ void FAnimBlueprintEditor::SetPreviewBool(const FString& Name, bool bValue)
     {
         PreviewInstance->SetBool(Name, bValue);
     }
+}
+
+int32 FAnimBlueprintEditor::CreateChildGraph(int32 ParentGraphId, int32 OwnerNodeId, const FString& Name, 
+    EAnimBlueprintGraphType Type)
+{
+    FAnimBlueprintGraph Graph;
+    Graph.Id = BlueprintData.AllocateId();
+    Graph.Name = Name;
+    Graph.Type = Type;
+    Graph.ParentGraphId = ParentGraphId;
+    Graph.OwnerNodeId = OwnerNodeId;
+
+    FAnimBlueprintNode Root;
+    Root.Id = BlueprintData.AllocateId();
+    Root.Position.X = 40.0f;
+    Root.Position.Y = 100.0f;
+
+    if (Type == EAnimBlueprintGraphType::StateMachine)
+    {
+        Root.Type = EAnimBlueprintNodeType::Entry;
+        Root.Name = "Entry";
+        Root.TransitionOutputPinId = BlueprintData.AllocateId();
+    }
+    else
+    {
+        Root.Type = EAnimBlueprintNodeType::StateResult;
+        Root.Name = "State Result";
+        Root.Position.X = 360.0f;
+        Root.InputPosePinId = BlueprintData.AllocateId();
+    }
+
+    Graph.Nodes.Add(Root);
+    const int32 GraphId = Graph.Id;
+    BlueprintData.Graphs.Add(Graph);
+    return GraphId;
+}
+
+int32 FAnimBlueprintEditor::AddState(const FAnimBlueprintPosition& Position)
+{
+    FAnimBlueprintGraph* Graph = GetCurrentGraph();
+
+    if (!Graph || Graph->Type != EAnimBlueprintGraphType::StateMachine)
+    {
+        return INDEX_NONE;
+    }
+
+    const int32 ParentGraphId = Graph->Id;
+    FAnimBlueprintNode State;
+    State.Id = BlueprintData.AllocateId();
+    State.Type = EAnimBlueprintNodeType::State;
+    State.Name = "State " + std::to_string(State.Id);
+    State.Position = Position;
+    State.TransitionInputPinId = BlueprintData.AllocateId();
+    State.TransitionOutputPinId = BlueprintData.AllocateId();
+    State.ChildGraphId = CreateChildGraph(ParentGraphId, State.Id, State.Name, EAnimBlueprintGraphType::Pose);
+
+    Graph = FindGraph(ParentGraphId);
+    Graph->Nodes.Add(State);
+    return State.Id;
+}
+
+TArray<int32> FAnimBlueprintEditor::GetGraphPath() const
+{
+    TArray<int32> ReversePath;
+    int32 GraphId = CurrentGraphId;
+
+    while (GraphId != INDEX_NONE && ReversePath.Find(GraphId) == INDEX_NONE)
+    {
+        const FAnimBlueprintGraph* Found = nullptr;
+
+        for (const FAnimBlueprintGraph& Graph : BlueprintData.Graphs)
+        {
+            if (Graph.Id == GraphId)
+            {
+                Found = &Graph;
+                break;
+            }
+        }
+
+        if (!Found)
+        {
+            break;
+        }
+
+        ReversePath.Add(GraphId);
+        GraphId = Found->ParentGraphId;
+    }
+
+    TArray<int32> Path;
+    for (int32 Index = ReversePath.Num() - 1; Index >= 0; --Index)
+    {
+        Path.Add(ReversePath[Index]);
+    }
+
+    return Path;
+}
+
+bool FAnimBlueprintEditor::NavigateToGraph(int32 GraphId)
+{
+    if (!FindGraph(GraphId))
+    {
+        return false;
+    }
+
+    CurrentGraphId = GraphId;
+    SelectedNodeId = INDEX_NONE;
+    SelectedLinkId = INDEX_NONE;
+    return true;
+}
+
+bool FAnimBlueprintEditor::OpenNodeGraph(int32 NodeId)
+{
+    const FAnimBlueprintNode* Node = FindNode(NodeId);
+
+    if (!Node || (Node->Type != EAnimBlueprintNodeType::StateMachine && Node->Type != EAnimBlueprintNodeType::State))
+    {
+        return false;
+    }
+
+    return NavigateToGraph(Node->ChildGraphId);
+}
+
+bool FAnimBlueprintEditor::RenameNode(int32 NodeId, const FString& Name)
+{
+    FAnimBlueprintNode* Node = FindNode(NodeId);
+    FAnimBlueprintGraph* Graph = GetCurrentGraph();
+
+    if (!Node || !Graph || (Node->Type != EAnimBlueprintNodeType::State && Node->Type != EAnimBlueprintNodeType::StateMachine))
+    {
+        return false;
+    }
+
+    if (Name.size() >= 128 || Name.find_first_not_of(" \t\r\n") == FString::npos)
+    {
+        return SetPreviewError(NodeId, "Use a non-empty name with fewer than 128 bytes.");
+    }
+
+    for (const FAnimBlueprintNode& Other : Graph->Nodes)
+    {
+        if (Other.Id != NodeId && Other.Name == Name)
+        {
+            return SetPreviewError(NodeId, "A node with this name already exists in the graph.");
+        }
+    }
+
+    Node->Name = Name;
+    FAnimBlueprintGraph* Child = FindGraph(Node->ChildGraphId);
+
+    if (Child)
+    {
+        Child->Name = Name;
+    }
+
+    return true;
+}
+
+void FAnimBlueprintEditor::SelectLink(int32 LinkId)
+{
+    SelectedNodeId = INDEX_NONE;
+    SelectedLinkId = LinkId;
+}
+
+FAnimBlueprintTransition* FAnimBlueprintEditor::GetSelectedTransition()
+{
+    FAnimBlueprintGraph* Graph = GetCurrentGraph();
+
+    if (Graph)
+    {
+        for (FAnimBlueprintTransition& Transition : Graph->Transitions)
+        {
+            if (Transition.Id == SelectedLinkId)
+            {
+                return &Transition;
+            }
+        }
+    }
+
+    return nullptr;
+}
+
+bool FAnimBlueprintEditor::ResolveStateConnection(int32 FirstPinId, int32 SecondPinId, FAnimBlueprintLink& OutConnection)
+{
+    FAnimBlueprintGraph* Graph = GetCurrentGraph();
+    FAnimBlueprintNode* First = FindNodeByPin(FirstPinId);
+    FAnimBlueprintNode* Second = FindNodeByPin(SecondPinId);
+
+    if (!Graph || Graph->Type != EAnimBlueprintGraphType::StateMachine || !First || !Second || First == Second)
+    {
+        return false;
+    }
+
+    const bool bFirstOutput = First->TransitionOutputPinId == FirstPinId;
+    const bool bSecondOutput = Second->TransitionOutputPinId == SecondPinId;
+
+    if (bFirstOutput == bSecondOutput)
+    {
+        return false;
+    }
+
+    const FAnimBlueprintNode* Source = bFirstOutput ? First : Second;
+    const FAnimBlueprintNode* Target = bFirstOutput ? Second : First;
+
+    if ((Source->Type != EAnimBlueprintNodeType::Entry 
+        && Source->Type != EAnimBlueprintNodeType::State && Source->Type != EAnimBlueprintNodeType::AnyState) 
+        || Target->Type != EAnimBlueprintNodeType::State)
+    {
+        return false;
+    }
+
+    for (const FAnimBlueprintTransition& Transition : Graph->Transitions)
+    {
+        if (Transition.FromStateId == Source->Id && Transition.ToStateId == Target->Id)
+        {
+            return false;
+        }
+    }
+
+    OutConnection.FromNodeId = Source->Id;
+    OutConnection.FromPinId = Source->TransitionOutputPinId;
+    OutConnection.ToNodeId = Target->Id;
+    OutConnection.ToPinId = Target->TransitionInputPinId;
+    return true;
+}
+
+bool FAnimBlueprintEditor::CanConnectPins(int32 FirstPinId, int32 SecondPinId)
+{
+    FAnimBlueprintGraph* Graph = GetCurrentGraph();
+
+    if (!Graph)
+    {
+        return false;
+    }
+
+    if (Graph->Type == EAnimBlueprintGraphType::Pose)
+    {
+        return CanConnectPosePins(FirstPinId, SecondPinId);
+    }
+
+    FAnimBlueprintLink Connection;
+    return ResolveStateConnection(FirstPinId, SecondPinId, Connection);
+}
+
+bool FAnimBlueprintEditor::ConnectPins(int32 FirstPinId, int32 SecondPinId)
+{
+    FAnimBlueprintGraph* Graph = GetCurrentGraph();
+
+    if (!Graph)
+    {
+        return false;
+    }
+
+    if (Graph->Type == EAnimBlueprintGraphType::Pose)
+    {
+        return ConnectPosePins(FirstPinId, SecondPinId);
+    }
+
+    FAnimBlueprintLink Connection;
+
+    if (!ResolveStateConnection(FirstPinId, SecondPinId, Connection))
+    {
+        return false;
+    }
+
+    Connection.Id = BlueprintData.AllocateId();
+    const FAnimBlueprintNode* Source = FindNode(Connection.FromNodeId);
+
+    if (Source->Type == EAnimBlueprintNodeType::Entry)
+    {
+        Graph->Links.Empty();
+        Graph->Links.Add(Connection);
+    }
+    else
+    {
+        FAnimBlueprintTransition Transition;
+        Transition.Id = Connection.Id;
+        Transition.FromStateId = Connection.FromNodeId;
+        Transition.ToStateId = Connection.ToNodeId;
+        Transition.FromPinId = Connection.FromPinId;
+        Transition.ToPinId = Connection.ToPinId;
+        Graph->Transitions.Add(Transition);
+    }
+
+    return true;
+}
+
+void FAnimBlueprintEditor::RemoveChildGraphs(int32 GraphId)
+{
+    TArray<int32> RemovedIds;
+    RemovedIds.Add(GraphId);
+
+    for (int32 Index = 0; Index < RemovedIds.Num(); ++Index)
+    {
+        for (const FAnimBlueprintGraph& Graph : BlueprintData.Graphs)
+        {
+            if (Graph.ParentGraphId == RemovedIds[Index] && RemovedIds.Find(Graph.Id) == INDEX_NONE)
+            {
+                RemovedIds.Add(Graph.Id);
+            }
+        }
+    }
+
+    for (int32 Index = BlueprintData.Graphs.Num() - 1; Index >= 0; --Index)
+    {
+        if (RemovedIds.Find(BlueprintData.Graphs[Index].Id) != INDEX_NONE)
+        {
+            BlueprintData.Graphs.RemoveAt(Index);
+        }
+    }
+}
+
+int32 FAnimBlueprintEditor::AddAnyState(const FAnimBlueprintPosition& Position)
+{
+    FAnimBlueprintGraph* Graph = GetCurrentGraph();
+
+    if (!Graph || Graph->Type != EAnimBlueprintGraphType::StateMachine)
+    {
+        return INDEX_NONE;
+    }
+
+    for (const FAnimBlueprintNode& Node : Graph->Nodes)
+    {
+        if (Node.Type == EAnimBlueprintNodeType::AnyState)
+        {
+            return Node.Id;
+        }
+    }
+
+    FAnimBlueprintNode Node;
+    Node.Id = BlueprintData.AllocateId();
+    Node.Name = "Any State";
+    Node.Type = EAnimBlueprintNodeType::AnyState;
+    Node.Position = Position;
+    Node.TransitionOutputPinId = BlueprintData.AllocateId();
+    Graph->Nodes.Add(Node);
+    return Node.Id;
+}
+
+bool FAnimBlueprintEditor::BuildPreviewTransitions(const FAnimBlueprintGraph& Graph, int32 MachineIndex, 
+    UAnimGraphInstance& Instance, const TMap<int32, int32>& StateIndices)
+{
+    for (const FAnimBlueprintTransition& Transition : Graph.Transitions)
+    {
+        const FAnimBlueprintNode* Source = nullptr;
+        const FAnimBlueprintNode* Target = nullptr;
+
+        for (const FAnimBlueprintNode& Node : Graph.Nodes)
+        {
+            if (Node.Id == Transition.FromStateId)
+            {
+                Source = &Node;
+            }
+
+            if (Node.Id == Transition.ToStateId)
+            {
+                Target = &Node;
+            }
+        }
+
+        if (!Source || !Target || Target->Type != EAnimBlueprintNodeType::State || Source == Target)
+        {
+            return SetPreviewError(Transition.Id, "The transition endpoints are invalid.");
+        }
+
+        if ((Source->Type != EAnimBlueprintNodeType::State 
+            && Source->Type != EAnimBlueprintNodeType::AnyState) 
+            || Source->TransitionOutputPinId != Transition.FromPinId 
+            || Target->TransitionInputPinId != Transition.ToPinId)
+        {
+            return SetPreviewError(Transition.Id, "The transition pins are invalid.");
+        }
+
+        if (Transition.Rule == EAnimBlueprintTransitionRule::Disabled)
+        {
+            continue;
+        }
+
+        if (!std::isfinite(Transition.CrossfadeDuration) || Transition.CrossfadeDuration < 0.0f)
+        {
+            return SetPreviewError(Transition.Id, "Crossfade duration must be finite and non-negative.");
+        }
+
+        const int32* ToIndex = StateIndices.Find(Target->Id);
+        const int32* SourceIndex = StateIndices.Find(Source->Id);
+        const bool bAnyState = Source->Type == EAnimBlueprintNodeType::AnyState;
+
+        if (!ToIndex || (!bAnyState && !SourceIndex))
+        {
+            return SetPreviewError(Transition.Id, "The transition State is not registered.");
+        }
+
+        const int32 FromIndex = bAnyState ? INDEX_NONE : *SourceIndex;
+        FAnimTransitionRule Rule;
+
+        if (Transition.Rule == EAnimBlueprintTransitionRule::Finished)
+        {
+            if (bAnyState)
+            {
+                return SetPreviewError(Transition.Id, "Finished requires a specific source State.");
+            }
+
+            const int32 PoseIndex = Instance.GetStatePoseNode(MachineIndex, FromIndex);
+            const FAnimNode_SequencePlayer* Player = Instance.GetNode<FAnimNode_SequencePlayer>(PoseIndex);
+
+            if (!Player || Player->bLooping)
+            {
+                return SetPreviewError(Transition.Id, "Finished requires the source State to output a non-looping Sequence Player directly.");
+            }
+
+            Rule = Instance.MakeFinishedRule(PoseIndex);
+        }
+        else
+        {
+            const FAnimBlueprintVariable* MatchedVariable = nullptr;
+
+            for (const FAnimBlueprintVariable& Variable : BlueprintData.Variables)
+            {
+                if (Variable.Name == Transition.Variable)
+                {
+                    MatchedVariable = &Variable;
+                    break;
+                }
+            }
+
+            if (!MatchedVariable)
+            {
+                return SetPreviewError(Transition.Id, "Select a variable for the transition condition.");
+            }
+
+            if (Transition.Rule == EAnimBlueprintTransitionRule::Bool)
+            {
+                if (MatchedVariable->Type != EAnimBlueprintVariableType::Bool)
+                {
+                    return SetPreviewError(Transition.Id, "This transition requires a Bool variable.");
+                }
+
+                Rule = Instance.MakeBoolRule(Transition.Variable, Transition.bExpected);
+            }
+            else if (Transition.Rule == EAnimBlueprintTransitionRule::Float)
+            {
+                if (MatchedVariable->Type != EAnimBlueprintVariableType::Float || !std::isfinite(Transition.Value))
+                {
+                    return SetPreviewError(Transition.Id, "This transition requires a Float variable and a finite comparison value.");
+                }
+
+                EAnimGraphCompare Compare;
+
+                switch (Transition.Compare)
+                {
+                case EAnimBlueprintCompare::Less:
+                    Compare = EAnimGraphCompare::Less;
+                    break;
+
+                case EAnimBlueprintCompare::LessEqual:
+                    Compare = EAnimGraphCompare::LessEqual;
+                    break;
+
+                case EAnimBlueprintCompare::Greater:
+                    Compare = EAnimGraphCompare::Greater;
+                    break;
+
+                case EAnimBlueprintCompare::GreaterEqual:
+                    Compare = EAnimGraphCompare::GreaterEqual;
+                    break;
+
+                case EAnimBlueprintCompare::Equal:
+                    Compare = EAnimGraphCompare::Equal;
+                    break;
+
+                case EAnimBlueprintCompare::NotEqual:
+                    Compare = EAnimGraphCompare::NotEqual;
+                    break;
+
+                default:
+                    return SetPreviewError(Transition.Id, "The comparison operator is invalid.");
+                }
+
+                Rule = Instance.MakeFloatRule(Transition.Variable, Compare, Transition.Value);
+            }
+            else
+            {
+                return SetPreviewError(Transition.Id, "The transition rule type is invalid.");
+            }
+        }
+
+        if (Instance.AddTransition(MachineIndex, FromIndex, *ToIndex, std::move(Rule), Transition.CrossfadeDuration, Transition.Priority) == INDEX_NONE)
+        {
+            return SetPreviewError(Transition.Id, "Failed to register the transition.");
+        }
+    }
+
+    return true;
+}
+
+bool FAnimBlueprintEditor::IsPreviewStateActive(int32 NodeId) const
+{
+    if (!PreviewInstance)
+    {
+        return false;
+    }
+
+    const TArray<int32>* PoseIndices = PreviewNodeIndices.Find(NodeId);
+
+    if (!PoseIndices)
+    {
+        return false;
+    }
+
+    for (const FAnimBlueprintGraph& Graph : BlueprintData.Graphs)
+    {
+        if (Graph.Id != CurrentGraphId || Graph.Type != EAnimBlueprintGraphType::StateMachine)
+        {
+            continue;
+        }
+
+        const TArray<int32>* MachineIndices = PreviewNodeIndices.Find(Graph.OwnerNodeId);
+
+        if (!MachineIndices)
+        {
+            return false;
+        }
+
+        for (int32 MachineIndex : *MachineIndices)
+        {
+            const FAnimNode_StateMachine* Machine = PreviewInstance->GetNode<FAnimNode_StateMachine>(MachineIndex);
+
+            if (Machine)
+            {
+                const int32 CurrentPose = PreviewInstance->GetStatePoseNode(MachineIndex, Machine->GetCurrentStateIndex());
+
+                if (PoseIndices->Find(CurrentPose) != INDEX_NONE)
+                {
+                    return true;
+                }
+            }
+        }
+    }
+
+    return false;
 }

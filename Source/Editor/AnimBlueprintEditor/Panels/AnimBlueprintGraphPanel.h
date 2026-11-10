@@ -3,6 +3,7 @@
 #include "Editor/AssetEditor/AssetEditorPanel.h"
 #include "Animation/AnimBlueprintData.h"
 #include "imgui_node_editor.h"
+#include "Containers/Map.h"
 
 #include <unordered_set>
 
@@ -20,6 +21,15 @@ protected:
     void DrawContent() override;
 
 private:
+    struct FGraphView
+    {
+        ax::NodeEditor::EditorContext* Context = nullptr;
+        std::unordered_set<int32> PositionedNodeIds;
+        bool bInitialViewApplied = false;
+    };
+
+    void DrawGraphPath();
+    void RemoveDeletedGraphViews();
     void DrawNodes(FAnimBlueprintGraph& Graph);
     void DrawLinks(const FAnimBlueprintGraph& Graph);
 
@@ -33,8 +43,8 @@ private:
     FAnimBlueprintEditor& Editor;
     ax::NodeEditor::EditorContext* NodeEditorContext = nullptr;
 
-    std::unordered_set<int32> PositionedNodeIds;
+    TMap<int32, FGraphView> GraphViews;
+    FGraphView* CurrentView = nullptr;
     FAnimBlueprintPosition CreationPosition;
 
-    bool bInitialViewApplied = false;
 };

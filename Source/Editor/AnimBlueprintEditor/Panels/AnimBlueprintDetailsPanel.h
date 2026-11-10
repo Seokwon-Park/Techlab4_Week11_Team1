@@ -1,6 +1,8 @@
 #pragma once
 
 #include "Editor/AssetEditor/AssetEditorPanel.h"
+#include "Math/MathUtility.h"
+#include "Animation/AnimBlueprintData.h"
 #include <vector>
 
 class FAnimBlueprintEditor;
@@ -21,6 +23,8 @@ private:
     void DrawFloatInput(const char* Label, FAnimBlueprintFloatInput& Input, bool bAlpha);
     void DrawVariables();
     void DrawPreviewVariables();
+    void DrawTransitionDetails(FAnimBlueprintTransition& Transition);
+    void DrawVariableSelector(const char* Label, FString& Name, EAnimBlueprintVariableType Type);
 
     FAnimBlueprintEditor& Editor;
 
@@ -30,4 +34,6 @@ private:
     int NewVariableType = 0;
     FString RenamingVariable;
     char RenameBuffer[128] = {};
+    int32 NamingNodeId = INDEX_NONE;
+    char NodeNameBuffer[128] = {};
 };
