@@ -18,11 +18,6 @@ public:
 	// false 복귀는 Hit 상태의 OnExit가 맡는다
 	void SetIsHit(bool bInIsHit) { bIsHit = bInIsHit; }
 
-	// AttackHit Notify에서 쏘는 공격 판정 Sweep (캡슐 중심 기준, 월드 단위)
-	float AttackHeight = 0.4f;   // 캡슐 중심에서 가슴 높이까지
-	float AttackRange = 1.2f;    // 캡슐 중심에서 주먹 끝까지
-	float AttackRadius = 0.25f;
-
 private:
 	float Speed = 0.0f;
 	bool bIsAttacking = false;
@@ -36,5 +31,4 @@ private:
 
 	virtual void NativeInitializeAnimation() override;
 	virtual void NativeUpdateAnimation(float DeltaSeconds) override;
-	virtual void HandleNamedNotify(const FName& NotifyName) override;
 };

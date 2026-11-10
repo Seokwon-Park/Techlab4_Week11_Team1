@@ -32,19 +32,31 @@ public:
 	// 없으면 nullptr. 반환된 Event의 Notify 객체 파라미터는 수정해도 되지만, 시간은 SetNotifyTriggerTime으로 바꾼다.
 	const FAnimNotifyEvent* FindNotify(const FGuid& NotifyGuid) const;
 
+	// Duration: 0이면 단발, >0이면 [Time, Time + Duration] 구간 동안 활성.
+	// 시퀀스 끝을 넘지 않도록 잘린다. 단발이 아닌 이름/UAnimNotify 기반은 구간 동안 매 프레임 전달된다.
+
 	// 이름 기반 Notify 추가. 새 Notify의 Guid를 반환한다.
-	FGuid AddNotify(float Time, const FName& NotifyName);
+	FGuid AddNotify(float Time, const FName& NotifyName, float Duration = 0.f);
 
 	// 클래스 기반 Notify 추가. 이 시퀀스를 Outer로 객체를 만들어 반환하므로 호출한 쪽이 파라미터를 채운다.
+	// T가 UAnimNotifyState 파생이면 NotifyStateClass에, UAnimNotify 파생이면 Notify에 담는다.
 	template <typename T>
-	T* AddNotify(float Time, FGuid* OutGuid = nullptr)
+	T* AddNotify(float Time, float Duration = 0.f, FGuid* OutGuid = nullptr)
 	{
-		static_assert(std::is_base_of_v<UAnimNotify, T>, "T must derive from UAnimNotify");
+		static_assert(std::is_base_of_v<UAnimNotify, T> || std::is_base_of_v<UAnimNotifyState, T>,
+			"T must derive from UAnimNotify or UAnimNotifyState");
 		T* NotifyObject = NewObject<T>(this);
 
 		FAnimNotifyEvent NewEvent;
-		NewEvent.Notify = NotifyObject;
-		const FGuid NewGuid = AddNotifyEvent(Time, NewEvent);
+		if constexpr (std::is_base_of_v<UAnimNotifyState, T>)
+		{
+			NewEvent.NotifyStateClass = NotifyObject;
+		}
+		else
+		{
+			NewEvent.Notify = NotifyObject;
+		}
+		const FGuid NewGuid = AddNotifyEvent(Time, Duration, NewEvent);
 		if (OutGuid)
 		{
 			*OutGuid = NewGuid;
@@ -65,8 +77,9 @@ public:
 	void SortNotifies();
 
 private:
-	FGuid AddNotifyEvent(float Time, FAnimNotifyEvent& NewEvent);
+	FGuid AddNotifyEvent(float Time, float Duration, FAnimNotifyEvent& NewEvent);
 	float ClampNotifyTime(float Time) const;
+	float ClampNotifyDuration(float TriggerTime, float Duration) const;   // TriggerTime + Duration <= PlayLength
 	int32 FindNotifyIndex(const FGuid& NotifyGuid) const;
 	void RemoveNotifyAt(int32 Index);   // 소유한 Notify 객체를 delete하고 순서를 유지한 채 제거
 

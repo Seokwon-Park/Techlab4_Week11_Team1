@@ -43,4 +43,12 @@ protected:
 protected:
 	FAnimNode_Base* RootNode = nullptr;
 	FAnimNotifyQueue NotifyQueue;
+
+private:
+	// 지난 프레임까지 Begin을 받고 아직 End를 받지 않은 NotifyState들.
+	// 이번 프레임 큐와 비교해 새로 들어온 것은 Begin, 사라진 것은 End를 보낸다 (UE ActiveAnimNotifyState).
+	// 주의: 시퀀스의 Notify 배열 원소를 포인터로 가리키므로 재생 중에 시퀀스 Notify를 편집하면 안 된다.
+	TArray<FAnimNotifyEventReference> ActiveAnimNotifyStates;
+
+	void EndAllAnimNotifyStates();
 };

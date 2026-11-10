@@ -3,16 +3,15 @@
 #include "Animation/AnimSequenceFile.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFrameWork/Pawn.h"
-#include "GameFramework/Actor/MyCharacter.h"
-#include "Engine/World.h"
-#include "Collision/HitResult.h"
 #include "Animation/AnimNotify.h"
+#include "AnimNotifyState_AttackWindow.h"
 
 namespace
 {
-	// Punch_Jab(30fps)에서 왼팔이 가장 뻗는 프레임 7 ≈ 0.233초
-	const FName AttackHitNotifyName("AttackHit");
-	constexpr float AttackHitNotifyTime = 7.0f / 30.0f;
+	// Punch_Jab(30fps)에서 왼팔이 가장 뻗는 순간은 프레임 7.
+	// 뻗기 시작하는 5부터 거두기 시작하는 9까지를 판정 구간으로 둔다.
+	constexpr float AttackWindowStartFrame = 5.0f;
+	constexpr float AttackWindowEndFrame = 9.0f;
 
 	// 발이 바닥에 닿는 프레임 (발목/발끝 높이가 최저점에 닿는 순간, 30fps 기준)
 	// 프레임 0은 (Prev, Curr] 검사에 걸리지 않으므로 반 프레임 뒤로 둔다
@@ -33,7 +32,7 @@ namespace
 		const float Time = Frame * static_cast<float>(Rate.Denominator) / static_cast<float>(Rate.Numerator);
 
 		FGuid Guid;
-		UAnimNotify_PlaySound* Notify = Sequence->AddNotify<UAnimNotify_PlaySound>(Time, &Guid);
+		UAnimNotify_PlaySound* Notify = Sequence->AddNotify<UAnimNotify_PlaySound>(Time, 0.f, &Guid);
 		Notify->SoundPath = SoundPath;
 		Notify->Volume = 1.0f;
 
@@ -102,9 +101,15 @@ void UMyAnimInstance::NativeInitializeAnimation()
 		"Assets/FBX/UAL1_Standard/UAL1_Standard_Armature_Punch_Jab.anim.bin");
 	AttackPlayer.bLooping = false;
 
-	//Attack Sequence에 "AttackHit" Notify 추가
-	if (AttackPlayer.Sequence)
-		AttackPlayer.Sequence->AddNotify(AttackHitNotifyTime, AttackHitNotifyName);
+	// Attack Sequence에 공격 판정 구간 추가 (구간 동안 매 프레임 Sweep, 같은 상대는 한 번만)
+	if (AttackPlayer.Sequence && AttackPlayer.Sequence->GetDataModel())
+	{
+		const FFrameRate Rate = AttackPlayer.Sequence->GetDataModel()->GetFrameRate();
+		const float SecondsPerFrame = static_cast<float>(Rate.Denominator) / static_cast<float>(Rate.Numerator);
+		AttackPlayer.Sequence->AddNotify<UAnimNotifyState_AttackWindow>(
+			AttackWindowStartFrame * SecondsPerFrame,
+			(AttackWindowEndFrame - AttackWindowStartFrame) * SecondsPerFrame);
+	}
 
 	HitPlayer.Sequence = LoadSequence(
 		"Assets/FBX/UAL1_Standard/UAL1_Standard_Armature_Hit_Chest.anim.bin");
@@ -153,21 +158,4 @@ void UMyAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	}
 
 	LocomotionPlayer.X = Speed;                     // UE 에서는 핀 바인딩이 대신한다
-}
-
-void UMyAnimInstance::HandleNamedNotify(const FName& NotifyName)
-{
-	if (!(NotifyName == AttackHitNotifyName)) return;
-
-	AMyCharacter* OwnerCharacter = Cast<AMyCharacter>(TryGetPawnOwner());
-	UWorld* World = OwnerCharacter ? OwnerCharacter->GetWorld() : nullptr;
-	if (!World) return;
-
-	// 몸은 이동 방향을 향하므로(bOrientRotationToMovement) 액터 전방이 주먹 방향이다
-	const FVector Forward = OwnerCharacter->GetActorRotation().Quaternion().GetForwardVector();
-	const FRay AttackRay{ OwnerCharacter->GetActorLocation() + FVector(0.0f, 0.0f, AttackHeight), Forward };
-
-	FHitResult Hit;
-	if (World->SweepSingle(AttackRay, AttackRange, AttackRadius, Hit, OwnerCharacter))
-		OwnerCharacter->DetectedHit(Hit);
 }
