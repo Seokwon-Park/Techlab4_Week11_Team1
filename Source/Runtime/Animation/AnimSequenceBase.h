@@ -74,9 +74,23 @@ public:
 	bool SetNotifyDuration(const FGuid& NotifyGuid, float Duration);
 	// 이 가중치 이상으로 블렌드될 때만 발동한다 (BlendSpace에서 우세한 샘플만 울리게 할 때)
 	bool SetNotifyTriggerWeightThreshold(const FGuid& NotifyGuid, float Threshold);
+	// 있는 트랙 범위(0 ~ GetNumNotifyTracks()-1)로 잘린다. 새 트랙은 AddNotifyTrack/InsertNotifyTrack으로 만든다.
 	bool SetNotifyTrackIndex(const FGuid& NotifyGuid, int32 TrackIndex);
 	// 이름 기반 Notify의 이름 (클래스 Notify는 HandleNamedNotify로 가지 않으므로 표시용일 뿐이다)
 	bool SetNotifyName(const FGuid& NotifyGuid, const FName& NotifyName);
+
+	// ---------------- Notify 트랙 (타임라인의 줄) ----------------
+	// 항상 1개 이상이며, 모든 Notify의 TrackIndex보다 많다.
+	int32 GetNumNotifyTracks() const { return FMath::Max(NotifyTracks.Num(), 1); }
+	FString GetNotifyTrackName(int32 TrackIndex) const;   // 이름이 비어 있으면 번호
+	const TArray<FAnimNotifyTrack>& GetNotifyTracks() const { return NotifyTracks; }
+
+	int32 AddNotifyTrack(const FString& Name = FString());                     // 맨 아래에 추가, 새 Index 반환
+	// Index 자리에 끼워 넣는다. 그 아래 트랙의 Notify는 TrackIndex가 1씩 밀린다.
+	int32 InsertNotifyTrack(int32 TrackIndex, const FString& Name = FString());
+	// 트랙과 그 위의 Notify를 지운다. 마지막 1개는 지울 수 없다.
+	bool RemoveNotifyTrack(int32 TrackIndex);
+	bool RenameNotifyTrack(int32 TrackIndex, const FString& Name);
 
 	bool RemoveNotify(const FGuid& NotifyGuid);
 	int32 RemoveNotifies(const TArray<FGuid>& NotifyGuids);   // 다중 선택 삭제, 삭제한 개수 반환
@@ -91,16 +105,17 @@ private:
 	float ClampNotifyDuration(float TriggerTime, float Duration) const;   // TriggerTime + Duration <= PlayLength
 	int32 FindNotifyIndex(const FGuid& NotifyGuid) const;
 	void RemoveNotifyAt(int32 Index);   // 소유한 Notify 객체를 delete하고 순서를 유지한 채 제거
+	void EnsureNotifyTracks();          // 트랙 수를 1개 이상, 가장 큰 TrackIndex + 1 이상으로 맞춘다
 
 protected:
-	// .anim.bin v3 Notify 섹션.
-	// 저장: AnimNotifies를 쓴다 (OutLoaded는 쓰지 않음).
-	// 불러오기: OutLoaded에 담기만 한다. DataModel이 아직 없어 시간 범위를 확인할 수 없으므로
+	// .anim.bin v3 Notify 섹션 (트랙 목록 + Notify).
+	// 저장: NotifyTracks/AnimNotifies를 쓴다 (Out 인자는 쓰지 않음).
+	// 불러오기: Out 인자에 담기만 한다. DataModel이 아직 없어 시간 범위를 확인할 수 없으므로
 	//          Initialize 뒤에 ReplaceNotifies로 넣는다. 실패하면 OutLoaded의 객체는 호출한 쪽이 DeleteNotifyObjects로 지운다.
-	void SerializeNotifyEvents(FArchive& Ar, TArray<FAnimNotifyEvent>& OutLoaded);
+	void SerializeNotifyEvents(FArchive& Ar, TArray<FAnimNotifyTrack>& OutTracks, TArray<FAnimNotifyEvent>& OutLoaded);
 
-	// 기존 Notify(객체 포함)를 지우고 Events로 바꾼다. 시간/길이를 다시 자르고 정렬한다.
-	void ReplaceNotifies(TArray<FAnimNotifyEvent>&& Events);
+	// 기존 트랙/Notify(객체 포함)를 지우고 바꾼다. 시간/길이를 다시 자르고 정렬한다.
+	void ReplaceNotifies(TArray<FAnimNotifyTrack>&& Tracks, TArray<FAnimNotifyEvent>&& Events);
 	static void DeleteNotifyObjects(TArray<FAnimNotifyEvent>& Events);
 
 	void InitializeDataModel(
@@ -118,4 +133,5 @@ protected:
 private:
 	UAnimDataModel* DataModel = nullptr;
 	TArray<FAnimNotifyEvent> AnimNotifies;
+	TArray<FAnimNotifyTrack> NotifyTracks;
 };

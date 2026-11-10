@@ -80,9 +80,12 @@ FGuid UAnimSequenceBase::AddNotifyEvent(float Time, float Duration, FAnimNotifyE
     NewEvent.Duration = ClampNotifyDuration(NewEvent.TriggerTime, Duration);
     NewEvent.Guid = FGuid::NewGuid();
 
+    NewEvent.TrackIndex = FMath::Max(NewEvent.TrackIndex, 0);
+
     const FGuid NewGuid = NewEvent.Guid;
     AnimNotifies.Add(NewEvent);
     SortNotifies();
+    EnsureNotifyTracks();
     return NewGuid;
 }
 
@@ -136,7 +139,77 @@ bool UAnimSequenceBase::SetNotifyTrackIndex(const FGuid& NotifyGuid, int32 Track
         return false;
     }
 
-    AnimNotifies[Index].TrackIndex = FMath::Max(TrackIndex, 0);
+    AnimNotifies[Index].TrackIndex = FMath::Clamp(TrackIndex, 0, GetNumNotifyTracks() - 1);
+    return true;
+}
+
+// ---------------- Notify 트랙 ----------------
+
+void UAnimSequenceBase::EnsureNotifyTracks()
+{
+    int32 Required = 1;
+    for (const FAnimNotifyEvent& Event : AnimNotifies)
+        Required = FMath::Max(Required, Event.TrackIndex + 1);
+    while (NotifyTracks.Num() < Required)
+        NotifyTracks.Add(FAnimNotifyTrack{});
+}
+
+FString UAnimSequenceBase::GetNotifyTrackName(int32 TrackIndex) const
+{
+    if (TrackIndex >= 0 && TrackIndex < NotifyTracks.Num() && !NotifyTracks[TrackIndex].Name.empty())
+        return NotifyTracks[TrackIndex].Name;
+    return std::to_string(TrackIndex + 1);
+}
+
+int32 UAnimSequenceBase::AddNotifyTrack(const FString& Name)
+{
+    return InsertNotifyTrack(GetNumNotifyTracks(), Name);
+}
+
+int32 UAnimSequenceBase::InsertNotifyTrack(int32 TrackIndex, const FString& Name)
+{
+    EnsureNotifyTracks();   // 비어 있던(암묵적 1개) 목록을 실제 원소로 만든다
+    TrackIndex = FMath::Clamp(TrackIndex, 0, NotifyTracks.Num());
+
+    for (FAnimNotifyEvent& Event : AnimNotifies)
+        if (Event.TrackIndex >= TrackIndex)
+            ++Event.TrackIndex;
+
+    NotifyTracks.Insert(FAnimNotifyTrack{ Name }, static_cast<uint32>(TrackIndex));
+    return TrackIndex;
+}
+
+bool UAnimSequenceBase::RemoveNotifyTrack(int32 TrackIndex)
+{
+    EnsureNotifyTracks();
+    if (NotifyTracks.Num() <= 1 || TrackIndex < 0 || TrackIndex >= NotifyTracks.Num())
+    {
+        return false;
+    }
+
+    // 이 트랙의 Notify를 지우고, 아래 트랙들을 한 칸씩 올린다
+    for (int32 Index = AnimNotifies.Num() - 1; Index >= 0; --Index)
+    {
+        if (AnimNotifies[Index].TrackIndex == TrackIndex)
+            RemoveNotifyAt(Index);
+    }
+    for (FAnimNotifyEvent& Event : AnimNotifies)
+        if (Event.TrackIndex > TrackIndex)
+            --Event.TrackIndex;
+
+    NotifyTracks.RemoveAt(static_cast<uint32>(TrackIndex));
+    return true;
+}
+
+bool UAnimSequenceBase::RenameNotifyTrack(int32 TrackIndex, const FString& Name)
+{
+    EnsureNotifyTracks();
+    if (TrackIndex < 0 || TrackIndex >= NotifyTracks.Num())
+    {
+        return false;
+    }
+
+    NotifyTracks[TrackIndex].Name = Name;
     return true;
 }
 
@@ -154,6 +227,8 @@ bool UAnimSequenceBase::SetNotifyName(const FGuid& NotifyGuid, const FName& Noti
 
 // ---------------- .anim.bin v3 Notify 섹션 ----------------
 //
+// int32 TrackCount
+// 트랙마다: String Name
 // int32 NotifyCount
 // Notify마다:
 //   float TriggerTime, Duration, TriggerWeightThreshold
@@ -222,9 +297,26 @@ namespace
     }
 }
 
-void UAnimSequenceBase::SerializeNotifyEvents(FArchive& Ar, TArray<FAnimNotifyEvent>& OutLoaded)
+void UAnimSequenceBase::SerializeNotifyEvents(FArchive& Ar, TArray<FAnimNotifyTrack>& OutTracks, TArray<FAnimNotifyEvent>& OutLoaded)
 {
     const bool bLoading = Ar.IsLoading();
+
+    // 트랙 목록 (빈 트랙도 남도록 Notify와 따로 저장한다)
+    int32 TrackCount = bLoading ? 0 : NotifyTracks.Num();
+    Ar << TrackCount;
+    if (Ar.IsError() || TrackCount < 0
+        || (bLoading && TrackCount > (Ar.TotalSize() - Ar.Tell()) / static_cast<int64>(sizeof(int32))))
+    {
+        Ar.SetError();
+        return;
+    }
+    for (int32 TrackIndex = 0; TrackIndex < TrackCount; ++TrackIndex)
+    {
+        FString TrackName = bLoading ? FString{} : NotifyTracks[TrackIndex].Name;
+        if (!SerializeString(Ar, TrackName)) return;
+        if (bLoading) OutTracks.Add(FAnimNotifyTrack{ TrackName });
+    }
+
     int32 NotifyCount = bLoading ? 0 : AnimNotifies.Num();
     Ar << NotifyCount;
 
@@ -356,9 +448,10 @@ void UAnimSequenceBase::SerializeNotifyEvents(FArchive& Ar, TArray<FAnimNotifyEv
     }
 }
 
-void UAnimSequenceBase::ReplaceNotifies(TArray<FAnimNotifyEvent>&& Events)
+void UAnimSequenceBase::ReplaceNotifies(TArray<FAnimNotifyTrack>&& Tracks, TArray<FAnimNotifyEvent>&& Events)
 {
     RemoveAllNotifies();
+    NotifyTracks = std::move(Tracks);
     AnimNotifies = std::move(Events);
     for (FAnimNotifyEvent& Event : AnimNotifies)
     {
@@ -368,6 +461,7 @@ void UAnimSequenceBase::ReplaceNotifies(TArray<FAnimNotifyEvent>&& Events)
         Event.TrackIndex = FMath::Max(Event.TrackIndex, 0);
     }
     SortNotifies();
+    EnsureNotifyTracks();   // 파일의 TrackIndex가 트랙 수보다 크면 트랙을 늘린다
 }
 
 void UAnimSequenceBase::DeleteNotifyObjects(TArray<FAnimNotifyEvent>& Events)

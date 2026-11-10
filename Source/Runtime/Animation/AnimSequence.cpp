@@ -119,10 +119,11 @@ void UAnimSequence::Serialize(FArchive& Ar)
 	}
 
 	// v3: Notify. 불러올 때는 DataModel이 생긴 뒤(Initialize 뒤)에 넣어야 시간 범위를 확인할 수 있다.
+	TArray<FAnimNotifyTrack> LoadedTracks_Notify;
 	TArray<FAnimNotifyEvent> LoadedNotifies;
 	if (Version >= 3 && !Ar.IsError())
 	{
-		SerializeNotifyEvents(Ar, LoadedNotifies);
+		SerializeNotifyEvents(Ar, LoadedTracks_Notify, LoadedNotifies);
 	}
 
     if (bLoading && !Ar.IsError())
@@ -136,7 +137,7 @@ void UAnimSequence::Serialize(FArchive& Ar)
         Initialize(std::move(Name), std::move(LoadedTracks), Rate, Length);
         SetPreviewMeshPath(std::move(PreviewPath));
         // v2 이하 파일은 빈 목록이 들어가, 다시 읽을 때 이전 Notify가 남지 않는다
-        ReplaceNotifies(std::move(LoadedNotifies));
+        ReplaceNotifies(std::move(LoadedTracks_Notify), std::move(LoadedNotifies));
     }
     else
     {

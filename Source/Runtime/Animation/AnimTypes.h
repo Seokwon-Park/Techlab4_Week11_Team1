@@ -14,6 +14,12 @@ enum class ETypeAdvanceAnim : uint8
 	ETAA_Looped
 };
 
+// 타임라인의 Notify 한 줄 (UE FAnimNotifyTrack). 재생에는 영향이 없고 편집 화면 정리용이다.
+struct FAnimNotifyTrack
+{
+    FString Name;   // 비어 있으면 화면에는 번호("1", "2", ...)로 보인다
+};
+
 USTRUCT()
 struct FAnimNotifyEvent
 {
