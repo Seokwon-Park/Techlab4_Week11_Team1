@@ -5,6 +5,7 @@
 #include "Animation/AnimNotifyState.h"
 #include "UObject/Class.h"
 #include "UObject/Property.h"
+#include "UObject/UObjectHash.h"
 
 #include <algorithm>
 #include <cmath>
@@ -136,6 +137,13 @@ void FAnimTimelinePanel::DrawContent()
     DrawTransport();
     ImGui::Separator();
     DrawTrack();
+
+    // Delete 키: 타임라인 창에 포커스가 있고 글자 입력 중이 아닐 때 선택한 Notify 삭제
+    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !ImGui::GetIO().WantTextInput
+        && ImGui::IsKeyPressed(ImGuiKey_Delete, false))
+    {
+        DeleteNotify(Editor.GetSelectedNotify());
+    }
 }
 
 void FAnimTimelinePanel::DrawTransport()
@@ -486,6 +494,18 @@ float FAnimTimelinePanel::DrawNotifyTracks(const ImVec2& TracksOrigin, float Wid
         }
     }
 
+    // 우클릭: 그 자리(트랙, 프레임에 맞춘 시간)에 추가하는 메뉴. Notify 위면 삭제도.
+    if (ImGui::IsItemClicked(ImGuiMouseButton_Right) && !DraggingNotify.IsValid())
+    {
+        const float RawTime = std::clamp((Mouse.x - TracksOrigin.x) / PixelsPerSecond, 0.0f, Length);
+        ContextTime = Rate > 0.0f ? std::round(RawTime * Rate) / Rate : RawTime;
+        ContextNotifyTrack = std::clamp(static_cast<int32>((Mouse.y - TracksOrigin.y) / NotifyRowHeight), 0, NumRows - 1);
+        ContextNotify = Hovered ? Hovered->Guid : FGuid();
+        if (Hovered) Editor.SelectNotify(Hovered->Guid);
+        ImGui::OpenPopup("##NotifyContextMenu");
+    }
+    DrawNotifyContextMenu();
+
     if (ImGui::IsItemActive() && DraggingNotify.IsValid())
     {
         UpdateNotifyDrag(TracksOrigin, PixelsPerSecond);
@@ -498,6 +518,117 @@ float FAnimTimelinePanel::DrawNotifyTracks(const ImVec2& TracksOrigin, float Wid
     }
 
     return Height;
+}
+
+void FAnimTimelinePanel::DrawNotifyContextMenu()
+{
+    if (!ImGui::BeginPopup("##NotifyContextMenu"))
+    {
+        return;
+    }
+
+    UAnimSequence* Sequence = Editor.GetSequence();
+    const float Rate = Editor.GetFrameRate();
+
+    // 우클릭한 Notify가 있으면 맨 위에 삭제
+    if (ContextNotify.IsValid())
+    {
+        if (const FAnimNotifyEvent* Event = Sequence->FindNotify(ContextNotify))
+        {
+            ImGui::TextDisabled("%s", NotifyLabel(*Event).c_str());
+            if (ImGui::MenuItem("Delete", "Del"))
+            {
+                DeleteNotify(ContextNotify);
+            }
+            ImGui::Separator();
+        }
+    }
+
+    ImGui::TextDisabled("Track %s  |  %.3f s (Frame %d)", Sequence->GetNotifyTrackName(ContextNotifyTrack).c_str(),
+        ContextTime, static_cast<int>(std::lround(ContextTime * Rate)));
+
+    // 새 Notify를 우클릭한 트랙에 두고 선택한다
+    auto Finish = [&](const FGuid& Guid)
+        {
+            Sequence->SetNotifyTrackIndex(Guid, ContextNotifyTrack);
+            Editor.SelectNotify(Guid);
+            Editor.MarkNotifiesDirty();
+        };
+    // NotifyState 기본 길이: 5프레임 (시퀀스 끝을 넘으면 엔진이 자른다)
+    const float DefaultDuration = Rate > 0.0f ? 5.0f / Rate : 0.1f;
+
+    if (ImGui::BeginMenu("Add Notify"))
+    {
+        if (ImGui::MenuItem("Named Notify"))
+        {
+            Finish(Sequence->AddNotify(ContextTime, FName("NewNotify")));
+        }
+        ImGui::Separator();
+
+        TArray<UClass*> Classes;
+        GetDerivedClasses(UAnimNotify::StaticClass(), Classes, true);
+        std::sort(Classes.begin(), Classes.end(), [](const UClass* A, const UClass* B) { return A->Name < B->Name; });
+        for (UClass* Class : Classes)
+        {
+            if (ImGui::MenuItem(Class->Name.c_str()))
+            {
+                FGuid Guid;
+                if (Sequence->AddNotifyOfClass(Class, ContextTime, 0.0f, &Guid))
+                    Finish(Guid);
+            }
+        }
+        if (Classes.IsEmpty())
+        {
+            ImGui::TextDisabled("(no UAnimNotify classes)");
+        }
+        ImGui::EndMenu();
+    }
+
+    if (ImGui::BeginMenu("Add Notify State"))
+    {
+        if (ImGui::MenuItem("Named Notify State"))
+        {
+            FGuid Guid;
+            Sequence->AddNotify<UAnimNotifyState_Named>(ContextTime, DefaultDuration, &Guid)->NotifyName = "NewNotifyState";
+            Finish(Guid);
+        }
+        ImGui::Separator();
+
+        TArray<UClass*> Classes;
+        GetDerivedClasses(UAnimNotifyState::StaticClass(), Classes, true);
+        std::sort(Classes.begin(), Classes.end(), [](const UClass* A, const UClass* B) { return A->Name < B->Name; });
+        for (UClass* Class : Classes)
+        {
+            if (Class == UAnimNotifyState_Named::StaticClass())
+                continue;   // 위의 "Named Notify State"로 따로 보여 준다
+            if (ImGui::MenuItem(Class->Name.c_str()))
+            {
+                FGuid Guid;
+                if (Sequence->AddNotifyOfClass(Class, ContextTime, DefaultDuration, &Guid))
+                    Finish(Guid);
+            }
+        }
+        ImGui::EndMenu();
+    }
+
+    ImGui::EndPopup();
+}
+
+void FAnimTimelinePanel::DeleteNotify(const FGuid& Guid)
+{
+    if (!Guid.IsValid())
+        return;
+
+    // 드래그 중인 Notify를 지우면 드래그도 끝낸다
+    if (DraggingNotify == Guid)
+        DraggingNotify.Invalidate();
+
+    if (Editor.GetSequence()->RemoveNotify(Guid))
+    {
+        if (Editor.GetSelectedNotify() == Guid)
+            Editor.ClearNotifySelection();
+        Editor.MarkNotifiesDirty();
+    }
 }
 
 void FAnimTimelinePanel::UpdateNotifyDrag(const ImVec2& TracksOrigin, float PixelsPerSecond)

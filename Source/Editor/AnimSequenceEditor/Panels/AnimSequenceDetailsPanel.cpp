@@ -138,6 +138,14 @@ void FAnimSequenceDetailsPanel::DrawNotifySection(UAnimSequence& Sequence)
             bChanged = true;
     }
 
+    ImGui::Spacing();
+    if (ImGui::Button("Delete Notify"))
+    {
+        Sequence.RemoveNotify(Guid);
+        Editor.ClearNotifySelection();
+        bChanged = true;
+    }
+
     ImGui::PopID();
 
     if (bChanged)

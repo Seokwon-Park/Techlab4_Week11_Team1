@@ -22,6 +22,9 @@ private:
     void DrawTrackHeaders(const ImVec2& HeaderOrigin);
     // 드래그 중인 Notify를 마우스 위치의 트랙/시간으로 옮긴다
     void UpdateNotifyDrag(const ImVec2& TracksOrigin, float PixelsPerSecond);
+    // 트랙 우클릭 메뉴: 이름/클래스 Notify·NotifyState 추가, 우클릭한 Notify 삭제
+    void DrawNotifyContextMenu();
+    void DeleteNotify(const FGuid& Guid);
 
     bool bWasPlayingBeforeScrub = false;
 
@@ -30,6 +33,11 @@ private:
     float DragGrabOffset = 0.0f;
     ImVec2 DragStartMouse;
     bool bDragMoved = false;
+
+    // Notify 우클릭 메뉴가 가리키는 자리
+    float ContextTime = 0.0f;
+    int32 ContextNotifyTrack = 0;
+    FGuid ContextNotify;          // 우클릭한 Notify (빈 곳이면 무효)
 
     int32 ContextTrack = -1;      // 트랙 메뉴/이름 변경 팝업이 가리키는 트랙
     char RenameBuffer[64] = {};
