@@ -52,6 +52,18 @@ bool UAnimSequenceBase::SetNotifyTriggerTime(const FGuid& NotifyGuid, float Time
     return true;
 }
 
+bool UAnimSequenceBase::SetNotifyTriggerWeightThreshold(const FGuid& NotifyGuid, float Threshold)
+{
+    const int32 Index = FindNotifyIndex(NotifyGuid);
+    if (Index == -1)
+    {
+        return false;
+    }
+
+    AnimNotifies[Index].TriggerWeightThreshold = FMath::Clamp(Threshold, 0.f, 1.f);
+    return true;
+}
+
 bool UAnimSequenceBase::RemoveNotify(const FGuid& NotifyGuid)
 {
     const int32 Index = FindNotifyIndex(NotifyGuid);

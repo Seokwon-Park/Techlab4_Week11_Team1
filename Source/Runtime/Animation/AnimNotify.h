@@ -27,7 +27,7 @@ public:
     FString SoundPath;
 
     UPROPERTY(EditAnywhere)
-    float Volume = 0.f;
+    float Volume = 1.f;
 
     virtual void Notify(USkeletalMeshComponent* MeshComp, const UAnimSequenceBase* Animation, const FAnimNotifyEventReference& EventReference) override;
 };

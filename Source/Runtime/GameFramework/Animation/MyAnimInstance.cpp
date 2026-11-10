@@ -6,12 +6,40 @@
 #include "GameFramework/Actor/MyCharacter.h"
 #include "Engine/World.h"
 #include "Collision/HitResult.h"
+#include "Animation/AnimNotify.h"
 
 namespace
 {
 	// Punch_Jab(30fps)에서 왼팔이 가장 뻗는 프레임 7 ≈ 0.233초
 	const FName AttackHitNotifyName("AttackHit");
 	constexpr float AttackHitNotifyTime = 7.0f / 30.0f;
+
+	// 발이 바닥에 닿는 프레임 (발목/발끝 높이가 최저점에 닿는 순간, 30fps 기준)
+	// 프레임 0은 (Prev, Curr] 검사에 걸리지 않으므로 반 프레임 뒤로 둔다
+	constexpr float WalkFootstepFrameL = 0.5f;
+	constexpr float WalkFootstepFrameR = 20.0f;
+	constexpr float JogFootstepFrameL = 1.0f;
+	constexpr float JogFootstepFrameR = 15.0f;
+
+	const char* FootstepSoundL = "Assets/Sounds/Footstep_StoneL.flac";
+	const char* FootstepSoundR = "Assets/Sounds/Footstep_StoneR.flac";
+
+	void AddFootstepNotify(UAnimSequence* Sequence, float Frame, const char* SoundPath)
+	{
+		if (!Sequence || !Sequence->GetDataModel())
+			return;
+
+		const FFrameRate Rate = Sequence->GetDataModel()->GetFrameRate();
+		const float Time = Frame * static_cast<float>(Rate.Denominator) / static_cast<float>(Rate.Numerator);
+
+		FGuid Guid;
+		UAnimNotify_PlaySound* Notify = Sequence->AddNotify<UAnimNotify_PlaySound>(Time, &Guid);
+		Notify->SoundPath = SoundPath;
+		Notify->Volume = 1.0f;
+
+		// BlendSpace 구간에서 Walk/Jog 발소리가 겹치지 않도록 우세한 샘플만 울린다
+		Sequence->SetNotifyTriggerWeightThreshold(Guid, 0.5f);
+	}
 }
 
 void UMyAnimInstance::NativeInitializeAnimation()
@@ -55,16 +83,27 @@ void UMyAnimInstance::NativeInitializeAnimation()
 		"Assets/FBX/UAL1_Standard/UAL1_Standard_Armature_Idle_Loop.anim.bin");
 	auto* Walk = LoadSequence(
 		"Assets/FBX/UAL1_Standard/UAL1_Standard_Armature_Walk_Loop.anim.bin");
+	auto* Running = LoadSequence(
+		"Assets/FBX/UAL1_Standard/UAL1_Standard_Armature_Jog_Fwd_Loop.anim.bin");
+
+	AddFootstepNotify(Walk, WalkFootstepFrameL, FootstepSoundL);
+	AddFootstepNotify(Walk, WalkFootstepFrameR, FootstepSoundR);
+	AddFootstepNotify(Running, JogFootstepFrameL, FootstepSoundL);
+	AddFootstepNotify(Running, JogFootstepFrameR, FootstepSoundR);
+
 	auto* BlendSpace = NewObject<UBlendSpace1D>();
 
 	BlendSpace->AddSample(Idle, FVector(0, 0, 0));
 	BlendSpace->AddSample(Walk, FVector(200, 0, 0));
+	BlendSpace->AddSample(Running, FVector(550, 0, 0));
 	LocomotionPlayer.BlendSpace = BlendSpace;
 	LocomotionPlayer.X = 0.f;
 
 	AttackPlayer.Sequence = LoadSequence(
 		"Assets/FBX/UAL1_Standard/UAL1_Standard_Armature_Punch_Jab.anim.bin");
 	AttackPlayer.bLooping = false;
+
+	//Attack Sequence에 "AttackHit" Notify 추가
 	if (AttackPlayer.Sequence)
 		AttackPlayer.Sequence->AddNotify(AttackHitNotifyTime, AttackHitNotifyName);
 

@@ -54,6 +54,8 @@ public:
 
 	// 시간 변경 (타임라인에서 드래그). 범위를 제한하고 다시 정렬한다.
 	bool SetNotifyTriggerTime(const FGuid& NotifyGuid, float Time);
+	// 이 가중치 이상으로 블렌드될 때만 발동한다 (BlendSpace에서 우세한 샘플만 울리게 할 때)
+	bool SetNotifyTriggerWeightThreshold(const FGuid& NotifyGuid, float Threshold);
 
 	bool RemoveNotify(const FGuid& NotifyGuid);
 	int32 RemoveNotifies(const TArray<FGuid>& NotifyGuids);   // 다중 선택 삭제, 삭제한 개수 반환
