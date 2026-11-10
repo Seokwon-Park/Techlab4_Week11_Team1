@@ -33,8 +33,19 @@
 #include "Engine/Classes/Sound/SoundWave.h"
 #include "Camera/CameraShakeBase.h"
 
-#include "LevelSequence/LevelSequenceActor.h" 
+#include "LevelSequence/LevelSequenceActor.h"
 #include "LevelSequence/LevelSequencePlayer.h"
+
+#include "Components/SkeletalMeshComponent.h"
+#include "Animation/AnimGraphInstance.h"
+#include "Animation/AnimSequence.h"
+#include "Animation/BlendSpace1D.h"
+#include "Animation/AnimNotify.h"
+#include "Animation/AnimNotifyState.h"
+#include "Animation/AnimNode_SequencePlayer.h"
+#include "UObject/UObjectHash.h"
+#include "UObject/Property.h"
+#include <memory>
 
 namespace
 {
@@ -926,6 +937,490 @@ namespace
 					PCM->StopFOVPunch(true);
 			});
 	}
+
+	// ======================== Animation ========================
+	// Lua는 UAnimGraphInstance를 조립한다. 같은 API를 이후 AnimGraph 노드 에디터가 쓴다.
+	// 모든 핸들은 Generation을 들고 있어, ResetGraph 뒤의 오래된 핸들은 에러를 낸다.
+
+	struct FLuaAnimGraphRef
+	{
+		FLuaComponentRef Mesh;
+		UAnimGraphInstance* Ptr = nullptr;
+		uint32 Generation = 0;
+
+		static FLuaAnimGraphRef Make(USkeletalMeshComponent* MeshComp, UAnimGraphInstance* Graph)
+		{
+			return { FLuaComponentRef::Make(MeshComp), Graph, Graph ? Graph->GetGeneration() : 0 };
+		}
+
+		// 메시가 살아 있고, 여전히 이 그래프를 쓰고 있고, 리셋되지 않았을 때만 유효
+		UAnimGraphInstance* Get() const
+		{
+			USkeletalMeshComponent* MeshComp = Cast<USkeletalMeshComponent>(Mesh.Get());
+			if (!MeshComp || !Ptr || MeshComp->GetAnimInstance() != Ptr || Ptr->GetGeneration() != Generation)
+				return nullptr;
+			return Ptr;
+		}
+	};
+
+	struct FLuaAnimSequenceRef { FLuaAnimGraphRef Graph; UAnimSequence* Ptr = nullptr; };
+	struct FLuaBlendSpaceRef { FLuaAnimGraphRef Graph; UBlendSpace1D* Ptr = nullptr; };
+	struct FLuaAnimNodeRef { FLuaAnimGraphRef Graph; int32 Index = INDEX_NONE; };
+
+	// Lua가 만든 그래프. ReleaseCallbacks에서 리셋해 Lua 함수를 잡은 규칙/콜백을 놓는다.
+	struct FLuaAnimGraphBinding { AActor* Owner; FLuaAnimGraphRef Graph; };
+	TArray<FLuaAnimGraphBinding> AnimGraphBindings;
+
+	UAnimGraphInstance& DerefGraph(const FLuaAnimGraphRef& Ref)
+	{
+		if (UAnimGraphInstance* Graph = Ref.Get()) return *Graph;
+		throw sol::error("AnimGraph is no longer valid (reset, replaced, or mesh destroyed).");
+	}
+
+	UAnimSequence& DerefSequence(const FLuaAnimSequenceRef& Ref)
+	{
+		UAnimGraphInstance& Graph = DerefGraph(Ref.Graph);
+		if (!Graph.OwnsSequence(Ref.Ptr)) throw sol::error("AnimSequence is no longer valid.");
+		return *Ref.Ptr;
+	}
+
+	UBlendSpace1D& DerefBlendSpace(const FLuaBlendSpaceRef& Ref)
+	{
+		UAnimGraphInstance& Graph = DerefGraph(Ref.Graph);
+		if (!Graph.OwnsBlendSpace(Ref.Ptr)) throw sol::error("BlendSpace is no longer valid.");
+		return *Ref.Ptr;
+	}
+
+	// 노드가 이 그래프 소속인지 확인하고 Index를 돌려준다
+	int32 NodeIndexIn(const UAnimGraphInstance& Graph, const FLuaAnimNodeRef& Node)
+	{
+		if (Node.Graph.Ptr != &Graph || Node.Graph.Generation != Graph.GetGeneration() || !Graph.IsValidNode(Node.Index))
+			throw sol::error("AnimNode does not belong to this AnimGraph.");
+		return Node.Index;
+	}
+
+	USkeletalMeshComponent& FirstSkeletalMesh(const FLuaActorRef& Ref)
+	{
+		for (UActorComponent* Component : Deref(Ref).GetComponents())
+			if (auto* MeshComp = Cast<USkeletalMeshComponent>(Component)) return *MeshComp;
+		throw sol::error("Actor does not have a SkeletalMeshComponent.");
+	}
+
+	// Lua 함수를 애니메이션 콜백으로 감싼다. 에러가 나면 한 번만 로그를 남기고 그 뒤로는 부르지 않는다 (매 프레임 로그 폭주 방지).
+	template <typename TResult, typename... TArgs>
+	sol::optional<TResult> CallAnimLua(const sol::protected_function& Fn, const std::shared_ptr<bool>& bBroken, const char* What, TArgs&&... Args)
+	{
+		if (*bBroken) return sol::nullopt;
+		sol::protected_function_result Result = Fn(std::forward<TArgs>(Args)...);
+		if (!Result.valid())
+		{
+			sol::error Err = Result;
+			HTR_LOG(Error, "[Lua] AnimGraph {} : {} (disabled until the graph is rebuilt)", What, Err.what());
+			*bBroken = true;
+			return sol::nullopt;
+		}
+		return Result.get<sol::optional<TResult>>();
+	}
+
+	template <typename TUnused, typename... TArgs>
+	void CallAnimLuaVoid(const sol::protected_function& Fn, const std::shared_ptr<bool>& bBroken, const char* What, TArgs&&... Args)
+	{
+		if (*bBroken) return;
+		sol::protected_function_result Result = Fn(std::forward<TArgs>(Args)...);
+		if (!Result.valid())
+		{
+			sol::error Err = Result;
+			HTR_LOG(Error, "[Lua] AnimGraph {} : {} (disabled until the graph is rebuilt)", What, Err.what());
+			*bBroken = true;
+		}
+	}
+
+	EAnimGraphCompare ParseCompare(const std::string& Op)
+	{
+		if (Op == "<")  return EAnimGraphCompare::Less;
+		if (Op == "<=") return EAnimGraphCompare::LessEqual;
+		if (Op == ">")  return EAnimGraphCompare::Greater;
+		if (Op == ">=") return EAnimGraphCompare::GreaterEqual;
+		if (Op == "==") return EAnimGraphCompare::Equal;
+		if (Op == "~=" || Op == "!=") return EAnimGraphCompare::NotEqual;
+		throw sol::error("Unknown compare operator: " + Op);
+	}
+
+	// 전환 규칙: Lua 함수 또는 데이터 테이블
+	//   function(anim, elapsed) return bool end
+	//   { Bool = "IsAttacking" [, Value = true] }
+	//   { Float = "GroundSpeed", Op = ">", Value = 10 }
+	//   { Finished = true }   -- From 상태의 SequencePlayer가 끝까지 재생됐을 때
+	FAnimTransitionRule ParseTransitionRule(UAnimGraphInstance& Graph, const FLuaAnimGraphRef& GraphRef,
+		int32 MachineNode, int32 FromState, const sol::object& RuleObject)
+	{
+		if (RuleObject.get_type() == sol::type::function)
+		{
+			sol::protected_function Fn = RuleObject;
+			auto bBroken = std::make_shared<bool>(false);
+			return [Fn, bBroken, GraphRef](const FAnimTransitionContext& Context)
+				{
+					return CallAnimLua<bool>(Fn, bBroken, "transition rule", GraphRef, Context.StateElapsedTime).value_or(false);
+				};
+		}
+
+		if (RuleObject.get_type() != sol::type::table)
+			throw sol::error("Transition rule must be a function or a table.");
+
+		sol::table Rule = RuleObject;
+		if (sol::optional<std::string> Var = Rule["Bool"])
+			return Graph.MakeBoolRule(*Var, Rule.get_or("Value", true));
+
+		if (sol::optional<std::string> Var = Rule["Float"])
+		{
+			const std::string Op = Rule.get_or<std::string>("Op", ">");
+			return Graph.MakeFloatRule(*Var, ParseCompare(Op), Rule.get_or("Value", 0.0f));
+		}
+
+		if (Rule.get_or("Finished", false))
+		{
+			const int32 PoseNode = Graph.GetStatePoseNode(MachineNode, FromState);
+			if (!Graph.GetNode<FAnimNode_SequencePlayer>(PoseNode))
+				throw sol::error("{ Finished = true } needs a From state whose pose is a SequencePlayer.");
+			return Graph.MakeFinishedRule(PoseNode);
+		}
+
+		throw sol::error("Transition rule table needs Bool, Float, or Finished.");
+	}
+
+	// 상태 콜백: Lua 함수 또는 { Bool = "IsAttacking", Value = false }
+	UAnimGraphInstance::FStateCallback ParseStateCallback(UAnimGraphInstance& Graph, const FLuaAnimGraphRef& GraphRef,
+		const sol::object& Object, const char* What)
+	{
+		if (!Object.valid() || Object.get_type() == sol::type::lua_nil)
+			return {};
+
+		if (Object.get_type() == sol::type::function)
+		{
+			sol::protected_function Fn = Object;
+			auto bBroken = std::make_shared<bool>(false);
+			return [Fn, bBroken, GraphRef, What](UAnimInstance*)
+				{
+					CallAnimLuaVoid<void>(Fn, bBroken, What, GraphRef);
+				};
+		}
+
+		if (Object.get_type() == sol::type::table)
+		{
+			sol::table Action = Object;
+			if (sol::optional<std::string> Var = Action["Bool"])
+				return Graph.MakeSetBoolAction(*Var, Action.get_or("Value", false));
+		}
+
+		throw sol::error(FString(What) + " must be a function or { Bool = name, Value = bool }.");
+	}
+
+	UAnimGraphInstance::FNotifyStateCallback WrapNotifyStateCallback(const sol::object& Object, const FLuaAnimGraphRef& GraphRef, const char* What)
+	{
+		if (Object.get_type() != sol::type::function)
+			return {};
+		sol::protected_function Fn = Object;
+		auto bBroken = std::make_shared<bool>(false);
+		return [Fn, bBroken, GraphRef, What](float Value)
+			{
+				CallAnimLuaVoid<void>(Fn, bBroken, What, GraphRef, Value);
+			};
+	}
+
+	// 리플렉션(UPROPERTY)으로 Notify 객체의 파라미터를 채운다. 노드 에디터의 디테일 패널과 같은 경로다.
+	void ApplyReflectedProperties(UObject* Object, const sol::table& Props)
+	{
+		UClass* Class = Object->GetClass();
+		for (const auto& [Key, Value] : Props)
+		{
+			if (Key.get_type() != sol::type::string)
+				continue;
+
+			const std::string Name = Key.as<std::string>();
+			FProperty* Property = Class->FindPropertyByName(Name);
+			if (!Property)
+				throw sol::error(Class->Name + " has no property '" + Name + "'.");
+
+			void* Address = Property->ContainerPtrToValuePtr<void>(Object);
+			if (CastField<FFloatProperty>(Property))       *static_cast<float*>(Address) = Value.as<float>();
+			else if (CastField<FIntProperty>(Property))    *static_cast<int32*>(Address) = Value.as<int32>();
+			else if (CastField<FBoolProperty>(Property))   *static_cast<bool*>(Address) = Value.as<bool>();
+			else if (CastField<FStrProperty>(Property))    *static_cast<FString*>(Address) = Value.as<std::string>();
+			else if (CastField<FVectorProperty>(Property)) *static_cast<FVector*>(Address) = Value.as<FVector>();
+			else throw sol::error("Property '" + Name + "' has a type Lua cannot set yet.");
+		}
+	}
+
+	UClass* FindNotifyClass(const std::string& ClassName)
+	{
+		UClass* Class = FindClass(ClassName);
+		if (!Class) Class = FindClass("U" + ClassName);   // "AnimNotify_PlaySound"처럼 접두사를 빼도 찾는다
+		if (!Class) throw sol::error("Unknown notify class: " + ClassName);
+		return Class;
+	}
+
+	FLuaAnimNodeRef MakeNodeRef(const FLuaAnimGraphRef& GraphRef, int32 Index, const char* What)
+	{
+		if (Index == INDEX_NONE) throw sol::error(FString(What) + " failed.");
+		return { GraphRef, Index };
+	}
+
+	// AnimGraph 핸들을 다시 만든다 (Generation이 바뀐 뒤에도 같은 메시를 가리키도록)
+	FLuaAnimGraphRef RefOf(const FLuaAnimGraphRef& Ref, UAnimGraphInstance& Graph)
+	{
+		return { Ref.Mesh, &Graph, Graph.GetGeneration() };
+	}
+
+	void RegisterAnimation(sol::state& Lua)
+	{
+		Lua.new_usertype<FLuaAnimSequenceRef>("AnimSequence", sol::no_constructor,
+			"IsValid", [](const FLuaAnimSequenceRef& R) { return R.Graph.Get() && R.Graph.Get()->OwnsSequence(R.Ptr); },
+			"Length", sol::property([](const FLuaAnimSequenceRef& R)
+				{
+					const UAnimDataModel* Model = DerefSequence(R).GetDataModel();
+					return Model ? Model->GetPlayLength() : 0.0f;
+				}),
+			"FrameRate", sol::property([](const FLuaAnimSequenceRef& R)
+				{
+					const UAnimDataModel* Model = DerefSequence(R).GetDataModel();
+					if (!Model) return 0.0f;
+					const FFrameRate Rate = Model->GetFrameRate();
+					return Rate.Denominator ? static_cast<float>(Rate.Numerator) / static_cast<float>(Rate.Denominator) : 0.0f;
+				}),
+			"FrameToTime", [](const FLuaAnimSequenceRef& R, float Frame)
+				{
+					const UAnimDataModel* Model = DerefSequence(R).GetDataModel();
+					if (!Model) return 0.0f;
+					const FFrameRate Rate = Model->GetFrameRate();
+					return Rate.Numerator ? Frame * static_cast<float>(Rate.Denominator) / static_cast<float>(Rate.Numerator) : 0.0f;
+				},
+			// 이름 Notify. Duration > 0이면 NotifyState가 되어 OnNotifyState의 Begin/Tick/End를 받는다.
+			"AddNotify", [](const FLuaAnimSequenceRef& R, float Time, const std::string& Name,
+				sol::optional<float> Duration, sol::optional<float> WeightThreshold)
+				{
+					UAnimSequence& Sequence = DerefSequence(R);
+					FGuid Guid;
+					if (Duration.value_or(0.0f) > 0.0f)
+					{
+						auto* State = Sequence.AddNotify<UAnimNotifyState_Named>(Time, *Duration, &Guid);
+						State->NotifyName = Name;
+					}
+					else
+					{
+						Guid = Sequence.AddNotify(Time, FName(Name));
+					}
+					if (WeightThreshold) Sequence.SetNotifyTriggerWeightThreshold(Guid, *WeightThreshold);
+				},
+			// 클래스 Notify. Props는 UPROPERTY 이름 = 값, Options는 { Duration =, WeightThreshold = }
+			"AddNotifyClass", [](const FLuaAnimSequenceRef& R, const std::string& ClassName, float Time,
+				sol::optional<sol::table> Props, sol::optional<sol::table> Options)
+				{
+					UAnimSequence& Sequence = DerefSequence(R);
+					const float Duration = Options ? Options->get_or("Duration", 0.0f) : 0.0f;
+
+					FGuid Guid;
+					UObject* Notify = Sequence.AddNotifyOfClass(FindNotifyClass(ClassName), Time, Duration, &Guid);
+					if (!Notify) throw sol::error(ClassName + " is not a UAnimNotify or UAnimNotifyState class.");
+
+					if (Props) ApplyReflectedProperties(Notify, *Props);
+					if (Options)
+						if (sol::optional<float> Threshold = (*Options)["WeightThreshold"])
+							Sequence.SetNotifyTriggerWeightThreshold(Guid, *Threshold);
+				},
+			"AddPlaySound", [](const FLuaAnimSequenceRef& R, float Time, const std::string& SoundPath,
+				sol::optional<float> Volume, sol::optional<float> WeightThreshold)
+				{
+					UAnimSequence& Sequence = DerefSequence(R);
+					FGuid Guid;
+					auto* Notify = Sequence.AddNotify<UAnimNotify_PlaySound>(Time, 0.0f, &Guid);
+					Notify->SoundPath = SoundPath;
+					Notify->Volume = Volume.value_or(1.0f);
+					if (WeightThreshold) Sequence.SetNotifyTriggerWeightThreshold(Guid, *WeightThreshold);
+				},
+			"NumNotifies", sol::property([](const FLuaAnimSequenceRef& R) { return DerefSequence(R).GetNotifies().Num(); })
+		);
+
+		Lua.new_usertype<FLuaBlendSpaceRef>("BlendSpace", sol::no_constructor,
+			"IsValid", [](const FLuaBlendSpaceRef& R) { return R.Graph.Get() && R.Graph.Get()->OwnsBlendSpace(R.Ptr); },
+			"AddSample", [](const FLuaBlendSpaceRef& R, const FLuaAnimSequenceRef& Sequence, float X)
+				{
+					return DerefBlendSpace(R).AddSample(&DerefSequence(Sequence), FVector(X, 0.0f, 0.0f));
+				},
+			"NumSamples", sol::property([](const FLuaBlendSpaceRef& R) { return DerefBlendSpace(R).GetSampleData().Num(); })
+		);
+
+		Lua.new_usertype<FLuaAnimNodeRef>("AnimNode", sol::no_constructor,
+			"Index", sol::property([](const FLuaAnimNodeRef& R) { return R.Index; }),
+			"IsValid", [](const FLuaAnimNodeRef& R) { UAnimGraphInstance* G = R.Graph.Get(); return G && G->IsValidNode(R.Index); },
+
+			// ---- SequencePlayer ----
+			"IsFinished", sol::property([](const FLuaAnimNodeRef& R)
+				{
+					auto* Player = DerefGraph(R.Graph).GetNode<FAnimNode_SequencePlayer>(R.Index);
+					if (!Player) throw sol::error("IsFinished is only for SequencePlayer nodes.");
+					return Player->IsFinished();
+				}),
+
+			// ---- StateMachine ----
+			// 반환값은 상태 Id (AddTransition / SetInitialState에 그대로 넘긴다)
+			"AddState", [](const FLuaAnimNodeRef& R, const std::string& Name, const FLuaAnimNodeRef& Pose, sol::optional<sol::table> Options)
+				{
+					UAnimGraphInstance& Graph = DerefGraph(R.Graph);
+					const int32 Machine = NodeIndexIn(Graph, R);
+					const int32 PoseNode = NodeIndexIn(Graph, Pose);
+
+					bool bResetOnEntry = true;
+					UAnimGraphInstance::FStateCallback OnEnter, OnExit;
+					if (Options)
+					{
+						bResetOnEntry = Options->get_or("ResetOnEntry", true);
+						OnEnter = ParseStateCallback(Graph, R.Graph, (*Options)["OnEnter"], "OnEnter");
+						OnExit = ParseStateCallback(Graph, R.Graph, (*Options)["OnExit"], "OnExit");
+					}
+
+					const int32 State = Graph.AddState(Machine, FName(Name), PoseNode, bResetOnEntry, std::move(OnEnter), std::move(OnExit));
+					if (State == INDEX_NONE) throw sol::error("AddState failed (is this a StateMachine node?).");
+					return State;
+				},
+			// From이 nil이면 Any State. Options = { Crossfade =, Priority = }
+			"AddTransition", [](const FLuaAnimNodeRef& R, sol::object From, int32 To, sol::object Rule, sol::optional<sol::table> Options)
+				{
+					UAnimGraphInstance& Graph = DerefGraph(R.Graph);
+					const int32 Machine = NodeIndexIn(Graph, R);
+					const int32 FromState = (From.get_type() == sol::type::number) ? From.as<int32>() : INDEX_NONE;
+
+					FAnimTransitionRule TransitionRule = ParseTransitionRule(Graph, R.Graph, Machine, FromState, Rule);
+					const float Crossfade = Options ? Options->get_or("Crossfade", 0.2f) : 0.2f;
+					const int32 Priority = Options ? Options->get_or("Priority", 0) : 0;
+
+					if (Graph.AddTransition(Machine, FromState, To, std::move(TransitionRule), Crossfade, Priority) == INDEX_NONE)
+						throw sol::error("AddTransition failed (check state ids).");
+				},
+			"SetInitialState", [](const FLuaAnimNodeRef& R, int32 State)
+				{
+					UAnimGraphInstance& Graph = DerefGraph(R.Graph);
+					if (!Graph.SetInitialState(NodeIndexIn(Graph, R), State))
+						throw sol::error("SetInitialState failed.");
+				},
+			"CurrentState", sol::property([](const FLuaAnimNodeRef& R)
+				{
+					UAnimGraphInstance& Graph = DerefGraph(R.Graph);
+					return Graph.GetCurrentStateName(NodeIndexIn(Graph, R)).ToString();
+				})
+		);
+
+		Lua.new_usertype<FLuaAnimGraphRef>("AnimGraph", sol::no_constructor,
+			"IsValid", [](const FLuaAnimGraphRef& R) { return R.Get() != nullptr; },
+			// 그래프를 비운다. 이 그래프에서 받은 모든 핸들이 무효가 되므로 새 핸들을 돌려준다.
+			"Reset", [](const FLuaAnimGraphRef& R)
+				{
+					UAnimGraphInstance& Graph = DerefGraph(R);
+					Graph.ResetGraph();
+					return RefOf(R, Graph);
+				},
+
+			// ---- 에셋 ----
+			"LoadSequence", [](const FLuaAnimGraphRef& R, const std::string& Path) -> sol::optional<FLuaAnimSequenceRef>
+				{
+					UAnimSequence* Sequence = DerefGraph(R).LoadSequence(Path);
+					return Sequence ? sol::optional<FLuaAnimSequenceRef>(FLuaAnimSequenceRef{ R, Sequence }) : sol::nullopt;
+				},
+			"CreateBlendSpace", [](const FLuaAnimGraphRef& R)
+				{
+					return FLuaBlendSpaceRef{ R, DerefGraph(R).CreateBlendSpace() };
+				},
+			"LoadBlendSpace", [](const FLuaAnimGraphRef& R, const std::string& Path) -> sol::optional<FLuaBlendSpaceRef>
+				{
+					UBlendSpace1D* BlendSpace = DerefGraph(R).LoadBlendSpace(Path);
+					return BlendSpace ? sol::optional<FLuaBlendSpaceRef>(FLuaBlendSpaceRef{ R, BlendSpace }) : sol::nullopt;
+				},
+
+			// ---- 노드 ----
+			// Options = { Loop = false, PlayRate = 1 }
+			"SequencePlayer", [](const FLuaAnimGraphRef& R, const FLuaAnimSequenceRef& Sequence, sol::optional<sol::table> Options)
+				{
+					UAnimGraphInstance& Graph = DerefGraph(R);
+					const bool bLoop = Options ? Options->get_or("Loop", false) : false;
+					const float PlayRate = Options ? Options->get_or("PlayRate", 1.0f) : 1.0f;
+					return MakeNodeRef(R, Graph.AddSequencePlayer(&DerefSequence(Sequence), bLoop, PlayRate), "SequencePlayer");
+				},
+			// X 입력을 Float 변수에 바인딩한다. Options = { PlayRate = 1 }
+			"BlendSpacePlayer", [](const FLuaAnimGraphRef& R, const FLuaBlendSpaceRef& BlendSpace, const std::string& XVariable, sol::optional<sol::table> Options)
+				{
+					UAnimGraphInstance& Graph = DerefGraph(R);
+					const float PlayRate = Options ? Options->get_or("PlayRate", 1.0f) : 1.0f;
+					return MakeNodeRef(R, Graph.AddBlendSpacePlayer(&DerefBlendSpace(BlendSpace), XVariable, PlayRate), "BlendSpacePlayer");
+				},
+			// Alpha 입력을 Float 변수에 바인딩한다 (0 = A, 1 = B)
+			"TwoWayBlend", [](const FLuaAnimGraphRef& R, const FLuaAnimNodeRef& A, const FLuaAnimNodeRef& B, const std::string& AlphaVariable)
+				{
+					UAnimGraphInstance& Graph = DerefGraph(R);
+					return MakeNodeRef(R, Graph.AddTwoWayBlend(NodeIndexIn(Graph, A), NodeIndexIn(Graph, B), AlphaVariable), "TwoWayBlend");
+				},
+			"StateMachine", [](const FLuaAnimGraphRef& R)
+				{
+					return MakeNodeRef(R, DerefGraph(R).AddStateMachine(), "StateMachine");
+				},
+			// 그래프 출력. 조립을 마친 뒤 마지막에 부른다.
+			"SetRoot", [](const FLuaAnimGraphRef& R, const FLuaAnimNodeRef& Node)
+				{
+					UAnimGraphInstance& Graph = DerefGraph(R);
+					Graph.SetRoot(NodeIndexIn(Graph, Node));
+				},
+
+			// ---- 변수 ----
+			"SetFloat", [](const FLuaAnimGraphRef& R, const std::string& Name, float Value) { DerefGraph(R).SetFloat(Name, Value); },
+			"GetFloat", [](const FLuaAnimGraphRef& R, const std::string& Name, sol::optional<float> Default) { return DerefGraph(R).GetFloat(Name, Default.value_or(0.0f)); },
+			"SetBool", [](const FLuaAnimGraphRef& R, const std::string& Name, bool bValue) { DerefGraph(R).SetBool(Name, bValue); },
+			"GetBool", [](const FLuaAnimGraphRef& R, const std::string& Name, sol::optional<bool> Default) { return DerefGraph(R).GetBool(Name, Default.value_or(false)); },
+
+			// ---- 이름 Notify ----
+			"OnNotify", [](const FLuaAnimGraphRef& R, const std::string& Name, sol::protected_function Fn)
+				{
+					auto bBroken = std::make_shared<bool>(false);
+					DerefGraph(R).BindNotify(FName(Name), [Fn, bBroken, R]() { CallAnimLuaVoid<void>(Fn, bBroken, "OnNotify", R); });
+				},
+			// Handlers = { Begin = function(anim, totalDuration), Tick = function(anim, dt), End = function(anim) }
+			"OnNotifyState", [](const FLuaAnimGraphRef& R, const std::string& Name, const sol::table& Handlers)
+				{
+					DerefGraph(R).BindNotifyState(FName(Name),
+						WrapNotifyStateCallback(Handlers["Begin"], R, "OnNotifyState.Begin"),
+						WrapNotifyStateCallback(Handlers["Tick"], R, "OnNotifyState.Tick"),
+						WrapNotifyStateCallback(Handlers["End"], R, "OnNotifyState.End"));
+				}
+		);
+
+		// RegisterActor가 만든 Actor 타입에 애니메이션 메서드를 덧붙인다
+		sol::usertype<FLuaActorRef> ActorType = Lua["Actor"];
+
+		// 액터의 첫 SkeletalMeshComponent에 AnimGraph를 붙인다. 이미 AnimGraph가 있으면 비우고 재사용한다.
+		ActorType["CreateAnimGraph"] = [](const FLuaActorRef& Ref)
+			{
+				AActor& Owner = Deref(Ref);
+				USkeletalMeshComponent& MeshComp = FirstSkeletalMesh(Ref);
+
+				UAnimGraphInstance* Graph = Cast<UAnimGraphInstance>(MeshComp.GetAnimInstance());
+				if (Graph)
+				{
+					Graph->ResetGraph();
+				}
+				else
+				{
+					Graph = NewObject<UAnimGraphInstance>(&MeshComp);
+					MeshComp.SetAnimInstance(Graph);
+				}
+
+				const FLuaAnimGraphRef GraphRef = FLuaAnimGraphRef::Make(&MeshComp, Graph);
+				AnimGraphBindings.Add({ &Owner, GraphRef });
+				return GraphRef;
+			};
+		ActorType["GetAnimGraph"] = [](const FLuaActorRef& Ref) -> sol::optional<FLuaAnimGraphRef>
+			{
+				USkeletalMeshComponent& MeshComp = FirstSkeletalMesh(Ref);
+				UAnimGraphInstance* Graph = Cast<UAnimGraphInstance>(MeshComp.GetAnimInstance());
+				return Graph ? sol::optional<FLuaAnimGraphRef>(FLuaAnimGraphRef::Make(&MeshComp, Graph)) : sol::nullopt;
+			};
+	}
 }
 
 namespace FLuaBindings
@@ -942,6 +1437,7 @@ namespace FLuaBindings
 		RegisterGameplay(Lua);
 		RegisterAudio(Lua);
 		RegisterCameraAction(Lua);
+		RegisterAnimation(Lua);
 	}
 
 	void FlushPendingDestroy(UWorld* World)
@@ -970,6 +1466,16 @@ namespace FLuaBindings
 			if (UButton* B = Cast<UButton>(ClickBindings[i].Button.Get()))
 				B->OnClicked = nullptr;
 			ClickBindings.RemoveAt(i);
+		}
+
+		// Lua 함수를 잡고 있는 전환 규칙/상태 콜백/Notify 핸들러를 놓는다.
+		// 핫 리로드 때도 불리므로, 스크립트는 OnReload에서 그래프를 다시 조립해야 한다.
+		for (int32 i = AnimGraphBindings.Num() - 1; i >= 0; --i)
+		{
+			if (AnimGraphBindings[i].Owner != Owner) continue;
+			if (UAnimGraphInstance* Graph = AnimGraphBindings[i].Graph.Get())
+				Graph->ResetGraph();
+			AnimGraphBindings.RemoveAt(i);
 		}
 	}
 }

@@ -19,7 +19,8 @@ public:
 	void Possess(APawn* InPawn);
 	void UnPossess();
 	APawn* GetPawn() const { return PossessedPawn; }
-	void InputKey(int32 Key, bool bDown);
+	virtual void InputKey(int32 Key, bool bDown);
+	bool IsKeyDown(int32 Key) const { return Key >= 0 && Key < 256 && bKeyDown[Key]; }
 	void InputAxis(EGameInputAxis Axis, float Delta);
 	void ClearInputState();
 

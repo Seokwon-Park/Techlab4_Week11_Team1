@@ -3,6 +3,8 @@
 #include "AnimNodeBase.h"
 #include "BlendSpace1D.h"
 #include "AnimationRuntime.h"
+#include "AnimInstance.h"
+#include "AnimNotifyQueue.h"
 
 #include <cmath>
 
@@ -43,7 +45,10 @@ struct FAnimNode_BlendSpacePlayer : public FAnimNode_Base
 			return;
 		}
 
-		Phase += Context.GetDeltaTime() * PlayRate / EffectiveLength;
+		const float PrevPhase = Phase;
+		const float DeltaPhase = Context.GetDeltaTime() * PlayRate / EffectiveLength;
+
+		Phase += DeltaPhase;
 		if (!bLooping)
 		{
 			Phase = FMath::Clamp(Phase, 0.0f, 1.0f);
@@ -54,6 +59,39 @@ struct FAnimNode_BlendSpacePlayer : public FAnimNode_Base
 		if (Phase < 0.0f)
 		{
 			Phase += 1.0f;
+		}
+
+		// 샘플들은 Phase로 동기화되므로, 각 샘플 길이로 환산한 (이전 시간, 이동량) 구간의 Notify를 모은다.
+		// UE BlendSpace 기본값(NotifyTriggerMode::AllAnimations)처럼 모든 샘플에서 수집하고,
+		// 샘플 가중치를 넘겨 FAnimNotifyEvent::TriggerWeightThreshold로 걸러지게 한다.
+		UAnimInstance* AnimInstance = Context.GetAnimInstance<UAnimInstance>();
+		if (!AnimInstance)
+		{
+			return;
+		}
+
+		const float FinalWeight = Context.GetFinalBlendWeight();
+		auto CollectNotifies = [&](const UAnimSequence* Sequence, float Length, float SampleWeight)
+		{
+			if (SampleWeight <= 0.0f)
+			{
+				return;
+			}
+
+			FAnimNotifyContext NotifyContext(true, Sequence);
+			Sequence->GetAnimNotifies(PrevPhase * Length, DeltaPhase * Length, NotifyContext);
+			AnimInstance->AddNotifies(NotifyContext.ActiveNotifies, FinalWeight * SampleWeight);
+		};
+
+		if (SampleA.Animation == SampleB.Animation)
+		{
+			// 범위 밖으로 클램프되어 같은 샘플이 두 번 들어온 경우 한 번만 수집한다
+			CollectNotifies(SampleA.Animation, LengthA, 1.0f);
+		}
+		else
+		{
+			CollectNotifies(SampleA.Animation, LengthA, 1.0f - Alpha);
+			CollectNotifies(SampleB.Animation, LengthB, Alpha);
 		}
 	}
 

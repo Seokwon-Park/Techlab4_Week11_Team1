@@ -4,15 +4,31 @@
 #include "AnimSequence.h"
 
 #include <cmath>
+#include "AnimInstance.h"
+#include "AnimNotifyQueue.h"
 
 struct FAnimNode_SequencePlayer : public FAnimNode_Base
 {
 	UAnimSequence* Sequence = nullptr;
 
 	float CurrentTime = 0.0f;
+	float PrevTime = 0.0f;
 	float PlayRate = 1.0f;
 
 	bool bLooping = false;
+
+	// 상태 재진입(bResetOnEntry) 시 처음부터 다시 재생한다
+	void Initialize(const FAnimationInitializeContext& Context) override
+	{
+		CurrentTime = PrevTime = 0.0f;
+	}
+
+	// 루프가 아닌 시퀀스가 끝까지 재생됐는지
+	bool IsFinished() const
+	{
+		const UAnimDataModel* Model = Sequence ? Sequence->GetDataModel() : nullptr;
+		return !bLooping && (!Model || CurrentTime >= Model->GetPlayLength());
+	}
 
 	void Update(const FAnimationUpdateContext& Context) override
 	{
@@ -25,10 +41,11 @@ struct FAnimNode_SequencePlayer : public FAnimNode_Base
 		const float Length = Model ? Model->GetPlayLength() : 0.0f;
 		if (Length <= 0.0f)
 		{
-			CurrentTime = 0.0f;
+			CurrentTime = PrevTime = 0.0f;
 			return;
 		}
 
+		PrevTime = CurrentTime;
 		CurrentTime += Context.GetDeltaTime() * PlayRate;
 
 		if (bLooping)
@@ -43,6 +60,12 @@ struct FAnimNode_SequencePlayer : public FAnimNode_Base
 		{
 			CurrentTime = FMath::Clamp(CurrentTime, 0.0f, Length);
 		}
+
+
+		FAnimNotifyContext NotifyContext(bLooping, Sequence);
+		Sequence->GetAnimNotifies(PrevTime, Context.GetDeltaTime() * PlayRate, NotifyContext);
+		UAnimInstance* AnimInstance = Context.GetAnimInstance<UAnimInstance>();
+		AnimInstance->AddNotifies(NotifyContext.ActiveNotifies, Context.GetFinalBlendWeight());
 	}
 
 	void Evaluate(FPoseContext& Output) override

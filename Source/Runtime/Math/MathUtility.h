@@ -8,4 +8,5 @@
 
 #define THRESH_NORMALS_ARE_PARALLEL		(0.999845f)
 #define SMALL_NUMBER					(1.e-8f)
+#define DOUBLE_SMALL_NUMBER				(1.e-8)
 #define KINDA_SMALL_NUMBER				(1.e-4f)
