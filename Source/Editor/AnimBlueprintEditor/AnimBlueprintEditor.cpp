@@ -664,6 +664,17 @@ bool FAnimBlueprintEditor::RenameVariable(const FString& PreviousName, const FSt
                     {
                         Node.FloatInput.Variable = Name;
                     }
+
+                    for (FAnimBlueprintStateEvent* Event : { &Node.OnEnter, &Node.OnExit })
+                    {
+                        for (FAnimBlueprintVariableAssignment& Assignment : Event->Assignments)
+                        {
+                            if (Assignment.Variable == PreviousName)
+                            {
+                                Assignment.Variable = Name;
+                            }
+                        }
+                    }
                 }
             }
 
@@ -702,6 +713,17 @@ void FAnimBlueprintEditor::RemoveVariable(const FString& Name)
             {
                 Node.FloatInput.Variable.clear();
                 Node.FloatInput.bUseVariable = false;
+            }
+
+            for (FAnimBlueprintStateEvent* Event : { &Node.OnEnter, &Node.OnExit })
+            {
+                for (int32 Index = Event->Assignments.Num() - 1; Index >= 0; --Index)
+                {
+                    if (Event->Assignments[Index].Variable == Name)
+                    {
+                        Event->Assignments.RemoveAt(Index);
+                    }
+                }
             }
         }
     }

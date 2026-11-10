@@ -41,6 +41,8 @@ public:
 
 	// 매 프레임 자동으로 채우는 변수: 소유 Pawn의 수평 속도 (cm/s, UE GroundSpeed)
 	static constexpr const char* GroundSpeedVariable = "GroundSpeed";
+	// 매 프레임 자동으로 채우는 변수: 소유 Character가 공중이면 true (UE IsFalling, 절벽에서 떨어질 때도 켜진다)
+	static constexpr const char* IsFallingVariable = "IsFalling";
 
 	virtual ~UAnimGraphInstance() override;
 
@@ -93,6 +95,11 @@ public:
 	// SequencePlayer 노드가 루프 없이 끝까지 재생됐으면 true
 	FAnimTransitionRule MakeFinishedRule(int32 SequencePlayerNode);
 	FStateCallback MakeSetBoolAction(const FString& Variable, bool bValue);
+	FStateCallback MakeSetFloatAction(const FString& Variable, float Value);
+	// 이름 Notify를 보낸다. BindNotify 콜백이나 C++ HandleNamedNotify override가 받는다.
+	FStateCallback MakeNamedNotifyAction(const FName& NotifyName);
+	// 여러 동작을 순서대로 실행하는 하나의 콜백. 비어 있으면 빈 콜백을 돌려준다.
+	static FStateCallback CombineActions(TArray<FStateCallback> Actions);
 
 	// ---------------- 변수 ----------------
 	void SetFloat(const FString& Name, float Value) { FloatVariables[Name] = Value; }

@@ -67,6 +67,12 @@ void FAnimBlueprintDetailsPanel::DrawContent()
             }
 
             ImGui::TextWrapped(Node->Type == EAnimBlueprintNodeType::State ? "Connect Entry to choose the initial state. Connect State Out to another State In to create a transition." : "Double-click this node to edit states and transitions.");
+
+            if (Node->Type == EAnimBlueprintNodeType::State)
+            {
+                DrawStateEvent("On Enter", Node->OnEnter);
+                DrawStateEvent("On Exit", Node->OnExit);
+            }
             break;
 
         case EAnimBlueprintNodeType::Entry:
@@ -422,6 +428,99 @@ void FAnimBlueprintDetailsPanel::DrawVariableSelector(const char* Label, FString
 
         ImGui::EndCombo();
     }
+}
+
+void FAnimBlueprintDetailsPanel::DrawStateEvent(const char* Label, FAnimBlueprintStateEvent& Event)
+{
+    ImGui::PushID(Label);
+    ImGui::SeparatorText(Label);
+
+    char EventBuffer[128] = {};
+    std::snprintf(EventBuffer, sizeof(EventBuffer), "%s", Event.EventName.c_str());
+
+    if (ImGui::InputText("Event Name", EventBuffer, sizeof(EventBuffer)))
+    {
+        Event.EventName = EventBuffer;
+    }
+
+    if (ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip("Sent as a named notify. Bind it with BindNotify (Lua) or override HandleNamedNotify (C++).");
+    }
+
+    const TArray<FAnimBlueprintVariable>& Variables = Editor.GetBlueprintData().Variables;
+    int32 RemoveIndex = INDEX_NONE;
+
+    for (int32 Index = 0; Index < Event.Assignments.Num(); ++Index)
+    {
+        FAnimBlueprintVariableAssignment& Assignment = Event.Assignments[Index];
+        ImGui::PushID(Index);
+
+        const FAnimBlueprintVariable* Variable = nullptr;
+        for (const FAnimBlueprintVariable& Candidate : Variables)
+        {
+            if (Candidate.Name == Assignment.Variable)
+            {
+                Variable = &Candidate;
+                break;
+            }
+        }
+
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.45f);
+        if (ImGui::BeginCombo("##Variable", Assignment.Variable.empty() ? "Select variable" : Assignment.Variable.c_str()))
+        {
+            for (const FAnimBlueprintVariable& Candidate : Variables)
+            {
+                const FString ItemLabel = Candidate.Name + (Candidate.Type == EAnimBlueprintVariableType::Float ? " (Float)" : " (Bool)");
+
+                if (ImGui::Selectable(ItemLabel.c_str(), Assignment.Variable == Candidate.Name))
+                {
+                    Assignment.Variable = Candidate.Name;
+                }
+            }
+
+            ImGui::EndCombo();
+        }
+
+        ImGui::SameLine();
+        ImGui::TextUnformatted("=");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 30.0f);
+
+        if (!Variable)
+        {
+            ImGui::TextDisabled("-");
+        }
+        else if (Variable->Type == EAnimBlueprintVariableType::Bool)
+        {
+            ImGui::Checkbox("##Value", &Assignment.bBoolValue);
+        }
+        else
+        {
+            ImGui::DragFloat("##Value", &Assignment.FloatValue, 0.1f);
+        }
+
+        ImGui::SameLine();
+
+        if (ImGui::SmallButton("X"))
+        {
+            RemoveIndex = Index;
+        }
+
+        ImGui::PopID();
+    }
+
+    if (RemoveIndex != INDEX_NONE)
+    {
+        Event.Assignments.RemoveAt(RemoveIndex);
+    }
+
+    if (ImGui::SmallButton("+ Set Variable"))
+    {
+        Event.Assignments.Add(FAnimBlueprintVariableAssignment());
+    }
+
+    ImGui::PopID();
 }
 
 void FAnimBlueprintDetailsPanel::DrawTransitionDetails(FAnimBlueprintTransition& Transition)

@@ -36,6 +36,8 @@ namespace
         int32 BuildPoseGraph(const FAnimBlueprintGraph& Graph, EAnimBlueprintNodeType ResultType, UAnimGraphInstance& Instance, TArray<int32>& Visiting, TMap<int32, TArray<int32>>& NodeIndices);
         int32 BuildStateMachine(const FAnimBlueprintGraph& ParentGraph, const FAnimBlueprintNode& MachineNode, UAnimGraphInstance& Instance, TArray<int32>& Visiting, TMap<int32, TArray<int32>>& NodeIndices);
         bool BuildTransitions(const FAnimBlueprintGraph& Graph, int32 MachineIndex, UAnimGraphInstance& Instance, const TMap<int32, int32>& StateIndices);
+        bool BuildStateEvent(const FAnimBlueprintNode& State, const FAnimBlueprintStateEvent& Event, const char* What, UAnimGraphInstance& Instance, UAnimGraphInstance::FStateCallback& OutCallback);
+        const FAnimBlueprintVariable* FindVariable(const FString& Name) const;
 
         const FAnimBlueprintData& BlueprintData;
         const USkeletalMesh* Mesh = nullptr;
@@ -443,7 +445,16 @@ namespace
                 return INDEX_NONE;
             }
 
-            const int32 StateIndex = Instance.AddState(MachineIndex, StateName, PoseIndex, State.bResetOnEntry);
+            UAnimGraphInstance::FStateCallback OnEnter;
+            UAnimGraphInstance::FStateCallback OnExit;
+
+            if (!BuildStateEvent(State, State.OnEnter, "OnEnter", Instance, OnEnter)
+                || !BuildStateEvent(State, State.OnExit, "OnExit", Instance, OnExit))
+            {
+                return INDEX_NONE;
+            }
+
+            const int32 StateIndex = Instance.AddState(MachineIndex, StateName, PoseIndex, State.bResetOnEntry, std::move(OnEnter), std::move(OnExit));
 
             if (StateIndex == INDEX_NONE)
             {
@@ -478,6 +489,61 @@ namespace
         }
 
         return MachineIndex;
+    }
+
+    const FAnimBlueprintVariable* FAnimBlueprintCompiler::FindVariable(const FString& Name) const
+    {
+        for (const FAnimBlueprintVariable& Variable : BlueprintData.Variables)
+        {
+            if (Variable.Name == Name)
+            {
+                return &Variable;
+            }
+        }
+
+        return nullptr;
+    }
+
+    // 변수 대입을 순서대로 실행한 뒤 이벤트 이름 Notify를 보낸다.
+    // 핸들러가 바뀐 변수 값을 볼 수 있도록 대입을 먼저 한다.
+    bool FAnimBlueprintCompiler::BuildStateEvent(const FAnimBlueprintNode& State, const FAnimBlueprintStateEvent& Event, const char* What, UAnimGraphInstance& Instance, UAnimGraphInstance::FStateCallback& OutCallback)
+    {
+        TArray<UAnimGraphInstance::FStateCallback> Actions;
+
+        for (const FAnimBlueprintVariableAssignment& Assignment : Event.Assignments)
+        {
+            const FAnimBlueprintVariable* Variable = FindVariable(Assignment.Variable);
+
+            if (!Variable)
+            {
+                return SetError(State.Id, FString("Select a valid variable for every ") + What + " assignment in State: " + State.Name);
+            }
+
+            if (Variable->Type == EAnimBlueprintVariableType::Bool)
+            {
+                Actions.Add(Instance.MakeSetBoolAction(Variable->Name, Assignment.bBoolValue));
+            }
+            else
+            {
+                if (!std::isfinite(Assignment.FloatValue))
+                {
+                    return SetError(State.Id, FString(What) + " assigns a non-finite value in State: " + State.Name);
+                }
+
+                Actions.Add(Instance.MakeSetFloatAction(Variable->Name, Assignment.FloatValue));
+            }
+        }
+
+        const size_t First = Event.EventName.find_first_not_of(" \t\r\n");
+
+        if (First != FString::npos)
+        {
+            const size_t Last = Event.EventName.find_last_not_of(" \t\r\n");
+            Actions.Add(Instance.MakeNamedNotifyAction(FName(Event.EventName.substr(First, Last - First + 1))));
+        }
+
+        OutCallback = UAnimGraphInstance::CombineActions(std::move(Actions));
+        return true;
     }
 
     bool FAnimBlueprintCompiler::BuildTransitions(const FAnimBlueprintGraph& Graph, int32 MachineIndex, UAnimGraphInstance& Instance, const TMap<int32, int32>& StateIndices)

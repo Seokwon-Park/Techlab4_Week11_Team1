@@ -25,6 +25,8 @@ private:
     void DrawPreviewVariables();
     void DrawTransitionDetails(FAnimBlueprintTransition& Transition);
     void DrawVariableSelector(const char* Label, FString& Name, EAnimBlueprintVariableType Type);
+    // State OnEnter/OnExit: 이벤트 이름 + 변수 대입 목록
+    void DrawStateEvent(const char* Label, FAnimBlueprintStateEvent& Event);
 
     std::vector<FString> AssetPaths;
     FString AssetListMessage;
