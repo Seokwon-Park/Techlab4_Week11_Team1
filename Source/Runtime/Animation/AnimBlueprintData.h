@@ -34,12 +34,29 @@ struct FAnimBlueprintPosition
     float Y = 0.0f;
 };
 
+struct FAnimBlueprintFloatInput
+{
+    bool bUseVariable = false;
+    FString Variable;
+    float Constant = 0.0f;
+};
+
 struct FAnimBlueprintNode
 {
     int32 Id = INDEX_NONE;
     EAnimBlueprintNodeType Type = EAnimBlueprintNodeType::SequencePlayer;
     FString Name;
     FAnimBlueprintPosition Position;
+
+    int32 InputPosePinId = INDEX_NONE;
+    int32 SecondInputPosePinId = INDEX_NONE;
+    int32 OutputPosePinId = INDEX_NONE;
+
+    FString SequencePath;
+    FString BlendSpacePath;
+    FAnimBlueprintFloatInput FloatInput;
+    bool bLooping = true;
+    float PlayRate = 1.0f;
 
     int32 ChildGraphId = INDEX_NONE;
 };
@@ -49,10 +66,10 @@ struct FAnimBlueprintLink
     int32 Id = INDEX_NONE;
 
     int32 FromNodeId = INDEX_NONE;
-    FString FromPin;
+    int32 FromPinId = INDEX_NONE;
 
     int32 ToNodeId = INDEX_NONE;
-    FString ToPin;
+    int32 ToPinId = INDEX_NONE;
 };
 
 struct FAnimBlueprintGraph
