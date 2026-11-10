@@ -7,7 +7,6 @@
 void UMyAnimInstance::NativeInitializeAnimation()
 {
 	USkeletalMeshComponent* SkeletalMesh = Cast<USkeletalMeshComponent>(GetOuter());
-	SkeletalMesh->SetEnableAnimation(true);
 
 	//AnimNode 설정
 	int32 Loco = StateMachine.AddState("Locomotion", &LocomotionPlayer);

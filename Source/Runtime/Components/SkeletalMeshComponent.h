@@ -30,7 +30,6 @@ public:
 	void SetBoneSpaceTransforms(const struct FCompactPose& Pose); // 애니메이션 평가 결과를 받는 입구
 	FMatrix GetBoneComponentMatrix(int32 BoneIndex) const;
 	FMatrix GetBoneWorldMatrix(int32 BoneIndex) const;
-	void SetEnableAnimation(const bool EnableAnimation);
 
 	void ResetPose();
 	void RefreshBoneTransformsNow();
@@ -45,7 +44,7 @@ public:
 	void PlayAnimation(UAnimationAsset* NewAnimToPlay, bool bLoop = true);
 	void RefreshAnimationPose();
 
-	UPROPERTY(EditAnywhere)
+	UPROPERTY()
 	float BlendSpaceInput = 300.0f;
 
 protected:
@@ -55,9 +54,6 @@ protected:
 private:
 	UPROPERTY()
 	UAnimInstance* AnimInstance = nullptr;
-
-	UPROPERTY(EditAnywhere)
-	bool bEnableAnimation = false;
 
 	TArray<FTransform> BoneSpaceTransforms;
 };
