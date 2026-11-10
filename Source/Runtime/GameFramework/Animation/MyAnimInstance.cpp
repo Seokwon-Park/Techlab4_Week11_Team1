@@ -4,15 +4,28 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFrameWork/Pawn.h"
 
+// 발소리(Walk/Jog의 PlaySound)와 공격 판정(Punch_Jab의 AttackWindow) Notify는 .anim.bin에 저장돼 있다.
+// AnimSequence 에디터의 타임라인에서 편집한다.
+
 void UMyAnimInstance::NativeInitializeAnimation()
 {
 	USkeletalMeshComponent* SkeletalMesh = Cast<USkeletalMeshComponent>(GetOuter());
-	SkeletalMesh->SetEnableAnimation(true);
 
 	//AnimNode 설정
 	int32 Loco = StateMachine.AddState("Locomotion", &LocomotionPlayer);
-	int32 Attack = StateMachine.AddState("Attack", &AttackPlayer);
-	int32 Hit = StateMachine.AddState("Hit", &HitPlayer);
+	// Hit 상태를 빠져나가는 순간 피격 플래그를 내린다
+	FAnimStateDesc HitState;
+	HitState.Name = "Hit";
+	HitState.Pose.SetLinkNode(&HitPlayer);
+	HitState.OnExit = [this](UAnimInstance*) { bIsHit = false; };
+	int32 Hit = StateMachine.AddState(HitState);
+
+	// Attack 상태를 빠져나가는 순간(정상 종료든 Hit에 끊기든) 공격 플래그를 내린다
+	FAnimStateDesc AttackState;
+	AttackState.Name = "Attack";
+	AttackState.Pose.SetLinkNode(&AttackPlayer);
+	AttackState.OnExit = [this](UAnimInstance*) { bIsAttacking = false; };
+	int32 Attack = StateMachine.AddState(AttackState);
 
 	//TEMP : BlendSpace 생성 밎 설정
 	auto LoadSequence = [&](const char* Path) -> UAnimSequence*
@@ -34,12 +47,24 @@ void UMyAnimInstance::NativeInitializeAnimation()
 		"Assets/FBX/UAL1_Standard/UAL1_Standard_Armature_Idle_Loop.anim.bin");
 	auto* Walk = LoadSequence(
 		"Assets/FBX/UAL1_Standard/UAL1_Standard_Armature_Walk_Loop.anim.bin");
+	auto* Running = LoadSequence(
+		"Assets/FBX/UAL1_Standard/UAL1_Standard_Armature_Jog_Fwd_Loop.anim.bin");
+
 	auto* BlendSpace = NewObject<UBlendSpace1D>();
 
 	BlendSpace->AddSample(Idle, FVector(0, 0, 0));
 	BlendSpace->AddSample(Walk, FVector(200, 0, 0));
+	BlendSpace->AddSample(Running, FVector(550, 0, 0));
 	LocomotionPlayer.BlendSpace = BlendSpace;
 	LocomotionPlayer.X = 0.f;
+
+	AttackPlayer.Sequence = LoadSequence(
+		"Assets/FBX/UAL1_Standard/UAL1_Standard_Armature_Punch_Jab.anim.bin");
+	AttackPlayer.bLooping = false;
+
+	HitPlayer.Sequence = LoadSequence(
+		"Assets/FBX/UAL1_Standard/UAL1_Standard_Armature_Hit_Chest.anim.bin");
+	HitPlayer.bLooping = false;
 
 	StateMachine.SetInitialState(Loco);
 
@@ -52,7 +77,7 @@ void UMyAnimInstance::NativeInitializeAnimation()
 	FAnimTransitionDesc AttackToLoco;
 	AttackToLoco.From = Attack;
 	AttackToLoco.To = Loco;
-	AttackToLoco.Rule = [this](const FAnimTransitionContext& Context) {  return Context.StateElapsedTime >= 0.8f; };
+	AttackToLoco.Rule = [this](const FAnimTransitionContext&) { return AttackPlayer.IsFinished(); };
 	StateMachine.AddTransition(AttackToLoco);
 
 	//AnyTransition으로 Hit 추가
@@ -63,6 +88,13 @@ void UMyAnimInstance::NativeInitializeAnimation()
 	AnyToHit.CrossfadeDuration = 0.1f;
 	AnyToHit.Rule = [this](const FAnimTransitionContext&) { return bIsHit; };
 	StateMachine.AddTransition(AnyToHit);
+
+	// Hit 클립이 끝나면 Locomotion으로 복귀 (OnExit에서 bIsHit = false)
+	FAnimTransitionDesc HitToLoco;
+	HitToLoco.From = Hit;
+	HitToLoco.To = Loco;
+	HitToLoco.Rule = [this](const FAnimTransitionContext&) { return HitPlayer.IsFinished(); };
+	StateMachine.AddTransition(HitToLoco);
 
 	RootNode = &StateMachine;
 }

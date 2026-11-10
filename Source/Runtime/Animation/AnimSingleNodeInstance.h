@@ -19,6 +19,7 @@ public:
 	bool IsPlaying() const;
 
 	void SetLooping(bool bInLooping);
+	bool IsLooping() const { return bLooping; }
 	void SetPlayRate(float InPlayRate);
 	float GetPlayRate() const;
 

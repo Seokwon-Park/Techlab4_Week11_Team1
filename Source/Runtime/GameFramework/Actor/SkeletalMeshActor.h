@@ -11,8 +11,6 @@ class ASkeletalMeshActor : public AActor
 
 public:
 	ASkeletalMeshActor();
-
-	void BeginPlay() override;
 	
 	USkeletalMeshComponent* GetSkeletalMeshComponent() const { return SkeletalMeshComponent; }
 private:

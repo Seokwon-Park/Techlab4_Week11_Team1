@@ -6,7 +6,19 @@
 FAssetEditorTab::FAssetEditorTab(FAssetEditor& InEditor) : Editor(InEditor)
 {
 	const FString Filename = std::filesystem::path(Editor.GetAssetPath()).filename().string();
-	TabName = Filename + " (" + Editor.GetEditorTypeName() + ")###AssetEditor:" + Editor.GetAssetPath();
+	const FString Id = FString(" (") + Editor.GetEditorTypeName() + ")###AssetEditor:" + Editor.GetAssetPath();
+	TabName = Filename + Id;
+	DirtyTabName = Filename + "*" + Id;
+}
+
+const char* FAssetEditorTab::GetTabName() const
+{
+	return Editor.IsDirty() ? DirtyTabName.c_str() : TabName.c_str();
+}
+
+bool FAssetEditorTab::ConfirmClose()
+{
+	return Editor.ConfirmClose();
 }
 
 void FAssetEditorTab::OnCloseRequested()

@@ -6,6 +6,10 @@
 #include "Animation/AnimSingleNodeInstance.h"
 #include "UObject/UObjectGlobals.h"
 #include "UObject/Casts.h"
+#include "Animation/AnimSequence.h"
+#include "Animation/BlendSpace1D.h"
+#include "Animation/BlendSpaceFile.h"
+#include "Asset/AssetManager.h"
 
 void USkeletalMeshComponent::SetAnimInstance(UAnimInstance* InInstance)
 {
@@ -31,12 +35,20 @@ void USkeletalMeshComponent::BeginPlay()
 	if (AnimInstance)
 	{
 		AnimInstance->InitializeAnimation();
+
+		if (auto* Instance = GetSingleNodeInstance())
+		{
+			if (Instance->GetCurrentAsset())
+			{
+				Instance->SetPlaying(true);
+			}
+		}
 	}
 }
 
 void USkeletalMeshComponent::TickComponent(float DeltaTime)
 {
-	if (bEnableAnimation && AnimInstance && GetSkeletalMesh())
+	if (AnimInstance && GetSkeletalMesh())
 	{
 		if (auto* Instance = Cast<UAnimSingleNodeInstance>(AnimInstance))
 		{
@@ -47,6 +59,7 @@ void USkeletalMeshComponent::TickComponent(float DeltaTime)
 		FPoseContext Pose(AnimInstance, GetBones());
 		AnimInstance->EvaluateAnimation(Pose);
 		SetBoneSpaceTransforms(Pose.Pose);
+		AnimInstance->TriggerAnimNotifies(DeltaTime);
 	}
 	Super::TickComponent(DeltaTime);
 }
@@ -156,8 +169,51 @@ void USkeletalMeshComponent::Serialize(FStructuredArchive::FRecord Record)
 		}
 	}
 
+	SerializeSingleAnimation(Record);
+
 	if (Ar.IsLoading())
 		RefreshBoneTransformsNow();   // 에디터 월드에서 Tick이 안 돌아도 포즈가 바로 반영된다
+}
+
+void USkeletalMeshComponent::SerializeSingleAnimation(FStructuredArchive::FRecord& Record)
+{
+	// 디테일 패널에서 고른 단일 애니메이션(SingleNodeInstance의 에셋)은 AnimInstance 객체가 아니라
+	// 에셋 경로로 저장한다. 없으면 필드를 쓰지 않으므로 예전 씬도 그대로 읽힌다.
+	FArchive& Ar = Record.GetUnderlyingArchive();
+	UAnimSingleNodeInstance* Instance = GetSingleNodeInstance();
+	UAnimationAsset* Asset = Instance ? Instance->GetCurrentAsset() : nullptr;
+	const bool bHasAnimation = Ar.IsSaving() && Asset && !Asset->GetAssetPath().empty();
+
+	TOptional<FStructuredArchive::FSlot> AnimSlot = Record.TryEnterField("SingleAnimation", bHasAnimation);
+	if (!AnimSlot.IsSet())
+		return;
+
+	FStructuredArchive::FRecord AnimRecord = AnimSlot.GetValue().EnterRecord();
+	FString Path = Ar.IsSaving() ? Asset->GetAssetPath() : FString();
+	bool bLoop = Ar.IsSaving() ? Instance->IsLooping() : true;
+	float Rate = Ar.IsSaving() ? Instance->GetPlayRate() : 1.0f;
+	AnimRecord << SA_VALUE("Asset", Path) << SA_VALUE("Looping", bLoop) << SA_VALUE("PlayRate", Rate);
+
+	if (!Ar.IsLoading())
+		return;
+
+	// AssetManager 캐시로 불러온다 (디테일 패널이 고를 때와 같은 객체)
+	UAnimationAsset* Loaded = BlendSpaceFile::IsBlendSpacePath(Path)
+		? static_cast<UAnimationAsset*>(UAssetManager::LoadBlendSpace(Path))
+		: static_cast<UAnimationAsset*>(UAssetManager::LoadAnimSequence(Path));
+	if (!Loaded)
+	{
+		HTR_LOG(Warning, "SkeletalMeshComponent: single animation not found: {}", Path);
+		return;
+	}
+
+	// 재생 시작은 BeginPlay가 한다 (에디터 월드에서는 첫 프레임 포즈만 보인다)
+	SetAnimation(Loaded);
+	if (UAnimSingleNodeInstance* NewInstance = GetSingleNodeInstance())
+	{
+		NewInstance->SetLooping(bLoop);
+		NewInstance->SetPlayRate(Rate);
+	}
 }
 
 void USkeletalMeshComponent::OnSkeletalMeshChanged()
@@ -166,12 +222,6 @@ void USkeletalMeshComponent::OnSkeletalMeshChanged()
 	for (const FBoneInfo& Bone : GetBones())
 		BoneSpaceTransforms.Add(Bone.LocalBindPose);
 }
-
-void USkeletalMeshComponent::SetEnableAnimation(const bool EnableAnimation)
-{
-	bEnableAnimation = EnableAnimation;
-}
-
 UAnimSingleNodeInstance* USkeletalMeshComponent::GetSingleNodeInstance() const
 {
 	return Cast<UAnimSingleNodeInstance>(AnimInstance);
@@ -195,7 +245,6 @@ void USkeletalMeshComponent::SetAnimation(UAnimationAsset* NewAnimToPlay)
 	SingleNodeInstance->SetAnimationAsset(NewAnimToPlay);
 	SingleNodeInstance->SetBlendSpaceInput(BlendSpaceInput);
 
-	SetEnableAnimation(true);
 	RefreshAnimationPose();
 }
 
@@ -205,7 +254,6 @@ void USkeletalMeshComponent::Play(bool bLooping)
 	{
 		Instance->SetLooping(bLooping);
 		Instance->SetPlaying(true);
-		SetEnableAnimation(true);
 	}
 }
 
@@ -220,7 +268,7 @@ void USkeletalMeshComponent::Stop()
 bool USkeletalMeshComponent::IsPlaying() const
 {
 	const auto* Instance = GetSingleNodeInstance();
-	return bEnableAnimation && Instance && Instance->IsPlaying();
+	return Instance && Instance->IsPlaying();
 }
 
 void USkeletalMeshComponent::PlayAnimation(UAnimationAsset* NewAnimToPlay, bool bLooping)

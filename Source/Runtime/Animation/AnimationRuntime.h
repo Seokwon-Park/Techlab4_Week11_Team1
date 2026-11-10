@@ -1,6 +1,8 @@
 #pragma once
 
 #include "BonePose.h"
+#include "Math/EngineMath.h"
+#include "AnimTypes.h"
 
 struct FAnimationRuntime
 {
@@ -35,5 +37,44 @@ struct FAnimationRuntime
 			Result.Scale = FMath::Lerp(A.Scale, B.Scale, Alpha);
 		}
 		OutCurve = FBlendedCurve();
+	}
+
+	static inline ETypeAdvanceAnim AdvanceTime(const bool bAllowLooping, const float MoveDelta, float& InOutTime, const float EndTime)
+	{
+		float NewTime = InOutTime + MoveDelta;
+
+		if (NewTime < 0.f || NewTime > EndTime)
+		{
+			if (bAllowLooping)
+			{
+				if (EndTime != 0.f)
+				{
+					NewTime = FMath::Fmod(NewTime, EndTime);
+					// Fmod doesn't give result that falls into (0, EndTime), but one that falls into (-EndTime, EndTime). Negative values need to be handled in custom way
+					if (NewTime < 0.f)
+					{
+						NewTime += EndTime;
+					}
+				}
+				else
+				{
+					// end time is 0.f
+					NewTime = 0.f;
+				}
+
+				// it has been looped
+				InOutTime = NewTime;
+				return ETypeAdvanceAnim::ETAA_Looped;
+			}
+			else
+			{
+				// If not, snap time to end of sequence and stop playing.
+				InOutTime = FMath::Clamp(NewTime, 0.f, EndTime);
+				return ETypeAdvanceAnim::ETAA_Finished;
+			}
+		}
+
+		InOutTime = NewTime;
+		return ETypeAdvanceAnim::ETAA_Default;
 	}
 };

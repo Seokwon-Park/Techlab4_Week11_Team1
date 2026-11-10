@@ -23,10 +23,13 @@ public:
 	// Getter
 	////////////////////////////////////////////////////////////
 
-	const char* GetTabName() const override { return TabName.c_str(); }
+	// 저장하지 않은 변경이 있으면 파일 이름 뒤에 *를 붙인다 (### 뒤 ID는 같아 창 배치가 유지된다)
+	const char* GetTabName() const override;
 	bool CanClose() const override { return true; }
+	bool ConfirmClose() override;
 
 private:
 	FAssetEditor& Editor;
 	FString TabName;
+	FString DirtyTabName;
 };
