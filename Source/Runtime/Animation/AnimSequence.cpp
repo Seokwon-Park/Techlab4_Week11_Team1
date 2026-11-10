@@ -14,7 +14,7 @@
 namespace
 {
 	constexpr uint32 AnimSequenceMagic = 0x4D494E41; // ANIM
-	constexpr uint32 AnimSequenceVersion = 3;        // 2: 미리보기 메시 경로 추가, 3: 루트 모션 설정 추가
+	constexpr uint32 AnimSequenceVersion = 4;        // 2: 미리보기 메시 경로 추가, 3: Notify 섹션 추가 (트랙 뒤), 4: 루트 모션 설정 추가 (미리보기 경로 뒤)
 	constexpr int64 BytesPerBoneKey = 10 * sizeof(float);
 
 	void SerializeName(FArchive& Ar, FString& Name)
@@ -105,10 +105,10 @@ void UAnimSequence::Serialize(FArchive& Ar)
 		SerializeName(Ar, PreviewPath);
 	}
 
-	// 3: 루트 모션 설정. 이전 버전 파일은 둘 다 꺼진 채로 읽는다
+	// 4: 루트 모션 설정. 이전 버전 파일은 둘 다 꺼진 채로 읽는다
 	uint8 bRootMotion = bLoading ? 0 : static_cast<uint8>(bEnableRootMotion);
 	uint8 bRootLock = bLoading ? 0 : static_cast<uint8>(bForceRootLock);
-	if (Version >= 3)
+	if (Version >= 4)
 	{
 		Ar << bRootMotion << bRootLock;
 	}
@@ -158,10 +158,19 @@ void UAnimSequence::Serialize(FArchive& Ar)
 		}
 	}
 
+	// v3: Notify. 불러올 때는 DataModel이 생긴 뒤(Initialize 뒤)에 넣어야 시간 범위를 확인할 수 있다.
+	TArray<FAnimNotifyTrack> LoadedTracks_Notify;
+	TArray<FAnimNotifyEvent> LoadedNotifies;
+	if (Version >= 3 && !Ar.IsError())
+	{
+		SerializeNotifyEvents(Ar, LoadedTracks_Notify, LoadedNotifies);
+	}
+
     if (bLoading && !Ar.IsError())
     {
         if (Ar.Tell() != Ar.TotalSize())
         {
+            DeleteNotifyObjects(LoadedNotifies);
             Ar.SetError();
             return;
         }
@@ -169,6 +178,12 @@ void UAnimSequence::Serialize(FArchive& Ar)
         SetPreviewMeshPath(std::move(PreviewPath));
         bEnableRootMotion = bRootMotion != 0;
         bForceRootLock = bRootLock != 0;
+        // v2 이하 파일은 빈 목록이 들어가, 다시 읽을 때 이전 Notify가 남지 않는다
+        ReplaceNotifies(std::move(LoadedTracks_Notify), std::move(LoadedNotifies));
+    }
+    else
+    {
+        DeleteNotifyObjects(LoadedNotifies);
     }
 }
 

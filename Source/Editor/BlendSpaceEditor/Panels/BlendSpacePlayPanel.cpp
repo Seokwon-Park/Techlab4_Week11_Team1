@@ -1,4 +1,4 @@
-﻿#include "EnginePCH.h"
+#include "EnginePCH.h"
 #include "BlendSpacePlayPanel.h"
 
 #include <cmath>
@@ -213,7 +213,6 @@ void FBlendSpacePlayPanel::RefreshAnimationList()
     std::filesystem::path BlendSpacePath(FilePath);
     std::filesystem::path Directory = BlendSpacePath.parent_path();
 
-    // 폴더 안에서 애니메이션 파일을 찾음
     std::error_code Error;
     std::filesystem::directory_iterator It(Directory, Error);
     std::filesystem::directory_iterator End;

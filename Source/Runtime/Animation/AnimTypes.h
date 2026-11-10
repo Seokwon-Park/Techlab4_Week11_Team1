@@ -14,6 +14,12 @@ enum class ETypeAdvanceAnim : uint8
 	ETAA_Looped
 };
 
+// 타임라인의 Notify 한 줄 (UE FAnimNotifyTrack). 재생에는 영향이 없고 편집 화면 정리용이다.
+struct FAnimNotifyTrack
+{
+    FString Name;   // 비어 있으면 화면에는 번호("1", "2", ...)로 보인다
+};
+
 USTRUCT()
 struct FAnimNotifyEvent
 {
@@ -26,6 +32,9 @@ struct FAnimNotifyEvent
     FName        NotifyName;              // Notify가 없으면 이름 기반
 
     float TriggerWeightThreshold = 0.f;   // 가중치 필터
+
+    // 타임라인에서 몇 번째 줄에 그릴지 (UE FAnimNotifyEvent::TrackIndex). 재생에는 영향이 없다.
+    int32 TrackIndex = 0;
 
     // 타임라인 UI가 Notify를 가리키는 식별자 (UE의 FAnimNotifyEvent::Guid).
     // 배열 Index는 추가/삭제/정렬마다 바뀌므로 Index 대신 이 값을 쓴다.

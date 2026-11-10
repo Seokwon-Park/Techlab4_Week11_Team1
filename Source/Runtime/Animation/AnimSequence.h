@@ -40,7 +40,7 @@ public:
 	void GetAnimationPose(float Time, FCompactPose& OutPose, const TArray<FBoneInfo>& RefSkeleton, bool bExtractRootMotion = true) const;
 	const FString& GetClipName() const { return ClipName; }
 
-	// 루트 모션 설정. .anim.bin(Version 3)에 저장된다. 뷰어 Details에서 바꾸고 Save로 저장한다
+	// 루트 모션 설정. .anim.bin(Version 4)에 저장된다. 뷰어 Details에서 바꾸고 Save로 저장한다
 	bool GetEnableRootMotion() const { return bEnableRootMotion; }
 	void SetEnableRootMotion(bool bEnable) { bEnableRootMotion = bEnable; }
 	bool GetForceRootLock() const { return bForceRootLock; }

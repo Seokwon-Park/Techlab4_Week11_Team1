@@ -1,6 +1,11 @@
 #include "EnginePCH.h"
 #include "AnimBlueprintEditor.h"
 #include "AnimBlueprintEditorTab.h"
+#include "Animation/AnimBlueprintFile.h"
+#include "Animation/AnimBlueprintCompiler.h"
+#include "Core/Misc/Paths.h"
+#include "Editor/AssetEditor/EditorManager.h"
+#include <commdlg.h>
 
 #include <cmath>
 #include <cctype>
@@ -52,7 +57,17 @@ bool FAnimBlueprintEditor::InitializeResources()
         return false;
     }
 
-    CreateInitialGraph();
+    if (!bDocumentLoaded)
+    {
+        CreateInitialGraph();
+    }
+    else
+    {
+        CurrentGraphId = BlueprintData.RootGraphId;
+        FString Error;
+        AnimBlueprintFile::ToJson(BlueprintData, SavedSnapshot, Error);
+    }
+
     return true;
 }
 
@@ -85,6 +100,12 @@ void FAnimBlueprintEditor::RequestApplyPreview()
 
 void FAnimBlueprintEditor::TickBeforeWorld(float DeltaTime)
 {
+    if (bSaveRequested)
+    {
+        bSaveRequested = false;
+        Save();
+    }
+
     if (bApplyPreviewRequested)
     {
         bApplyPreviewRequested = false;
@@ -104,422 +125,6 @@ bool FAnimBlueprintEditor::SetPreviewError(int32 NodeId, const FString& Message)
     return false;
 }
 
-bool FAnimBlueprintEditor::ValidateSequence(UAnimSequence* Sequence, int32 NodeId)
-{
-    if (!Sequence || !Sequence->GetDataModel())
-    {
-        return SetPreviewError(NodeId, "Failed to load animation.");
-    }
-
-    const UAnimDataModel* Model = Sequence->GetDataModel();
-    const float Length = Model->GetPlayLength();
-
-    if (!std::isfinite(Length) || Length <= 0.0f || Model->GetBoneAnimationTracks().IsEmpty())
-    {
-        return SetPreviewError(NodeId, "The animation has no playable bone tracks.");
-    }
-
-    for (const FBoneAnimationTrack& Track : Model->GetBoneAnimationTracks())
-    {
-        if (Mesh->FindBoneIndex(Track.Name) < 0)
-        {
-            return SetPreviewError(NodeId, "Animation bone does not match the preview mesh: " + Track.Name);
-        }
-    }
-
-    return true;
-}
-
-bool FAnimBlueprintEditor::ValidateFloatInput(const FAnimBlueprintNode& Node)
-{
-    const FAnimBlueprintFloatInput& Input = Node.FloatInput;
-
-    if (!Input.bUseVariable)
-    {
-        if (!std::isfinite(Input.Constant))
-        {
-            return SetPreviewError(Node.Id, "The input constant must be finite.");
-        }
-
-        if (Node.Type == EAnimBlueprintNodeType::TwoWayBlend && (Input.Constant < 0.0f || Input.Constant > 1.0f))
-        {
-            return SetPreviewError(Node.Id, "Alpha must be between zero and one.");
-        }
-
-        return true;
-    }
-
-    for (const FAnimBlueprintVariable& Variable : BlueprintData.Variables)
-    {
-        if (Variable.Name == Input.Variable && Variable.Type == EAnimBlueprintVariableType::Float)
-        {
-            return true;
-        }
-    }
-
-    return SetPreviewError(Node.Id, "Select a valid Float variable for the input.");
-}
-
-int32 FAnimBlueprintEditor::BuildPreviewInput(const FAnimBlueprintGraph& Graph, int32 NodeId, 
-    int32 PinId, UAnimGraphInstance& Instance, TArray<int32>& Visiting, TMap<int32, TArray<int32>>& NodeIndices)
-{
-    const FAnimBlueprintLink* InputLink = nullptr;
-
-    for (const FAnimBlueprintLink& Link : Graph.Links)
-    {
-        if (Link.ToNodeId == NodeId && Link.ToPinId == PinId)
-        {
-            if (InputLink)
-            {
-                SetPreviewError(NodeId, "A pose input has multiple connections.");
-                return INDEX_NONE;
-            }
-
-            InputLink = &Link;
-        }
-    }
-
-    if (!InputLink || PinId <= 0)
-    {
-        SetPreviewError(NodeId, "Connect every required pose input in graph: " + Graph.Name);
-        return INDEX_NONE;
-    }
-
-    for (const FAnimBlueprintNode& Source : Graph.Nodes)
-    {
-        if (Source.Id == InputLink->FromNodeId && Source.OutputPosePinId > 0 && Source.OutputPosePinId == InputLink->FromPinId)
-        {
-            return BuildPreviewNode(Graph, Source.Id, Instance, Visiting, NodeIndices);
-        }
-    }
-
-    SetPreviewError(NodeId, "The connected pose output is invalid.");
-    return INDEX_NONE;
-}
-
-int32 FAnimBlueprintEditor::BuildPreviewNode(const FAnimBlueprintGraph& Graph, int32 NodeId, UAnimGraphInstance& Instance, TArray<int32>& Visiting, TMap<int32, TArray<int32>>& NodeIndices)
-{
-    if (Visiting.Find(NodeId) != INDEX_NONE)
-    {
-        SetPreviewError(NodeId, "A pose graph cannot contain a cycle.");
-        return INDEX_NONE;
-    }
-
-    const FAnimBlueprintNode* Node = nullptr;
-
-    for (const FAnimBlueprintNode& Candidate : Graph.Nodes)
-    {
-        if (Candidate.Id == NodeId)
-        {
-            Node = &Candidate;
-            break;
-        }
-    }
-
-    if (!Node)
-    {
-        SetPreviewError(NodeId, "The connected node no longer exists.");
-        return INDEX_NONE;
-    }
-
-    Visiting.Add(NodeId);
-    int32 RuntimeIndex = INDEX_NONE;
-
-    if (Node->Type == EAnimBlueprintNodeType::SequencePlayer || Node->Type == EAnimBlueprintNodeType::BlendSpacePlayer)
-    {
-        if (!std::isfinite(Node->PlayRate) || Node->PlayRate < 0.0f)
-        {
-            SetPreviewError(NodeId, "Play Rate must be finite and non-negative.");
-            return INDEX_NONE;
-        }
-    }
-
-    switch (Node->Type)
-    {
-    case EAnimBlueprintNodeType::OutputPose:
-    case EAnimBlueprintNodeType::StateResult:
-        RuntimeIndex = BuildPreviewInput(Graph, NodeId, Node->InputPosePinId, Instance, Visiting, NodeIndices);
-        break;
-
-    case EAnimBlueprintNodeType::StateMachine:
-        RuntimeIndex = BuildPreviewStateMachine(Graph, *Node, Instance, Visiting, NodeIndices);
-        break;
-
-    case EAnimBlueprintNodeType::SequencePlayer:
-    {
-        if (Node->SequencePath.empty())
-        {
-            SetPreviewError(NodeId, "Select an animation for the Sequence Player.");
-            return INDEX_NONE;
-        }
-
-        UAnimSequence* Sequence = Instance.LoadSequence(Node->SequencePath);
-
-        if (!ValidateSequence(Sequence, NodeId))
-        {
-            return INDEX_NONE;
-        }
-
-        RuntimeIndex = Instance.AddSequencePlayer(Sequence, Node->bLooping, Node->PlayRate);
-        break;
-    }
-
-    case EAnimBlueprintNodeType::BlendSpacePlayer:
-    {
-        if (!ValidateFloatInput(*Node))
-        {
-            return INDEX_NONE;
-        }
-
-        if (Node->BlendSpacePath.empty())
-        {
-            SetPreviewError(NodeId, "Select a BlendSpace for the BlendSpace Player.");
-            return INDEX_NONE;
-        }
-
-        UBlendSpace1D* BlendSpace = Instance.LoadBlendSpace(Node->BlendSpacePath);
-
-        if (!BlendSpace || BlendSpace->GetSampleData().IsEmpty())
-        {
-            SetPreviewError(NodeId, "The BlendSpace could not be loaded or has no samples.");
-            return INDEX_NONE;
-        }
-
-        for (const FBlendSample& Sample : BlendSpace->GetSampleData())
-        {
-            if (!std::isfinite(Sample.SampleValue.X) || !ValidateSequence(Sample.Animation, NodeId))
-            {
-                SetPreviewError(NodeId, "The BlendSpace contains invalid or incompatible samples.");
-                return INDEX_NONE;
-            }
-        }
-
-        const FString Variable = Node->FloatInput.bUseVariable ? Node->FloatInput.Variable : FString();
-        RuntimeIndex = Instance.AddBlendSpacePlayer(BlendSpace, Variable, Node->PlayRate);
-
-        FAnimNode_BlendSpacePlayer* Player = Instance.GetNode<FAnimNode_BlendSpacePlayer>(RuntimeIndex);
-        Player->bLooping = Node->bLooping;
-        Player->X = Node->FloatInput.Constant;
-        break;
-    }
-
-    case EAnimBlueprintNodeType::TwoWayBlend:
-    {
-        if (!ValidateFloatInput(*Node))
-        {
-            return INDEX_NONE;
-        }
-
-        const int32 NodeA = BuildPreviewInput(Graph, NodeId, Node->InputPosePinId, Instance, Visiting, NodeIndices);
-
-        if (NodeA == INDEX_NONE)
-        {
-            return INDEX_NONE;
-        }
-
-        const int32 NodeB = BuildPreviewInput(Graph, NodeId, Node->SecondInputPosePinId, Instance, Visiting, NodeIndices);
-
-        if (NodeB == INDEX_NONE)
-        {
-            return INDEX_NONE;
-        }
-
-        const FString Variable = Node->FloatInput.bUseVariable ? Node->FloatInput.Variable : FString();
-        RuntimeIndex = Instance.AddTwoWayBlend(NodeA, NodeB, Variable);
-        Instance.GetNode<FAnimNode_TwoWayBlend>(RuntimeIndex)->Alpha = Node->FloatInput.Constant;
-        break;
-    }
-
-    default:
-        SetPreviewError(NodeId, "This node type is not supported in preview yet.");
-        return INDEX_NONE;
-    }
-
-    Visiting.RemoveLast();
-
-    if (RuntimeIndex != INDEX_NONE)
-    {
-        // Each use gets its own runtime node so shared branches do not advance one player twice.
-        NodeIndices[NodeId].Add(RuntimeIndex);
-    }
-
-    return RuntimeIndex;
-}
-
-int32 FAnimBlueprintEditor::BuildPreviewPoseGraph(const FAnimBlueprintGraph& Graph, EAnimBlueprintNodeType ResultType, 
-    UAnimGraphInstance& Instance, TArray<int32>& Visiting, TMap<int32, TArray<int32>>& NodeIndices)
-{
-    if (Graph.Type != EAnimBlueprintGraphType::Pose)
-    {
-        SetPreviewError(Graph.OwnerNodeId, "A state must contain a pose graph.");
-        return INDEX_NONE;
-    }
-
-    const FAnimBlueprintNode* ResultNode = nullptr;
-
-    for (const FAnimBlueprintNode& Node : Graph.Nodes)
-    {
-        if (Node.Type == EAnimBlueprintNodeType::OutputPose || Node.Type == EAnimBlueprintNodeType::StateResult)
-        {
-            if (Node.Type != ResultType || ResultNode)
-            {
-                SetPreviewError(Node.Id, "The pose graph must have exactly one matching result node.");
-                return INDEX_NONE;
-            }
-
-            ResultNode = &Node;
-        }
-    }
-
-    if (!ResultNode)
-    {
-        SetPreviewError(Graph.OwnerNodeId, "The pose graph result is missing: " + Graph.Name);
-        return INDEX_NONE;
-    }
-
-    return BuildPreviewNode(Graph, ResultNode->Id, Instance, Visiting, NodeIndices);
-}
-
-int32 FAnimBlueprintEditor::BuildPreviewStateMachine(const FAnimBlueprintGraph& ParentGraph, const FAnimBlueprintNode& MachineNode, UAnimGraphInstance& Instance, TArray<int32>& Visiting, TMap<int32, TArray<int32>>& NodeIndices)
-{
-    const FAnimBlueprintGraph* MachineGraph = FindGraph(MachineNode.ChildGraphId);
-
-    if (!MachineGraph || MachineGraph->Type != EAnimBlueprintGraphType::StateMachine || MachineGraph->ParentGraphId != ParentGraph.Id || MachineGraph->OwnerNodeId != MachineNode.Id)
-    {
-        SetPreviewError(MachineNode.Id, "The State Machine graph is missing or belongs to another node.");
-        return INDEX_NONE;
-    }
-
-    const FAnimBlueprintNode* Entry = nullptr;
-    int32 StateCount = 0;
-    int32 AnyStateCount = 0;
-
-    for (const FAnimBlueprintNode& Node : MachineGraph->Nodes)
-    {
-        if (Node.Type == EAnimBlueprintNodeType::Entry)
-        {
-            if (Entry)
-            {
-                SetPreviewError(Node.Id, "A State Machine must have exactly one Entry.");
-                return INDEX_NONE;
-            }
-
-            Entry = &Node;
-        }
-        else if (Node.Type == EAnimBlueprintNodeType::State)
-        {
-            ++StateCount;
-        }
-        else if (Node.Type == EAnimBlueprintNodeType::AnyState)
-        {
-            ++AnyStateCount;
-
-            if (AnyStateCount > 1)
-            {
-                SetPreviewError(Node.Id, "Only one Any State node is allowed.");
-                return INDEX_NONE;
-            }
-        }
-        else
-        {
-            SetPreviewError(Node.Id, "Only Entry, State and Any State nodes are allowed inside a State Machine.");
-            return INDEX_NONE;
-        }
-    }
-
-    if (!Entry || Entry->TransitionOutputPinId <= 0 || StateCount == 0)
-    {
-        SetPreviewError(MachineNode.Id, "A State Machine needs an Entry and at least one State.");
-        return INDEX_NONE;
-    }
-
-    if (MachineGraph->Links.Num() != 1)
-    {
-        SetPreviewError(Entry->Id, "Connect Entry to exactly one initial State.");
-        return INDEX_NONE;
-    }
-
-    const FAnimBlueprintLink& InitialLink = MachineGraph->Links[0];
-
-    if (InitialLink.FromNodeId != Entry->Id || InitialLink.FromPinId != Entry->TransitionOutputPinId)
-    {
-        SetPreviewError(Entry->Id, "The initial State connection must start at Entry.");
-        return INDEX_NONE;
-    }
-
-    const int32 MachineIndex = Instance.AddStateMachine();
-    TMap<int32, int32> StateIndices;
-    TArray<FName> StateNames;
-
-    for (const FAnimBlueprintNode& State : MachineGraph->Nodes)
-    {
-        if (State.Type != EAnimBlueprintNodeType::State)
-        {
-            continue;
-        }
-
-        const FName StateName(State.Name);
-
-        if (State.Name.find_first_not_of(" \t\r\n") == FString::npos || StateNames.Find(StateName) != INDEX_NONE)
-        {
-            SetPreviewError(State.Id, "State names must be non-empty and unique within the State Machine.");
-            return INDEX_NONE;
-        }
-
-        StateNames.Add(StateName);
-        const FAnimBlueprintGraph* StateGraph = FindGraph(State.ChildGraphId);
-
-        if (!StateGraph || StateGraph->ParentGraphId != MachineGraph->Id || StateGraph->OwnerNodeId != State.Id)
-        {
-            SetPreviewError(State.Id, "The State pose graph is missing or belongs to another node.");
-            return INDEX_NONE;
-        }
-
-        const int32 PoseIndex = BuildPreviewPoseGraph(*StateGraph, EAnimBlueprintNodeType::StateResult, 
-            Instance, Visiting, NodeIndices);
-
-        if (PoseIndex == INDEX_NONE)
-        {
-            return INDEX_NONE;
-        }
-
-        const int32 StateIndex = Instance.AddState(MachineIndex, StateName, PoseIndex, State.bResetOnEntry);
-
-        if (StateIndex == INDEX_NONE)
-        {
-            SetPreviewError(State.Id, "Failed to register the State pose.");
-            return INDEX_NONE;
-        }
-
-        StateIndices.Add(State.Id, StateIndex);
-        NodeIndices[State.Id].Add(PoseIndex);
-
-        if (State.Id == InitialLink.ToNodeId)
-        {
-            if (State.TransitionInputPinId <= 0 || InitialLink.ToPinId != State.TransitionInputPinId)
-            {
-                SetPreviewError(State.Id, "Entry is connected to an invalid State input pin.");
-                return INDEX_NONE;
-            }
-        }
-    }
-
-    const int32* InitialStateIndex = StateIndices.Find(InitialLink.ToNodeId);
-
-    if (!InitialStateIndex || !Instance.SetInitialState(MachineIndex, *InitialStateIndex))
-    {
-        SetPreviewError(Entry->Id, "Entry must point to a State in this State Machine.");
-        return INDEX_NONE;
-    }
-
-    if (!BuildPreviewTransitions(*MachineGraph, MachineIndex, Instance, StateIndices))
-    {
-        return INDEX_NONE;
-    }
-
-    return MachineIndex;
-}
-
 bool FAnimBlueprintEditor::ApplyPreview()
 {
     if (!MeshComponent || !Mesh)
@@ -527,57 +132,14 @@ bool FAnimBlueprintEditor::ApplyPreview()
         return SetPreviewError(INDEX_NONE, "The preview mesh is not available.");
     }
 
-    const FAnimBlueprintGraph* RootGraph = nullptr;
+    TUniquePtr<UAnimGraphInstance> NewInstance;
+    AnimBlueprintCompiler::FNodeMap NewNodeIndices;
 
-    for (const FAnimBlueprintGraph& Graph : BlueprintData.Graphs)
-    {
-        if (Graph.Id == BlueprintData.RootGraphId)
-        {
-            RootGraph = &Graph;
-            break;
-        }
-    }
-
-    if (!RootGraph || RootGraph->Type != EAnimBlueprintGraphType::Pose)
-    {
-        return SetPreviewError(INDEX_NONE, "The root pose graph is missing.");
-    }
-
-    TUniquePtr<UAnimGraphInstance> NewInstance(NewObject<UAnimGraphInstance>(MeshComponent));
-
-    for (const FAnimBlueprintVariable& Variable : BlueprintData.Variables)
-    {
-        if (Variable.Type == EAnimBlueprintVariableType::Float)
-        {
-            if (!std::isfinite(Variable.DefaultFloat))
-            {
-                return SetPreviewError(INDEX_NONE, "A Float default is not finite: " + Variable.Name);
-            }
-
-            NewInstance->SetFloat(Variable.Name, Variable.DefaultFloat);
-        }
-        else
-        {
-            NewInstance->SetBool(Variable.Name, Variable.bDefaultBool);
-        }
-    }
-
-    TArray<int32> Visiting;
-    TMap<int32, TArray<int32>> NewNodeIndices;
-    const int32 RootIndex = BuildPreviewPoseGraph(*RootGraph, EAnimBlueprintNodeType::OutputPose, *NewInstance, Visiting, NewNodeIndices);
-
-    if (RootIndex == INDEX_NONE)
+    if (!AnimBlueprintCompiler::Build(BlueprintData, *MeshComponent, NewInstance, NewNodeIndices, PreviewMessage))
     {
         return false;
     }
 
-    if (!NewInstance->SetRoot(RootIndex))
-    {
-        return SetPreviewError(INDEX_NONE, "Failed to initialize the preview graph.");
-    }
-
-    // Refresh variable bindings before evaluating the first pose.
-    NewInstance->UpdateAnimation(0.0f);
     MeshComponent->SetAnimInstance(NewInstance.get());
     PreviewInstance = std::move(NewInstance);
     PreviewNodeIndices = std::move(NewNodeIndices);
@@ -1508,162 +1070,6 @@ int32 FAnimBlueprintEditor::AddAnyState(const FAnimBlueprintPosition& Position)
     return Node.Id;
 }
 
-bool FAnimBlueprintEditor::BuildPreviewTransitions(const FAnimBlueprintGraph& Graph, int32 MachineIndex, 
-    UAnimGraphInstance& Instance, const TMap<int32, int32>& StateIndices)
-{
-    for (const FAnimBlueprintTransition& Transition : Graph.Transitions)
-    {
-        const FAnimBlueprintNode* Source = nullptr;
-        const FAnimBlueprintNode* Target = nullptr;
-
-        for (const FAnimBlueprintNode& Node : Graph.Nodes)
-        {
-            if (Node.Id == Transition.FromStateId)
-            {
-                Source = &Node;
-            }
-
-            if (Node.Id == Transition.ToStateId)
-            {
-                Target = &Node;
-            }
-        }
-
-        if (!Source || !Target || Target->Type != EAnimBlueprintNodeType::State || Source == Target)
-        {
-            return SetPreviewError(Transition.Id, "The transition endpoints are invalid.");
-        }
-
-        if ((Source->Type != EAnimBlueprintNodeType::State 
-            && Source->Type != EAnimBlueprintNodeType::AnyState) 
-            || Source->TransitionOutputPinId != Transition.FromPinId 
-            || Target->TransitionInputPinId != Transition.ToPinId)
-        {
-            return SetPreviewError(Transition.Id, "The transition pins are invalid.");
-        }
-
-        if (Transition.Rule == EAnimBlueprintTransitionRule::Disabled)
-        {
-            continue;
-        }
-
-        if (!std::isfinite(Transition.CrossfadeDuration) || Transition.CrossfadeDuration < 0.0f)
-        {
-            return SetPreviewError(Transition.Id, "Crossfade duration must be finite and non-negative.");
-        }
-
-        const int32* ToIndex = StateIndices.Find(Target->Id);
-        const int32* SourceIndex = StateIndices.Find(Source->Id);
-        const bool bAnyState = Source->Type == EAnimBlueprintNodeType::AnyState;
-
-        if (!ToIndex || (!bAnyState && !SourceIndex))
-        {
-            return SetPreviewError(Transition.Id, "The transition State is not registered.");
-        }
-
-        const int32 FromIndex = bAnyState ? INDEX_NONE : *SourceIndex;
-        FAnimTransitionRule Rule;
-
-        if (Transition.Rule == EAnimBlueprintTransitionRule::Finished)
-        {
-            if (bAnyState)
-            {
-                return SetPreviewError(Transition.Id, "Finished requires a specific source State.");
-            }
-
-            const int32 PoseIndex = Instance.GetStatePoseNode(MachineIndex, FromIndex);
-            const FAnimNode_SequencePlayer* Player = Instance.GetNode<FAnimNode_SequencePlayer>(PoseIndex);
-
-            if (!Player || Player->bLooping)
-            {
-                return SetPreviewError(Transition.Id, "Finished requires the source State to output a non-looping Sequence Player directly.");
-            }
-
-            Rule = Instance.MakeFinishedRule(PoseIndex);
-        }
-        else
-        {
-            const FAnimBlueprintVariable* MatchedVariable = nullptr;
-
-            for (const FAnimBlueprintVariable& Variable : BlueprintData.Variables)
-            {
-                if (Variable.Name == Transition.Variable)
-                {
-                    MatchedVariable = &Variable;
-                    break;
-                }
-            }
-
-            if (!MatchedVariable)
-            {
-                return SetPreviewError(Transition.Id, "Select a variable for the transition condition.");
-            }
-
-            if (Transition.Rule == EAnimBlueprintTransitionRule::Bool)
-            {
-                if (MatchedVariable->Type != EAnimBlueprintVariableType::Bool)
-                {
-                    return SetPreviewError(Transition.Id, "This transition requires a Bool variable.");
-                }
-
-                Rule = Instance.MakeBoolRule(Transition.Variable, Transition.bExpected);
-            }
-            else if (Transition.Rule == EAnimBlueprintTransitionRule::Float)
-            {
-                if (MatchedVariable->Type != EAnimBlueprintVariableType::Float || !std::isfinite(Transition.Value))
-                {
-                    return SetPreviewError(Transition.Id, "This transition requires a Float variable and a finite comparison value.");
-                }
-
-                EAnimGraphCompare Compare;
-
-                switch (Transition.Compare)
-                {
-                case EAnimBlueprintCompare::Less:
-                    Compare = EAnimGraphCompare::Less;
-                    break;
-
-                case EAnimBlueprintCompare::LessEqual:
-                    Compare = EAnimGraphCompare::LessEqual;
-                    break;
-
-                case EAnimBlueprintCompare::Greater:
-                    Compare = EAnimGraphCompare::Greater;
-                    break;
-
-                case EAnimBlueprintCompare::GreaterEqual:
-                    Compare = EAnimGraphCompare::GreaterEqual;
-                    break;
-
-                case EAnimBlueprintCompare::Equal:
-                    Compare = EAnimGraphCompare::Equal;
-                    break;
-
-                case EAnimBlueprintCompare::NotEqual:
-                    Compare = EAnimGraphCompare::NotEqual;
-                    break;
-
-                default:
-                    return SetPreviewError(Transition.Id, "The comparison operator is invalid.");
-                }
-
-                Rule = Instance.MakeFloatRule(Transition.Variable, Compare, Transition.Value);
-            }
-            else
-            {
-                return SetPreviewError(Transition.Id, "The transition rule type is invalid.");
-            }
-        }
-
-        if (Instance.AddTransition(MachineIndex, FromIndex, *ToIndex, std::move(Rule), Transition.CrossfadeDuration, Transition.Priority) == INDEX_NONE)
-        {
-            return SetPreviewError(Transition.Id, "Failed to register the transition.");
-        }
-    }
-
-    return true;
-}
-
 bool FAnimBlueprintEditor::IsPreviewStateActive(int32 NodeId) const
 {
     if (!PreviewInstance)
@@ -1709,4 +1115,102 @@ bool FAnimBlueprintEditor::IsPreviewStateActive(int32 NodeId) const
     }
 
     return false;
+}
+
+FAnimBlueprintEditor::FAnimBlueprintEditor(UEditorEngine& InEditorEngine, FEditorManager& InEditorManager, const FString& InAssetPath, FAnimBlueprintData InData)
+    : FSkeletalPreviewEditor(InEditorEngine, InEditorManager, InAssetPath)
+    , BlueprintData(std::move(InData))
+    , bDocumentLoaded(true)
+{
+}
+
+void FAnimBlueprintEditor::RequestSave()
+{
+    bSaveRequested = true;
+}
+
+const FString& FAnimBlueprintEditor::GetSaveMessage() const
+{
+    return SaveMessage;
+}
+
+bool FAnimBlueprintEditor::HasUnsavedChanges() const
+{
+    FString Snapshot;
+    FString Error;
+    return !AnimBlueprintFile::ToJson(BlueprintData, Snapshot, Error) || Snapshot != SavedSnapshot;
+}
+
+bool FAnimBlueprintEditor::Save()
+{
+    FString TargetPath = GetAssetPath();
+
+    if (!AnimBlueprintFile::IsAnimBlueprintPath(TargetPath))
+    {
+        wchar_t Buffer[MAX_PATH] = L"NewAnimBlueprint.animblueprint";
+        const FString MeshFile = FAssetUtils::ResolveAssetFilePath(BlueprintData.PreviewMeshPath);
+        const std::wstring Directory = FPaths::FromUtf8(MeshFile).parent_path().wstring();
+        OPENFILENAMEW Dialog = {};
+        Dialog.lStructSize = sizeof(Dialog);
+        Dialog.hwndOwner = GetActiveWindow();
+        Dialog.lpstrFile = Buffer;
+        Dialog.nMaxFile = static_cast<DWORD>(std::size(Buffer));
+        Dialog.lpstrFilter = L"Animation Blueprint (*.animblueprint)\0*.animblueprint\0";
+        Dialog.lpstrDefExt = L"animblueprint";
+        Dialog.lpstrInitialDir = Directory.c_str();
+        Dialog.Flags = OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR | OFN_OVERWRITEPROMPT;
+
+        if (!GetSaveFileNameW(&Dialog))
+        {
+            return false;
+        }
+
+        TargetPath = FAssetUtils::GetAssetKey(FPaths::ToUtf8(std::filesystem::path(Buffer)));
+    }
+
+    const FString Resolved = FAssetUtils::ResolveAssetFilePath(TargetPath);
+    const std::filesystem::path FilePath = FPaths::FromUtf8(Resolved.empty() ? TargetPath : Resolved);
+
+    if (!AnimBlueprintFile::Write(FilePath, BlueprintData, SaveMessage))
+    {
+        return false;
+    }
+
+    SetAssetPath(TargetPath);
+    FString Error;
+    AnimBlueprintFile::ToJson(BlueprintData, SavedSnapshot, Error);
+    SaveMessage = "AnimBlueprint saved.";
+    return true;
+}
+
+void FAnimBlueprintEditor::Close()
+{
+    if (IsCloseRequested())
+    {
+        return;
+    }
+
+    if (HasUnsavedChanges())
+    {
+        const int Choice = MessageBoxW(GetActiveWindow(), L"Save changes to this Animation Blueprint before closing?", L"Unsaved Animation Blueprint", MB_YESNOCANCEL | MB_ICONQUESTION);
+
+        if (Choice == IDCANCEL || (Choice == IDYES && !Save()))
+        {
+            return;
+        }
+    }
+
+    FAssetEditor::Close();
+}
+
+void FAnimBlueprintEditor::HandleTabClose(IEditorTab& Tab)
+{
+    Close();
+
+    // The tab container removes a tab before delivering its close callback.
+    if (!IsCloseRequested())
+    {
+        EditorManager.AddEditorTab(&Tab);
+        EditorManager.ActivateEditorTab(&Tab);
+    }
 }

@@ -3,6 +3,14 @@
 #include "AnimSequenceBase.h"
 #include "AnimNotify.h"
 #include "AnimNotifyState.h"
+#include "Serialization/MemoryReader.h"
+#include "Serialization/MemoryWriter.h"
+#include "Serialization/StructuredArchive.h"
+#include "Serialization/StructuredArchiveSlots.h"
+#include "Serialization/Formatter/BinaryArchiveFormatter.h"
+#include "UObject/Class.h"
+#include "UObject/Property.h"
+#include "UObject/UObjectHash.h"
 #include <algorithm>
 
 UAnimSequenceBase::~UAnimSequenceBase()
@@ -72,9 +80,12 @@ FGuid UAnimSequenceBase::AddNotifyEvent(float Time, float Duration, FAnimNotifyE
     NewEvent.Duration = ClampNotifyDuration(NewEvent.TriggerTime, Duration);
     NewEvent.Guid = FGuid::NewGuid();
 
+    NewEvent.TrackIndex = FMath::Max(NewEvent.TrackIndex, 0);
+
     const FGuid NewGuid = NewEvent.Guid;
     AnimNotifies.Add(NewEvent);
     SortNotifies();
+    EnsureNotifyTracks();
     return NewGuid;
 }
 
@@ -94,6 +105,20 @@ bool UAnimSequenceBase::SetNotifyTriggerTime(const FGuid& NotifyGuid, float Time
     return true;
 }
 
+bool UAnimSequenceBase::SetNotifyDuration(const FGuid& NotifyGuid, float Duration)
+{
+    const int32 Index = FindNotifyIndex(NotifyGuid);
+    if (Index == -1)
+    {
+        return false;
+    }
+
+    FAnimNotifyEvent& Event = AnimNotifies[Index];
+    // 단발 Notify에 길이를 주면 구간 동안 매 프레임 발동하므로 NotifyState만 길이를 가진다
+    Event.Duration = Event.NotifyStateClass ? ClampNotifyDuration(Event.TriggerTime, Duration) : 0.f;
+    return true;
+}
+
 bool UAnimSequenceBase::SetNotifyTriggerWeightThreshold(const FGuid& NotifyGuid, float Threshold)
 {
     const int32 Index = FindNotifyIndex(NotifyGuid);
@@ -104,6 +129,376 @@ bool UAnimSequenceBase::SetNotifyTriggerWeightThreshold(const FGuid& NotifyGuid,
 
     AnimNotifies[Index].TriggerWeightThreshold = FMath::Clamp(Threshold, 0.f, 1.f);
     return true;
+}
+
+bool UAnimSequenceBase::SetNotifyTrackIndex(const FGuid& NotifyGuid, int32 TrackIndex)
+{
+    const int32 Index = FindNotifyIndex(NotifyGuid);
+    if (Index == -1)
+    {
+        return false;
+    }
+
+    AnimNotifies[Index].TrackIndex = FMath::Clamp(TrackIndex, 0, GetNumNotifyTracks() - 1);
+    return true;
+}
+
+// ---------------- Notify 트랙 ----------------
+
+void UAnimSequenceBase::EnsureNotifyTracks()
+{
+    int32 Required = 1;
+    for (const FAnimNotifyEvent& Event : AnimNotifies)
+        Required = FMath::Max(Required, Event.TrackIndex + 1);
+    while (NotifyTracks.Num() < Required)
+        NotifyTracks.Add(FAnimNotifyTrack{});
+}
+
+FString UAnimSequenceBase::GetNotifyTrackName(int32 TrackIndex) const
+{
+    if (TrackIndex >= 0 && TrackIndex < NotifyTracks.Num() && !NotifyTracks[TrackIndex].Name.empty())
+        return NotifyTracks[TrackIndex].Name;
+    return std::to_string(TrackIndex + 1);
+}
+
+int32 UAnimSequenceBase::AddNotifyTrack(const FString& Name)
+{
+    return InsertNotifyTrack(GetNumNotifyTracks(), Name);
+}
+
+int32 UAnimSequenceBase::InsertNotifyTrack(int32 TrackIndex, const FString& Name)
+{
+    EnsureNotifyTracks();   // 비어 있던(암묵적 1개) 목록을 실제 원소로 만든다
+    TrackIndex = FMath::Clamp(TrackIndex, 0, NotifyTracks.Num());
+
+    for (FAnimNotifyEvent& Event : AnimNotifies)
+        if (Event.TrackIndex >= TrackIndex)
+            ++Event.TrackIndex;
+
+    NotifyTracks.Insert(FAnimNotifyTrack{ Name }, static_cast<uint32>(TrackIndex));
+    return TrackIndex;
+}
+
+bool UAnimSequenceBase::RemoveNotifyTrack(int32 TrackIndex)
+{
+    EnsureNotifyTracks();
+    if (NotifyTracks.Num() <= 1 || TrackIndex < 0 || TrackIndex >= NotifyTracks.Num())
+    {
+        return false;
+    }
+
+    // 이 트랙의 Notify를 지우고, 아래 트랙들을 한 칸씩 올린다
+    for (int32 Index = AnimNotifies.Num() - 1; Index >= 0; --Index)
+    {
+        if (AnimNotifies[Index].TrackIndex == TrackIndex)
+            RemoveNotifyAt(Index);
+    }
+    for (FAnimNotifyEvent& Event : AnimNotifies)
+        if (Event.TrackIndex > TrackIndex)
+            --Event.TrackIndex;
+
+    NotifyTracks.RemoveAt(static_cast<uint32>(TrackIndex));
+    return true;
+}
+
+bool UAnimSequenceBase::RenameNotifyTrack(int32 TrackIndex, const FString& Name)
+{
+    EnsureNotifyTracks();
+    if (TrackIndex < 0 || TrackIndex >= NotifyTracks.Num())
+    {
+        return false;
+    }
+
+    NotifyTracks[TrackIndex].Name = Name;
+    return true;
+}
+
+bool UAnimSequenceBase::SetNotifyName(const FGuid& NotifyGuid, const FName& NotifyName)
+{
+    const int32 Index = FindNotifyIndex(NotifyGuid);
+    if (Index == -1)
+    {
+        return false;
+    }
+
+    AnimNotifies[Index].NotifyName = NotifyName;
+    return true;
+}
+
+// ---------------- .anim.bin v3 Notify 섹션 ----------------
+//
+// int32 TrackCount
+// 트랙마다: String Name
+// int32 NotifyCount
+// Notify마다:
+//   float TriggerTime, Duration, TriggerWeightThreshold
+//   int32 TrackIndex
+//   uint32 Guid.A, B, C, D
+//   String NotifyName
+//   uint8 Kind (0 = 이름, 1 = UAnimNotify, 2 = UAnimNotifyState)
+//   Kind != 0이면:
+//     String ClassName
+//     int32 PropertyCount
+//     프로퍼티마다: String Name, String TypeName, int32 BlobSize, BlobSize 바이트
+//
+// 프로퍼티는 이름 + 타입 + 바이트 묶음으로 저장한다. 클래스에 프로퍼티가 추가/삭제/재정렬돼도
+// 이름으로 찾아 읽고, 없거나 타입이 바뀐 것은 건너뛴다 (BlobSize만큼 넘긴다).
+
+namespace
+{
+    enum class ENotifyKind : uint8 { Named = 0, Notify = 1, NotifyState = 2 };
+
+    bool SerializeString(FArchive& Ar, FString& Value)
+    {
+        int32 Size = static_cast<int32>(Value.size());
+        Ar << Size;
+        if (Ar.IsLoading())
+        {
+            if (Ar.IsError() || Size < 0 || Size > Ar.TotalSize() - Ar.Tell())
+            {
+                Ar.SetError();
+                return false;
+            }
+            Value.resize(Size);
+        }
+        if (Size > 0) Ar.Serialize(Value.data(), Size);
+        return !Ar.IsError();
+    }
+
+    // 프로퍼티 하나의 값을 바이트 묶음으로 (구조화 아카이브의 바이너리 포맷 = 각 FProperty::SerializeItem)
+    bool WritePropertyBlob(const FProperty& Property, UObject* Object, TArray<uint8>& OutBlob)
+    {
+        FMemoryWriter Writer(OutBlob);
+        Writer.SetIsPersistent(true);
+        {
+            FBinaryArchiveFormatter Formatter(Writer);
+            FStructuredArchive Archive(Formatter);
+            Property.SerializeItem(Archive.Open(), Property.ContainerPtrToValuePtr<void>(Object));
+        }
+        return !Writer.IsError();
+    }
+
+    bool ReadPropertyBlob(const FProperty& Property, UObject* Object, const TArray<uint8>& Blob)
+    {
+        // 타입 이름이 같을 때만 불리므로 값 자리에 바로 읽는다 (FString처럼 생성된 객체가 필요한 타입이 있다)
+        FMemoryReader Reader(Blob, true);
+        {
+            FBinaryArchiveFormatter Formatter(Reader);
+            FStructuredArchive Archive(Formatter);
+            Property.SerializeItem(Archive.Open(), Property.ContainerPtrToValuePtr<void>(Object));
+        }
+        return !Reader.IsError() && Reader.Tell() == Reader.TotalSize();
+    }
+
+    bool IsSavableProperty(const FProperty& Property)
+    {
+        // Transient는 파일에 남기지 않는다. 객체 참조는 파일에 저장할 방법이 아직 없다.
+        return !Property.HasAnyFlags(CPF_Transient) && !CastField<FObjectProperty>(&Property);
+    }
+}
+
+void UAnimSequenceBase::SerializeNotifyEvents(FArchive& Ar, TArray<FAnimNotifyTrack>& OutTracks, TArray<FAnimNotifyEvent>& OutLoaded)
+{
+    const bool bLoading = Ar.IsLoading();
+
+    // 트랙 목록 (빈 트랙도 남도록 Notify와 따로 저장한다)
+    int32 TrackCount = bLoading ? 0 : NotifyTracks.Num();
+    Ar << TrackCount;
+    if (Ar.IsError() || TrackCount < 0
+        || (bLoading && TrackCount > (Ar.TotalSize() - Ar.Tell()) / static_cast<int64>(sizeof(int32))))
+    {
+        Ar.SetError();
+        return;
+    }
+    for (int32 TrackIndex = 0; TrackIndex < TrackCount; ++TrackIndex)
+    {
+        FString TrackName = bLoading ? FString{} : NotifyTracks[TrackIndex].Name;
+        if (!SerializeString(Ar, TrackName)) return;
+        if (bLoading) OutTracks.Add(FAnimNotifyTrack{ TrackName });
+    }
+
+    int32 NotifyCount = bLoading ? 0 : AnimNotifies.Num();
+    Ar << NotifyCount;
+
+    // Notify 하나는 최소 고정 필드(float 3 + int32 + Guid 16 + 문자열 길이 + Kind)를 가진다
+    constexpr int64 MinBytesPerNotify = 3 * sizeof(float) + sizeof(int32) + 4 * sizeof(uint32) + sizeof(int32) + sizeof(uint8);
+    if (Ar.IsError() || NotifyCount < 0
+        || (bLoading && NotifyCount > (Ar.TotalSize() - Ar.Tell()) / MinBytesPerNotify))
+    {
+        Ar.SetError();
+        return;
+    }
+
+    for (int32 Index = 0; Index < NotifyCount && !Ar.IsError(); ++Index)
+    {
+        FAnimNotifyEvent Event = bLoading ? FAnimNotifyEvent{} : AnimNotifies[Index];
+
+        FString NotifyName = bLoading ? FString{} : Event.NotifyName.ToString();
+        if (!bLoading && Event.NotifyName.IsNone()) NotifyName.clear();
+
+        UObject* NotifyObject = bLoading ? nullptr
+            : (Event.NotifyStateClass ? static_cast<UObject*>(Event.NotifyStateClass) : static_cast<UObject*>(Event.Notify));
+        uint8 Kind = static_cast<uint8>(Event.NotifyStateClass ? ENotifyKind::NotifyState
+            : Event.Notify ? ENotifyKind::Notify : ENotifyKind::Named);
+
+        Ar << Event.TriggerTime << Event.Duration << Event.TriggerWeightThreshold << Event.TrackIndex;
+        Ar << Event.Guid.A << Event.Guid.B << Event.Guid.C << Event.Guid.D;
+        if (!SerializeString(Ar, NotifyName)) return;
+        Ar << Kind;
+        if (Ar.IsError() || Kind > static_cast<uint8>(ENotifyKind::NotifyState))
+        {
+            Ar.SetError();
+            return;
+        }
+
+        const ENotifyKind NotifyKind = static_cast<ENotifyKind>(Kind);
+        if (NotifyKind != ENotifyKind::Named)
+        {
+            FString ClassName = bLoading ? FString{} : NotifyObject->GetClass()->Name;
+            if (!SerializeString(Ar, ClassName)) return;
+
+            if (bLoading)
+            {
+                UClass* Class = FindClass(ClassName);
+                const UClass* Base = NotifyKind == ENotifyKind::NotifyState
+                    ? UAnimNotifyState::StaticClass() : UAnimNotify::StaticClass();
+                if (Class && Class->IsChildOf(Base))
+                {
+                    NotifyObject = NewObject<UObject>(this, Class);
+                }
+                else
+                {
+                    // 클래스가 지워졌거나 이름이 바뀌었다. 프로퍼티는 읽고 버린다.
+                    HTR_LOG(Warning, "AnimSequence notify class not found, dropped: {}", ClassName);
+                }
+            }
+
+            TArray<const FProperty*> Properties;
+            if (!bLoading)
+            {
+                for (const UStruct* Struct = NotifyObject->GetClass(); Struct; Struct = Struct->GetSuperStruct())
+                    for (const FProperty* Property : Struct->GetProperties())
+                        if (IsSavableProperty(*Property))
+                            Properties.Add(Property);
+            }
+
+            int32 PropertyCount = Properties.Num();
+            Ar << PropertyCount;
+            if (Ar.IsError() || PropertyCount < 0)
+            {
+                Ar.SetError();
+                delete NotifyObject;
+                return;
+            }
+
+            for (int32 PropIndex = 0; PropIndex < PropertyCount && !Ar.IsError(); ++PropIndex)
+            {
+                FString PropName, TypeName;
+                TArray<uint8> Blob;
+                if (!bLoading)
+                {
+                    const FProperty* Property = Properties[PropIndex];
+                    PropName = Property->Name;
+                    TypeName = Property->GetClass()->GetName();
+                    if (!WritePropertyBlob(*Property, NotifyObject, Blob))
+                    {
+                        Ar.SetError();
+                        return;
+                    }
+                }
+
+                int32 BlobSize = Blob.Num();
+                SerializeString(Ar, PropName);
+                SerializeString(Ar, TypeName);
+                Ar << BlobSize;
+                if (Ar.IsError() || BlobSize < 0 || (bLoading && BlobSize > Ar.TotalSize() - Ar.Tell()))
+                {
+                    Ar.SetError();
+                    break;
+                }
+                if (bLoading) Blob.SetNum(BlobSize);
+                if (BlobSize > 0) Ar.Serialize(Blob.GetData(), BlobSize);
+
+                if (bLoading && NotifyObject && !Ar.IsError())
+                {
+                    const FProperty* Property = NotifyObject->GetClass()->FindPropertyByName(PropName);
+                    if (!Property || TypeName != Property->GetClass()->GetName() || !ReadPropertyBlob(*Property, NotifyObject, Blob))
+                        HTR_LOG(Warning, "AnimSequence notify property skipped: {}.{}", ClassName, PropName);
+                }
+            }
+
+            if (Ar.IsError())
+            {
+                if (bLoading) delete NotifyObject;
+                return;
+            }
+        }
+
+        if (!bLoading)
+            continue;
+
+        if (NotifyKind != ENotifyKind::Named && !NotifyObject)
+            continue;   // 클래스를 못 찾아 버린 Notify
+
+        Event.NotifyName = NotifyName.empty() ? FName() : FName(NotifyName);
+        Event.Notify = NotifyKind == ENotifyKind::Notify ? static_cast<UAnimNotify*>(NotifyObject) : nullptr;
+        Event.NotifyStateClass = NotifyKind == ENotifyKind::NotifyState ? static_cast<UAnimNotifyState*>(NotifyObject) : nullptr;
+        if (!Event.Guid.IsValid()) Event.Guid = FGuid::NewGuid();
+        OutLoaded.Add(Event);
+    }
+}
+
+bool UAnimSequenceBase::CaptureNotifySnapshot(TArray<uint8>& OutBytes)
+{
+    OutBytes.Reset();
+    FMemoryWriter Writer(OutBytes);
+    Writer.SetIsPersistent(true);
+    TArray<FAnimNotifyTrack> UnusedTracks;
+    TArray<FAnimNotifyEvent> UnusedEvents;
+    SerializeNotifyEvents(Writer, UnusedTracks, UnusedEvents);
+    return !Writer.IsError();
+}
+
+bool UAnimSequenceBase::RestoreNotifySnapshot(const TArray<uint8>& Bytes)
+{
+    FMemoryReader Reader(Bytes, true);
+    TArray<FAnimNotifyTrack> Tracks;
+    TArray<FAnimNotifyEvent> Events;
+    SerializeNotifyEvents(Reader, Tracks, Events);
+    if (Reader.IsError() || Reader.Tell() != Reader.TotalSize())
+    {
+        DeleteNotifyObjects(Events);
+        return false;
+    }
+
+    ReplaceNotifies(std::move(Tracks), std::move(Events));
+    return true;
+}
+
+void UAnimSequenceBase::ReplaceNotifies(TArray<FAnimNotifyTrack>&& Tracks, TArray<FAnimNotifyEvent>&& Events)
+{
+    RemoveAllNotifies();
+    NotifyTracks = std::move(Tracks);
+    AnimNotifies = std::move(Events);
+    for (FAnimNotifyEvent& Event : AnimNotifies)
+    {
+        Event.TriggerTime = ClampNotifyTime(Event.TriggerTime);
+        Event.Duration = Event.NotifyStateClass ? ClampNotifyDuration(Event.TriggerTime, Event.Duration) : 0.f;
+        Event.TriggerWeightThreshold = FMath::Clamp(Event.TriggerWeightThreshold, 0.f, 1.f);
+        Event.TrackIndex = FMath::Max(Event.TrackIndex, 0);
+    }
+    SortNotifies();
+    EnsureNotifyTracks();   // 파일의 TrackIndex가 트랙 수보다 크면 트랙을 늘린다
+}
+
+void UAnimSequenceBase::DeleteNotifyObjects(TArray<FAnimNotifyEvent>& Events)
+{
+    for (FAnimNotifyEvent& Event : Events)
+    {
+        delete Event.Notify;
+        delete Event.NotifyStateClass;
+    }
+    Events.Empty();
 }
 
 bool UAnimSequenceBase::RemoveNotify(const FGuid& NotifyGuid)

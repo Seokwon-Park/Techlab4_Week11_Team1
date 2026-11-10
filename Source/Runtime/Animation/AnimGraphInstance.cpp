@@ -10,6 +10,29 @@
 #include "Asset/AssetUtils.h"
 #include "GameFramework/Pawn.h"
 #include <cmath>
+#include <atomic>
+
+namespace
+{
+    uint32 AllocateAnimGraphGeneration()
+    {
+        static std::atomic<uint32> NextGeneration = 0;
+        return NextGeneration.fetch_add(1, std::memory_order_relaxed) + 1;
+    }
+}
+
+UAnimGraphInstance::UAnimGraphInstance()
+{
+    Generation = AllocateAnimGraphGeneration();
+}
+
+void UAnimGraphInstance::ClearNotifyBindings()
+{
+    EndAllAnimNotifyStates();
+    NotifyQueue.Reset();
+    NotifyHandlers.Empty();
+    NotifyStateHandlers.Empty();
+}
 
 UAnimGraphInstance::~UAnimGraphInstance()
 {
@@ -27,7 +50,7 @@ void UAnimGraphInstance::ResetGraph()
 	BoolVariables.Empty();
 	NotifyHandlers.Empty();
 	NotifyStateHandlers.Empty();
-	++Generation;
+	Generation = AllocateAnimGraphGeneration();
 }
 
 void UAnimGraphInstance::ClearGraph()
@@ -88,6 +111,26 @@ UBlendSpace1D* UAnimGraphInstance::LoadBlendSpace(const FString& Path)
 		delete BlendSpace;
 		return nullptr;
 	}
+
+    // NotifyState objects can contain mutable state. Each graph owns sample sequences.
+    const TArray<FBlendSample> Samples = BlendSpace->GetSampleData();
+
+    while (!BlendSpace->GetSampleData().IsEmpty())
+    {
+        BlendSpace->RemoveSample(0);
+    }
+
+    for (const FBlendSample& Sample : Samples)
+    {
+        UAnimSequence* Sequence = Sample.Animation ? LoadSequence(Sample.Animation->GetAssetPath()) : nullptr;
+
+        if (!Sequence || !BlendSpace->AddSample(Sequence, Sample.SampleValue))
+        {
+            HTR_LOG(Warning, "[AnimGraph] Failed to create per-instance BlendSpace samples: {}", Path);
+            delete BlendSpace;
+            return nullptr;
+        }
+    }
 
 	OwnedBlendSpaces.Add(BlendSpace);
 	return BlendSpace;

@@ -3,17 +3,9 @@
 -- 좌클릭 공격(IsAttacking)과 피격(IsHit) 변수는 AMyCharacter가 C++에서 켠다.
 
 local Anim = "Assets/FBX/UAL1_Standard/UAL1_Standard_Armature_"
-local FootstepL = "Assets/Sounds/Footstep_StoneL.flac"
-local FootstepR = "Assets/Sounds/Footstep_StoneR.flac"
 
 local graph
 local machine
-
-local function AddFootsteps(seq, frameL, frameR)
-    -- 0.5: BlendSpace에서 우세한 샘플만 발소리를 낸다 (Walk/Jog 겹침 방지)
-    seq:AddPlaySound(seq:FrameToTime(frameL), FootstepL, 1.0, 0.5)
-    seq:AddPlaySound(seq:FrameToTime(frameR), FootstepR, 1.0, 0.5)
-end
 
 local function BuildAnimGraph()
     graph = obj:CreateAnimGraph()
@@ -25,14 +17,8 @@ local function BuildAnimGraph()
     local punch   = graph:LoadSequence(Anim .. "Punch_Jab.anim.bin")
     local hit     = graph:LoadSequence(Anim .. "Hit_Chest.anim.bin")
 
-    -- 발 딛는 프레임 (Walk 왼발은 프레임 0인데, 시간 0 Notify는 발동하지 않아 반 프레임 뒤로)
-    AddFootsteps(walk, 0.5, 20)
-    AddFootsteps(running, 1, 15)
-
-    -- 주먹이 뻗는 프레임 5~9 동안 공격 판정 (리플렉션으로 UPROPERTY를 채운다)
-    punch:AddNotifyClass("UAnimNotifyState_AttackWindow", punch:FrameToTime(5),
-        { AttackHeight = 0.4, AttackRange = 1.2, AttackRadius = 0.25 },
-        { Duration = punch:FrameToTime(4) })
+    -- 발소리(Walk/Jog)와 공격 판정(Punch_Jab) Notify는 .anim.bin에 저장돼 있어 로드할 때 함께 들어온다.
+    -- AnimSequence 에디터 타임라인에서 편집한다. 스크립트에서 더 붙이려면 seq:AddNotify / AddPlaySound / AddNotifyClass.
 
     local locomotion = graph:CreateBlendSpace()
     locomotion:AddSample(idle, 0)

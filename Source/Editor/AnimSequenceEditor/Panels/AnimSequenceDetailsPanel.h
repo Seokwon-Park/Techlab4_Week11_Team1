@@ -16,4 +16,6 @@ protected:
 
 private:
     FString SaveMessage;   // 마지막 저장 결과 (성공/실패)
+    // 타임라인에서 선택한 Notify의 시간/길이/임계값/트랙/프로퍼티 편집
+    void DrawNotifySection(class UAnimSequence& Sequence);
 };

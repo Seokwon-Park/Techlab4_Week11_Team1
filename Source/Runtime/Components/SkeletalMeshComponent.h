@@ -16,6 +16,7 @@ void DrawSkeletalRootDebug(UWorld* World, FLineBatcher* LineBatcher);
 extern bool GShowSkeletalRootDebug;
 class UAnimationAsset;
 class UAnimSingleNodeInstance;
+class UAnimGraphInstance;
 
 UCLASS()
 class USkeletalMeshComponent : public USkinnedMeshComponent
@@ -23,6 +24,13 @@ class USkeletalMeshComponent : public USkinnedMeshComponent
 	GENERATED_BODY()
 
 public:
+    USkeletalMeshComponent();
+    ~USkeletalMeshComponent() override;
+    bool SetAnimBlueprint(const FString& Path);
+    bool ReloadAnimBlueprint();
+    UAnimGraphInstance* CreateAnimGraph();
+    const FString& GetAnimBlueprintPath() const;
+    const FString& GetAnimBlueprintError() const;
 	void SetAnimInstance(UAnimInstance* InInstance);
 	UAnimSingleNodeInstance* GetSingleNodeInstance() const;
 	UAnimInstance* GetAnimInstance() const { return AnimInstance; }
@@ -65,10 +73,21 @@ public:
 	void DrawRootDebug(FLineBatcher* LineBatcher) const;
 
 protected:
+	// 단일 애니메이션 에셋 경로/루프/재생 속도를 씬에 저장·복원한다 (Serialize에서 부른다)
+	void SerializeSingleAnimation(FStructuredArchive::FRecord& Record);
+
 	void RefreshBoneTransforms() override;
 	void OnSkeletalMeshChanged() override;
 
 private:
+    UPROPERTY()
+    FString AnimBlueprintPath;
+
+    TUniquePtr<UAnimGraphInstance> ManagedAnimGraph;
+    FString AnimBlueprintError;
+    bool bBlueprintReloadRequested = false;
+    bool bUpdatingAnimation = false;
+
 	UPROPERTY()
 	UAnimInstance* AnimInstance = nullptr;
 

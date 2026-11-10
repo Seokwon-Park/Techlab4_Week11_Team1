@@ -35,7 +35,7 @@ public:
 	void Activate();
 
 	// Editor를 종료합니다.
-	void Close();
+	virtual void Close();
 
 	// Editor를 정리합니다.
 	void Shutdown();
@@ -54,7 +54,15 @@ public:
 
 	bool IsCloseRequested() const { return bCloseRequested; }
 
+	// 저장하지 않은 변경이 있는지. 탭 이름에 *가 붙는다.
+	virtual bool IsDirty() const { return false; }
+
+	// 닫아도 되면 true. false면 닫기를 미루고, 파생 에디터가 확인 UI를 띄운 뒤 다시 Close를 부른다.
+	virtual bool ConfirmClose() { return true; }
+
 protected:
+	void SetAssetPath(const FString& InAssetPath);
+
 	// 이 에디터에 연결된 탭을 생성합니다.
 	virtual TUniquePtr<class IEditorTab> CreateTab();
 

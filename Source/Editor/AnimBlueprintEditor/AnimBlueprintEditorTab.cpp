@@ -1,6 +1,7 @@
 #include "EnginePCH.h"
 #include "AnimBlueprintEditorTab.h"
 #include "AnimBlueprintEditor.h"
+#include "Core/Misc/Paths.h"
 
 #include "Editor/SkeletalPreviewEditor/SkeletalPreviewViewportPanel.h"
 #include "Panels/AnimBlueprintGraphPanel.h"
@@ -35,4 +36,41 @@ void FAnimBlueprintEditorTab::BuildDefaultLayout(ImGuiID InDockSpaceId, const Im
     ImGui::DockBuilderDockWindow(Panels[2]->GetWindowName(), DetailsId);
 
     ImGui::DockBuilderFinish(InDockSpaceId);
+}
+const char* FAnimBlueprintEditorTab::GetTabName() const
+{
+    DisplayName = FPaths::ToUtf8(FPaths::FromUtf8(Editor.GetAssetPath()).filename());
+    DisplayName += Editor.HasUnsavedChanges() ? " * (AnimBlueprint)" : " (AnimBlueprint)";
+    DisplayName += "###AssetEditor:" + Editor.GetAssetPath();
+    return DisplayName.c_str();
+}
+
+void FAnimBlueprintEditorTab::DrawMenuBar()
+{
+    if (ImGui::BeginMenu("File"))
+    {
+        if (ImGui::MenuItem("Save", "Ctrl+S"))
+        {
+            Editor.RequestSave();
+        }
+
+        ImGui::EndMenu();
+    }
+
+    FDockedAssetEditorTab::DrawMenuBar();
+}
+
+void FAnimBlueprintEditorTab::OnRender(bool bActive)
+{
+    if (bActive && ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false))
+    {
+        Editor.RequestSave();
+    }
+
+    FDockedAssetEditorTab::OnRender(bActive);
+}
+
+void FAnimBlueprintEditorTab::OnCloseRequested()
+{
+    Editor.HandleTabClose(*this);
 }
