@@ -41,6 +41,8 @@ public:
 
 	int32 GetEditorCount() const { return Editors.Num(); }
 
+	void OpenAnimBlueprintPreview(const FString& PreviewMeshPath);
+
 private:
 	// 에디터를 생성합니다. 이미 열려 있는 에디터가 있으면 활성화합니다.
 	void CreateEditor(const FString& AssetPath);
@@ -54,4 +56,7 @@ private:
 	TArray<TUniquePtr<FAssetEditor>> Editors;
 	TArray<FString> PendingOpens;
 	bool bShuttingDown = false;
+
+	void CreateAnimBlueprintPreview(const FString& PreviewMeshPath);
+	TArray<FString> PendingAnimBlueprintPreviews;
 };

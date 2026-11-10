@@ -5,6 +5,7 @@
 
 class USpringArmComponent;
 class UCameraComponent;
+struct FHitResult;
 
 UCLASS()
 class AMyCharacter : public ACharacter
@@ -21,6 +22,15 @@ public:
 	virtual void BeginPlay() override;
 
 	virtual FRotator GetMovementInputRotation() const override;
+
+	// Lua AnimGraph를 쓸 때 Attack/SetIsHit가 켜는 Bool 변수 이름
+	static constexpr const char* AttackingVariable = "IsAttacking";
+	static constexpr const char* HitVariable = "IsHit";
+
+	void Attack();
+	// 공격 Sweep 결과를 받는다. 맞은 액터가 AMyCharacter면 피격 처리한다
+	void DetectedHit(const FHitResult& Hit);
+	void SetIsHit();
 
 	USpringArmComponent* SpringArmComponent = nullptr;
 	UCameraComponent* CameraComponent = nullptr;

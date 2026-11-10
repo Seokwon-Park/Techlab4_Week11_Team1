@@ -20,10 +20,13 @@
 
 #include "Animation/AnimSequence.h"
 #include "Animation/AnimSequenceFile.h"
+#include "Animation/BlendSpace1D.h"
+#include "Animation/BlendSpaceFile.h"
 #include "Asset/AssetUtils.h"
 
 #include "Render/ImageLoader.h"
 #include "Asset/AssetLoadProfiler.h"
+#include "Core/Misc/Paths.h"
 #include <cctype>
 
 
@@ -70,6 +73,14 @@ namespace
 			Key.erase(0, 7);
 		}
 		return Key;
+	}
+
+	// 엔진 콘텐츠로 옮긴 파일의 옛 키("Icons/Point.png")를 엔진 키("Engine/Icons/Point.png")로 바꾼다.
+	// 옛 씬은 "Assets/Icons/..."를 저장하고 있으므로, 프로젝트에 그 파일이 없을 때 엔진 콘텐츠에서 찾는다.
+	FString MakeEngineFallbackKey(const FString& Key)
+	{
+		if (Key.starts_with(FPaths::EngineContentPrefix)) return {};
+		return FPaths::EngineContentPrefix + Key;
 	}
 
 	UStaticMesh* CreateStaticMesh(const FStaticMeshData* MeshData)
@@ -170,6 +181,8 @@ void UAssetManager::Init(const FAssetLoadProgress& OnProgress)
 	{
 		FLoadStageTimer Timer{ "Init/ScanAssets" };
 		Get().ScanAssets("Assets", OnProgress);
+		// 엔진 콘텐츠는 엔진 폴더에 있고 키는 "Engine/..."이다.
+		Get().ScanAssets(FPaths::EngineContentDir(), OnProgress, FPaths::EngineContentPrefix);
 	}
 	FLoadStageTimer DefaultsTimer{ "Init/Defaults after scan" };
 	Get().CreateDefaultMeshes();
@@ -178,7 +191,7 @@ void UAssetManager::Init(const FAssetLoadProgress& OnProgress)
 	Get().CreateEditorArrowMaterial();
 }
 
-void UAssetManager::ScanAssets(const fs::path& AssetRoot, const FAssetLoadProgress& OnProgress)
+void UAssetManager::ScanAssets(const fs::path& AssetRoot, const FAssetLoadProgress& OnProgress, const FString& KeyPrefix)
 {
 	if (!fs::exists(AssetRoot))
 	{
@@ -202,6 +215,13 @@ void UAssetManager::ScanAssets(const fs::path& AssetRoot, const FAssetLoadProgre
 	{
 		FString Key = fs::relative(Files[i], AssetRoot).generic_string();
 		FString Path = Files[i].generic_string();
+		if (!KeyPrefix.empty())
+		{
+			// 엔진 콘텐츠는 경로도 "Engine/..." 그대로 둔다. 파일을 열 때 FPaths::ResolveContentPath로 바꾼다.
+			// 이렇게 해야 로드 뒤 RegisterAsset이 같은 키로 등록하고, 씬에도 "Engine/..."으로 저장된다.
+			Key = KeyPrefix + FPaths::ToUtf8(Files[i].lexically_relative(AssetRoot));
+			Path = Key;
+		}
 
 		// 경로만 등록한다. 실제 로드는 처음 찾을 때 FindOrLoadAsset에서 한다.
 		if (GetAssetTypeFromPath(Path) != EAssetType::None)
@@ -259,6 +279,12 @@ URenderAsset* UAssetManager::FindOrLoadAsset(const FString& Path)
 	const FString* FoundSource = AssetPathMap.Find(Key);
 	if (FoundSource == nullptr)
 	{
+		// 프로젝트에 없으면 엔진 콘텐츠에서 찾는다. 프로젝트에 같은 경로의 파일이 있으면 그쪽이 먼저다.
+		const FString EngineKey = MakeEngineFallbackKey(Key);
+		if (!EngineKey.empty() && AssetPathMap.Contains(EngineKey))
+		{
+			return FindOrLoadAsset(EngineKey);
+		}
 		return nullptr;
 	}
 	const FString SourcePath = *FoundSource;
@@ -443,7 +469,7 @@ void UAssetManager::CreateParticleMaterial()
 	UMaterial* ParticleMat = NewObject<UMaterial>();
 	ParticleMat->PSOType = EPSOType::Particle_AlphaBlend;
 	ParticleMat->Shader = FRenderResourceManager::GetShaderProgram("Resources/Shader/ParticleSubUVShader.hlsl");
-	ParticleMat->Textures.Add(GetAssetByPath<UTexture2D>("Assets/SubUV/StarParticle.png"));
+	ParticleMat->Textures.Add(GetAssetByPath<UTexture2D>("Engine/SubUV/StarParticle.png"));
 	ParticleMat->BlendState = EBlendState::AlphaBlend;
 	ParticleMat->DepthStencilState = EDepthStencilState::ReadOnly;
 	ParticleMat->ParamLayout = EMaterialParamLayout::ParticleSubUV;
@@ -463,6 +489,7 @@ void UAssetManager::Shutdown()
 	Get().AssetMap.Empty();
 	Get().SoundMap.Empty();
 	Get().AnimSequenceMap.Empty();
+	Get().BlendSpaceMap.Empty();
 }
 
 
@@ -474,12 +501,23 @@ void UAssetManager::RegisterAsset(const FString& Key, URenderAsset* Asset)
 }
 
 UTexture2D* UAssetManager::LoadTexture(const FString& InPath, bool GenerateMips) {
-	if (URenderAsset** Found{ AssetMap.Find(MakeLookupKey(InPath)) }) {
+	const FString Key = MakeLookupKey(InPath);
+	if (URenderAsset** Found{ AssetMap.Find(Key) }) {
 		return Cast<UTexture2D>(*Found);
 	}
 
+	// 옛 경로("Assets/Icons/Decal.png")로 불렸는데 프로젝트에는 없고 엔진 콘텐츠에 있으면 그쪽을 쓴다.
+	if (!AssetPathMap.Contains(Key))
+	{
+		const FString EngineKey = MakeEngineFallbackKey(Key);
+		if (!EngineKey.empty() && AssetPathMap.Contains(EngineKey))
+		{
+			return Cast<UTexture2D>(FindOrLoadAsset(EngineKey));
+		}
+	}
+
 	FLoadStageTimer DecodeTimer{ "Texture/Decode" };
-	const FImageData Data = ImageLoader::LoadAuto(InPath);
+	const FImageData Data = ImageLoader::LoadAuto(FPaths::ResolveContentPath(InPath));
 	DecodeTimer.Stop();
 	if (!Data.IsValid())
 	{
@@ -518,7 +556,7 @@ UFont* UAssetManager::LoadFontAtlas(const FString& JsonPath, const FString& Atla
 {
 	UFont* Font = NewObject<UFont>();
 
-	if (!Font->LoadFontAtlasJson(JsonPath))
+	if (!Font->LoadFontAtlasJson(FPaths::ResolveContentPath(JsonPath)))
 	{
 		return nullptr;
 	}
@@ -779,4 +817,27 @@ bool UAssetManager::BuildMaterialsFromSlots(const TArray<FStaticMaterialSlot>& S
 bool UAssetManager::BuildMaterialsFromSlots(const TArray<FSkeletalMaterialSlot>& Slots, TArray<UMaterial*>& OutMaterials)
 {
 	return BuildMaterialsFromSlotsImpl(Slots, OutMaterials);
+}
+
+UBlendSpace1D* UAssetManager::LoadBlendSpace(const FString& Path)
+{
+	const FString Key = MakeLookupKey(Path);
+	if (UBlendSpace1D** Found = Get().BlendSpaceMap.Find(Key))
+	{
+		return *Found;
+	}
+
+	const FString FilePath = FAssetUtils::ResolveAssetFilePath(Path);
+	UBlendSpace1D* BlendSpace = NewObject<UBlendSpace1D>();
+
+	FString Error;
+	if (!BlendSpaceFile::Read(std::filesystem::path(FilePath.empty() ? Path : FilePath), *BlendSpace, Error))
+	{
+		HTR_LOG(Warning, "Failed to load BlendSpace: {} ({})", Path, Error);
+		delete BlendSpace;
+		return nullptr;
+	}
+
+	Get().BlendSpaceMap[Key] = BlendSpace;
+	return BlendSpace;
 }

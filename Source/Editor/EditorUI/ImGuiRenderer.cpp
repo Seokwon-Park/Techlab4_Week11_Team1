@@ -3,6 +3,7 @@
 
 #include "Core/Window.h"
 #include "Input/InputSystem.h"
+#include "Core/Misc/Paths.h"
 
 #include <backends/imgui_impl_dx11.h>
 #include <backends/imgui_impl_win32.h>
@@ -243,7 +244,7 @@ bool FImGuiRenderer::Init(HWND WindowHandle, ID3D11Device* Device, ID3D11DeviceC
 	// Reuse ImGui's vertex shader and draw commands; only array-depth sampling differs.
 	ComPtr<ID3DBlob> Bytecode;
 	ComPtr<ID3DBlob> Errors;
-	HRESULT PreviewResult = D3DCompileFromFile(L"Resources/Shader/ShadowPreview.hlsl", nullptr,
+	HRESULT PreviewResult = D3DCompileFromFile(FPaths::EngineFile(L"Resources/Shader/ShadowPreview.hlsl").c_str(), nullptr,
 		D3D_COMPILE_STANDARD_FILE_INCLUDE, "mainPS", "ps_5_0", D3DCOMPILE_ENABLE_STRICTNESS, 0,
 		Bytecode.GetAddressOf(), Errors.GetAddressOf());
 	if (FAILED(PreviewResult))

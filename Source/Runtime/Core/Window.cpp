@@ -4,10 +4,26 @@
 #include "../resource.h"
 #include "Input/InputSystem.h"
 
+#include <dwmapi.h>
+#pragma comment(lib, "dwmapi.lib")
+
 namespace
 {
 	// 등록 전에는 nullptr이며, 그 동안의 메시지는 창이 직접 처리한다.
 	FWndProcHook GWndProcHook = nullptr;
+
+	// 기본 프레임의 크기 조절 테두리 두께. 창의 DPI에 맞춘 값이다.
+	int GetFrameThicknessX(HWND hWnd)
+	{
+		const UINT Dpi = GetDpiForWindow(hWnd);
+		return GetSystemMetricsForDpi(SM_CXFRAME, Dpi) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, Dpi);
+	}
+
+	int GetFrameThicknessY(HWND hWnd)
+	{
+		const UINT Dpi = GetDpiForWindow(hWnd);
+		return GetSystemMetricsForDpi(SM_CYFRAME, Dpi) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, Dpi);
+	}
 }
 
 void FWindow::SetWndProcHook(FWndProcHook Hook)
@@ -84,6 +100,59 @@ void FWindow::Show()
 	SetForegroundWindow(hWnd);
 }
 
+void FWindow::EnableCustomTitleBar(FCaptionHitTest HitTest)
+{
+	if (!hWnd)
+		return;
+
+	bCustomTitleBar = true;
+	CaptionHitTest = HitTest;
+
+	// 창 스타일(WS_OVERLAPPEDWINDOW)은 그대로 둬서 그림자, 스냅, 최소화 애니메이션을 유지한다.
+	// DWM 프레임을 클라이언트 쪽으로 1픽셀 넓혀야 기본 프레임을 없앤 뒤에도 그림자가 남는다.
+	const MARGINS Margins{ 0, 0, 1, 0 };
+	DwmExtendFrameIntoClientArea(hWnd, &Margins);
+
+	// WM_NCCALCSIZE를 다시 받아 기본 제목 표시줄을 걷어낸다. 클라이언트 크기가 바뀌므로 WM_SIZE도 뒤따른다.
+	SetWindowPos(hWnd, nullptr, 0, 0, 0, 0,
+		SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
+LRESULT FWindow::HitTestCustomFrame(HWND hWnd, LPARAM lParam) const
+{
+	POINT Point{ static_cast<short>(LOWORD(lParam)), static_cast<short>(HIWORD(lParam)) };
+	ScreenToClient(hWnd, &Point);
+
+	RECT Client;
+	GetClientRect(hWnd, &Client);
+
+	// 최대화 상태에서는 테두리로 크기를 바꿀 수 없다.
+	if (!IsZoomed(hWnd))
+	{
+		const int BorderX = GetFrameThicknessX(hWnd);
+		const int BorderY = GetFrameThicknessY(hWnd);
+		const bool bLeft = Point.x < BorderX;
+		const bool bRight = Point.x >= Client.right - BorderX;
+		const bool bTop = Point.y < BorderY;
+		const bool bBottom = Point.y >= Client.bottom - BorderY;
+
+		if (bTop && bLeft) return HTTOPLEFT;
+		if (bTop && bRight) return HTTOPRIGHT;
+		if (bBottom && bLeft) return HTBOTTOMLEFT;
+		if (bBottom && bRight) return HTBOTTOMRIGHT;
+		if (bLeft) return HTLEFT;
+		if (bRight) return HTRIGHT;
+		if (bTop) return HTTOP;
+		if (bBottom) return HTBOTTOM;
+	}
+
+	// HTCAPTION을 돌려주면 끌기, 더블클릭 최대화, 우클릭 시스템 메뉴를 Windows가 처리한다.
+	if (CaptionHitTest && CaptionHitTest(Point.x, Point.y))
+		return HTCAPTION;
+
+	return HTCLIENT;
+}
+
 void FWindow::Destroy()
 {
 	if (!hWnd)
@@ -108,6 +177,28 @@ LRESULT FWindow::HandleMessage(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
 {
 	switch (msg)
 	{
+	case WM_NCCALCSIZE:
+		if (!bCustomTitleBar || !wParam)
+			return DefWindowProc(hWnd, msg, wParam, lParam);
+		// 0을 돌려주면 창 전체가 클라이언트 영역이 된다.
+		// 최대화된 창은 테두리 두께만큼 화면 밖으로 나가 있으므로 그만큼 안쪽으로 줄인다.
+		if (IsZoomed(hWnd))
+		{
+			NCCALCSIZE_PARAMS* Params = reinterpret_cast<NCCALCSIZE_PARAMS*>(lParam);
+			const int BorderX = GetFrameThicknessX(hWnd);
+			const int BorderY = GetFrameThicknessY(hWnd);
+			Params->rgrc[0].left += BorderX;
+			Params->rgrc[0].right -= BorderX;
+			Params->rgrc[0].top += BorderY;
+			Params->rgrc[0].bottom -= BorderY;
+		}
+		return 0;
+
+	case WM_NCHITTEST:
+		if (!bCustomTitleBar)
+			return DefWindowProc(hWnd, msg, wParam, lParam);
+		return HitTestCustomFrame(hWnd, lParam);
+
 	case WM_LBUTTONDOWN:
 		FInputSystem::OnMouseDown(EMouseButton::Left);
 		break;

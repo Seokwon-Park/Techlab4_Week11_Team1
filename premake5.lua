@@ -26,6 +26,7 @@ FbxSdkRoot = path.translate(FbxSdkRoot, "/")
 
 IncludeDir = {}
 IncludeDir["ImGui"] = "Source/ThirdParty/ImGui"
+IncludeDir["ImGuiNodeEditor"] = "Source/ThirdParty/ImGuiNodeEditor"
 IncludeDir["stb"]   = "Source/ThirdParty/stb"
 IncludeDir["json"]  = "Source/ThirdParty/json"
 IncludeDir["DDSLoader"] = "Source/ThirdParty/DDSLoader"
@@ -119,6 +120,9 @@ project "ImGui"
 	{
 		"%{IncludeDir.ImGui}/*.h",
 		"%{IncludeDir.ImGui}/*.cpp",
+		"%{IncludeDir.ImGuiNodeEditor}/*.h",
+        "%{IncludeDir.ImGuiNodeEditor}/*.cpp",
+        "%{IncludeDir.ImGuiNodeEditor}/*.inl",
 		"%{IncludeDir.ImGui}/backends/imgui_impl_win32.*",
 		"%{IncludeDir.ImGui}/backends/imgui_impl_dx11.*",
 	}
@@ -126,6 +130,7 @@ project "ImGui"
 	includedirs
 	{
 		"%{IncludeDir.ImGui}",
+		"%{IncludeDir.ImGuiNodeEditor}",
 		"%{IncludeDir.ImGui}/backends",
 	}
 
@@ -271,6 +276,7 @@ project "HitoriEditor"
 		"Intermediate/Generated/Editor",    -- 추가
 		"%{IncludeDir.ImGui}",
 		"%{IncludeDir.ImGui}/backends",
+		"%{IncludeDir.ImGuiNodeEditor}",
 		"%{IncludeDir.stb}",
 		"%{IncludeDir.json}",
 		"%{IncludeDir.lua}",

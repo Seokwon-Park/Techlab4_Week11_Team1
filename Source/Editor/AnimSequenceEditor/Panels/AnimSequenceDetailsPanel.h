@@ -1,12 +1,14 @@
 #pragma once
 
-#include "AnimSequenceEditorPanel.h"
+#include "Editor/AssetEditor/AssetEditorPanel.h"
+#include "Editor/AnimSequenceEditor/AnimSequenceEditor.h"
 
-class FAnimSequenceDetailsPanel : public FAnimSequenceEditorPanel
+class FAnimSequenceDetailsPanel : public TAssetEditorPanel<FAnimSequenceEditor>
 {
 public:
     explicit FAnimSequenceDetailsPanel(FAnimSequenceEditor& InEditor)
-        : FAnimSequenceEditorPanel(InEditor, "Details") {
+        : TAssetEditorPanel<FAnimSequenceEditor>(InEditor, "Details", "AnimSequencePanel")
+    {
     }
 
 protected:

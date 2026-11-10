@@ -17,7 +17,7 @@ ADecalActor::ADecalActor() {
 	BillboardComponent->SetHiddenInDetails(true);
 
 	UMaterial* Base = UAssetManager::GetAssetByPath<UMaterial>("BillboardMaterial");
-	UTexture2D* Icon = UAssetManager::Get().LoadTexture("Assets/Icons/Decal.png");
+	UTexture2D* Icon = UAssetManager::Get().LoadTexture("Engine/Icons/Decal.png");
 	if (Base && Icon)
 	{
 		UMaterial* IconMat = UMaterial::CreateInstance(Base);

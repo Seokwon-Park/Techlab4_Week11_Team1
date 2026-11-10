@@ -2,6 +2,7 @@
 #include "SplashScreen.h"
 
 #include "Render/ImageLoader.h"
+#include "Core/Misc/Paths.h"
 
 #include <thread>
 #include <mutex>
@@ -205,7 +206,8 @@ void FSplashScreen::Show(HINSTANCE hInstance, const FString& ImagePath)
 		return;
 	}
 
-	const FImageData Image = ImageLoader::Load(ImagePath);
+	// 스플래시 이미지는 엔진 콘텐츠("Engine/Splash/...")에 있다.
+	const FImageData Image = ImageLoader::Load(FPaths::ResolveContentPath(ImagePath));
 	if (Image.IsValid())
 	{
 		GSplash.Bitmap = CreateBitmapFromImage(Image);

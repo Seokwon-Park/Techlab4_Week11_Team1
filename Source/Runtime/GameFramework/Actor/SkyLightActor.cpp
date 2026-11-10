@@ -4,5 +4,5 @@
 ASkyLightActor::ASkyLightActor()
 {
     SkyLightComponent = CreateDefaultSubobject<USkyLightComponent>("USkyLightComponent");
-	SetupLightRoot(SkyLightComponent, "Assets/Icons/Sky.png");
+	SetupLightRoot(SkyLightComponent, "Engine/Icons/Sky.png");
 }

@@ -3,16 +3,63 @@
 #include "Animation/AnimSequenceFile.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFrameWork/Pawn.h"
+#include "Animation/AnimNotify.h"
+#include "AnimNotifyState_AttackWindow.h"
+
+namespace
+{
+	// Punch_Jab(30fps)에서 왼팔이 가장 뻗는 순간은 프레임 7.
+	// 뻗기 시작하는 5부터 거두기 시작하는 9까지를 판정 구간으로 둔다.
+	constexpr float AttackWindowStartFrame = 5.0f;
+	constexpr float AttackWindowEndFrame = 9.0f;
+
+	// 발이 바닥에 닿는 프레임 (발목/발끝 높이가 최저점에 닿는 순간, 30fps 기준)
+	// 프레임 0은 (Prev, Curr] 검사에 걸리지 않으므로 반 프레임 뒤로 둔다
+	constexpr float WalkFootstepFrameL = 0.5f;
+	constexpr float WalkFootstepFrameR = 20.0f;
+	constexpr float JogFootstepFrameL = 1.0f;
+	constexpr float JogFootstepFrameR = 15.0f;
+
+	const char* FootstepSoundL = "Assets/Sounds/Footstep_StoneL.flac";
+	const char* FootstepSoundR = "Assets/Sounds/Footstep_StoneR.flac";
+
+	void AddFootstepNotify(UAnimSequence* Sequence, float Frame, const char* SoundPath)
+	{
+		if (!Sequence || !Sequence->GetDataModel())
+			return;
+
+		const FFrameRate Rate = Sequence->GetDataModel()->GetFrameRate();
+		const float Time = Frame * static_cast<float>(Rate.Denominator) / static_cast<float>(Rate.Numerator);
+
+		FGuid Guid;
+		UAnimNotify_PlaySound* Notify = Sequence->AddNotify<UAnimNotify_PlaySound>(Time, 0.f, &Guid);
+		Notify->SoundPath = SoundPath;
+		Notify->Volume = 1.0f;
+
+		// BlendSpace 구간에서 Walk/Jog 발소리가 겹치지 않도록 우세한 샘플만 울린다
+		Sequence->SetNotifyTriggerWeightThreshold(Guid, 0.5f);
+	}
+}
 
 void UMyAnimInstance::NativeInitializeAnimation()
 {
 	USkeletalMeshComponent* SkeletalMesh = Cast<USkeletalMeshComponent>(GetOuter());
-	SkeletalMesh->SetEnableAnimation(true);
 
 	//AnimNode 설정
 	int32 Loco = StateMachine.AddState("Locomotion", &LocomotionPlayer);
-	int32 Attack = StateMachine.AddState("Attack", &AttackPlayer);
-	int32 Hit = StateMachine.AddState("Hit", &HitPlayer);
+	// Hit 상태를 빠져나가는 순간 피격 플래그를 내린다
+	FAnimStateDesc HitState;
+	HitState.Name = "Hit";
+	HitState.Pose.SetLinkNode(&HitPlayer);
+	HitState.OnExit = [this](UAnimInstance*) { bIsHit = false; };
+	int32 Hit = StateMachine.AddState(HitState);
+
+	// Attack 상태를 빠져나가는 순간(정상 종료든 Hit에 끊기든) 공격 플래그를 내린다
+	FAnimStateDesc AttackState;
+	AttackState.Name = "Attack";
+	AttackState.Pose.SetLinkNode(&AttackPlayer);
+	AttackState.OnExit = [this](UAnimInstance*) { bIsAttacking = false; };
+	int32 Attack = StateMachine.AddState(AttackState);
 
 	//TEMP : BlendSpace 생성 밎 설정
 	auto LoadSequence = [&](const char* Path) -> UAnimSequence*
@@ -34,12 +81,39 @@ void UMyAnimInstance::NativeInitializeAnimation()
 		"Assets/FBX/UAL1_Standard/UAL1_Standard_Armature_Idle_Loop.anim.bin");
 	auto* Walk = LoadSequence(
 		"Assets/FBX/UAL1_Standard/UAL1_Standard_Armature_Walk_Loop.anim.bin");
+	auto* Running = LoadSequence(
+		"Assets/FBX/UAL1_Standard/UAL1_Standard_Armature_Jog_Fwd_Loop.anim.bin");
+
+	AddFootstepNotify(Walk, WalkFootstepFrameL, FootstepSoundL);
+	AddFootstepNotify(Walk, WalkFootstepFrameR, FootstepSoundR);
+	AddFootstepNotify(Running, JogFootstepFrameL, FootstepSoundL);
+	AddFootstepNotify(Running, JogFootstepFrameR, FootstepSoundR);
+
 	auto* BlendSpace = NewObject<UBlendSpace1D>();
 
 	BlendSpace->AddSample(Idle, FVector(0, 0, 0));
 	BlendSpace->AddSample(Walk, FVector(200, 0, 0));
+	BlendSpace->AddSample(Running, FVector(550, 0, 0));
 	LocomotionPlayer.BlendSpace = BlendSpace;
 	LocomotionPlayer.X = 0.f;
+
+	AttackPlayer.Sequence = LoadSequence(
+		"Assets/FBX/UAL1_Standard/UAL1_Standard_Armature_Punch_Jab.anim.bin");
+	AttackPlayer.bLooping = false;
+
+	// Attack Sequence에 공격 판정 구간 추가 (구간 동안 매 프레임 Sweep, 같은 상대는 한 번만)
+	if (AttackPlayer.Sequence && AttackPlayer.Sequence->GetDataModel())
+	{
+		const FFrameRate Rate = AttackPlayer.Sequence->GetDataModel()->GetFrameRate();
+		const float SecondsPerFrame = static_cast<float>(Rate.Denominator) / static_cast<float>(Rate.Numerator);
+		AttackPlayer.Sequence->AddNotify<UAnimNotifyState_AttackWindow>(
+			AttackWindowStartFrame * SecondsPerFrame,
+			(AttackWindowEndFrame - AttackWindowStartFrame) * SecondsPerFrame);
+	}
+
+	HitPlayer.Sequence = LoadSequence(
+		"Assets/FBX/UAL1_Standard/UAL1_Standard_Armature_Hit_Chest.anim.bin");
+	HitPlayer.bLooping = false;
 
 	StateMachine.SetInitialState(Loco);
 
@@ -52,7 +126,7 @@ void UMyAnimInstance::NativeInitializeAnimation()
 	FAnimTransitionDesc AttackToLoco;
 	AttackToLoco.From = Attack;
 	AttackToLoco.To = Loco;
-	AttackToLoco.Rule = [this](const FAnimTransitionContext& Context) {  return Context.StateElapsedTime >= 0.8f; };
+	AttackToLoco.Rule = [this](const FAnimTransitionContext&) { return AttackPlayer.IsFinished(); };
 	StateMachine.AddTransition(AttackToLoco);
 
 	//AnyTransition으로 Hit 추가
@@ -63,6 +137,13 @@ void UMyAnimInstance::NativeInitializeAnimation()
 	AnyToHit.CrossfadeDuration = 0.1f;
 	AnyToHit.Rule = [this](const FAnimTransitionContext&) { return bIsHit; };
 	StateMachine.AddTransition(AnyToHit);
+
+	// Hit 클립이 끝나면 Locomotion으로 복귀 (OnExit에서 bIsHit = false)
+	FAnimTransitionDesc HitToLoco;
+	HitToLoco.From = Hit;
+	HitToLoco.To = Loco;
+	HitToLoco.Rule = [this](const FAnimTransitionContext&) { return HitPlayer.IsFinished(); };
+	StateMachine.AddTransition(HitToLoco);
 
 	RootNode = &StateMachine;
 }

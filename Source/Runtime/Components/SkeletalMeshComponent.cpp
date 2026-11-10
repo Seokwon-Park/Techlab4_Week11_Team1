@@ -12,8 +12,19 @@
 
 void USkeletalMeshComponent::SetAnimInstance(UAnimInstance* InInstance)
 {
+	if (AnimInstance == InInstance)
+	{
+		return;
+	}
+	if (AnimInstance)
+	{
+		AnimInstance->UninitializeAnimation();
+	}
 	AnimInstance = InInstance;
-	if (AnimInstance) AnimInstance->InitializeAnimation();
+	if (AnimInstance)
+	{
+		AnimInstance->InitializeAnimation();
+	}
 }
 
 void USkeletalMeshComponent::BeginPlay()
@@ -23,12 +34,20 @@ void USkeletalMeshComponent::BeginPlay()
 	if (AnimInstance)
 	{
 		AnimInstance->InitializeAnimation();
+
+		if (auto* Instance = GetSingleNodeInstance())
+		{
+			if (Instance->GetCurrentAsset())
+			{
+				Instance->SetPlaying(true);
+			}
+		}
 	}
 }
 
 void USkeletalMeshComponent::TickComponent(float DeltaTime)
 {
-	if (bEnableAnimation && AnimInstance && GetSkeletalMesh())
+	if (AnimInstance && GetSkeletalMesh())
 	{
 		if (auto* Instance = Cast<UAnimSingleNodeInstance>(AnimInstance))
 		{
@@ -169,14 +188,18 @@ void USkeletalMeshComponent::OnSkeletalMeshChanged()
 	for (const FBoneInfo& Bone : GetBones())
 		BoneSpaceTransforms.Add(Bone.LocalBindPose);
 }
-
-void USkeletalMeshComponent::SetEnableAnimation(const bool EnableAnimation)
+UAnimSingleNodeInstance* USkeletalMeshComponent::GetSingleNodeInstance() const
 {
-	bEnableAnimation = EnableAnimation;
+	return Cast<UAnimSingleNodeInstance>(AnimInstance);
 }
 
-void USkeletalMeshComponent::PlayAnimation(UAnimSequence* Sequence, bool bLooping)
+void USkeletalMeshComponent::SetAnimation(UAnimationAsset* NewAnimToPlay)
 {
+	if (NewAnimToPlay && !Cast<UAnimSequence>(NewAnimToPlay) && !Cast<UBlendSpace1D>(NewAnimToPlay))
+	{
+		HTR_LOG(Warning, "SetAnimation: unsupported animation asset type");
+		return;
+	}
 	auto* SingleNodeInstance = Cast<UAnimSingleNodeInstance>(AnimInstance);
 
 	if (!SingleNodeInstance)
@@ -185,23 +208,60 @@ void USkeletalMeshComponent::PlayAnimation(UAnimSequence* Sequence, bool bLoopin
 		SetAnimInstance(SingleNodeInstance);
 	}
 
-	SingleNodeInstance->SetAnimationAsset(Sequence, bLooping);
+	SingleNodeInstance->SetAnimationAsset(NewAnimToPlay);
+	SingleNodeInstance->SetBlendSpaceInput(BlendSpaceInput);
 
-	SetEnableAnimation(true);
+	RefreshAnimationPose();
 }
 
-void USkeletalMeshComponent::PlayBlendSpace(UBlendSpace1D* BlendSpace)
+void USkeletalMeshComponent::Play(bool bLooping)
 {
-	auto* Instance = Cast<UAnimSingleNodeInstance>(AnimInstance);
-	if (!Instance)
+	if (auto* Instance = GetSingleNodeInstance())
 	{
-		Instance = NewObject<UAnimSingleNodeInstance>(this);
-		SetAnimInstance(Instance);
+		Instance->SetLooping(bLooping);
+		Instance->SetPlaying(true);
 	}
-	Instance->SetAnimationAsset(BlendSpace);
-	Instance->SetBlendSpaceInput(BlendSpaceInput);
-	SetEnableAnimation(true);
 }
+
+void USkeletalMeshComponent::Stop()
+{
+	if (auto* Instance = GetSingleNodeInstance())
+	{
+		Instance->SetPlaying(false);
+	}
+}
+
+bool USkeletalMeshComponent::IsPlaying() const
+{
+	const auto* Instance = GetSingleNodeInstance();
+	return Instance && Instance->IsPlaying();
+}
+
+void USkeletalMeshComponent::PlayAnimation(UAnimationAsset* NewAnimToPlay, bool bLooping)
+{
+	if (NewAnimToPlay && !Cast<UAnimSequence>(NewAnimToPlay) && !Cast<UBlendSpace1D>(NewAnimToPlay))
+	{
+		return;
+	}
+
+	SetAnimation(NewAnimToPlay);
+	Play(bLooping);
+}
+
+void USkeletalMeshComponent::RefreshAnimationPose()
+{
+	if (auto* Instance = GetSingleNodeInstance())
+	{
+		Instance->SetBlendSpaceInput(BlendSpaceInput);
+	}
+
+	FPoseContext Pose(AnimInstance, GetBones());
+	AnimInstance->EvaluateAnimation(Pose);
+	SetBoneSpaceTransforms(Pose.Pose);
+	RefreshBoneTransformsNow();
+}
+
+
 FTransform USkeletalMeshComponent::ConsumeRootMotion()
 {
 	const FTransform Result = PendingRootMotion;

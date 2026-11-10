@@ -17,6 +17,19 @@ struct FAnimNode_SequencePlayer : public FAnimNode_Base
 
 	bool bLooping = false;
 
+	// 상태 재진입(bResetOnEntry) 시 처음부터 다시 재생한다
+	void Initialize(const FAnimationInitializeContext& Context) override
+	{
+		CurrentTime = PrevTime = 0.0f;
+	}
+
+	// 루프가 아닌 시퀀스가 끝까지 재생됐는지
+	bool IsFinished() const
+	{
+		const UAnimDataModel* Model = Sequence ? Sequence->GetDataModel() : nullptr;
+		return !bLooping && (!Model || CurrentTime >= Model->GetPlayLength());
+	}
+
 	void Update(const FAnimationUpdateContext& Context) override
 	{
 		if (!Sequence)

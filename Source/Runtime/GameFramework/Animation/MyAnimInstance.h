@@ -11,6 +11,13 @@ class UMyAnimInstance : public UAnimInstance
 {
 	GENERATED_BODY()
 
+public:
+	// 공격 중이면 무시한다. false 복귀는 Attack 상태의 OnExit가 맡는다
+	void RequestAttack() { if (!bIsAttacking) bIsAttacking = true; }
+	bool IsAttacking() const { return bIsAttacking; }
+	// false 복귀는 Hit 상태의 OnExit가 맡는다
+	void SetIsHit(bool bInIsHit) { bIsHit = bInIsHit; }
+
 private:
 	float Speed = 0.0f;
 	bool bIsAttacking = false;

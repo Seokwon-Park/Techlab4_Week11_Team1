@@ -22,6 +22,7 @@ enum class EAssetType
 class UStaticMesh;
 class USoundWave;
 class UAnimSequence;
+class UBlendSpace1D;
 struct FSkeletalMaterialSlot;
 
 namespace fs = std::filesystem;
@@ -42,7 +43,8 @@ public:
 	static void Init(const FAssetLoadProgress& OnProgress = nullptr);
 	static void Shutdown();
 
-	void ScanAssets(const fs::path& AssetRoot, const FAssetLoadProgress& OnProgress);
+	// KeyPrefix가 있으면 키와 경로를 KeyPrefix + 상대 경로로 등록한다 (엔진 콘텐츠의 "Engine/").
+	void ScanAssets(const fs::path& AssetRoot, const FAssetLoadProgress& OnProgress, const FString& KeyPrefix = {});
 	void LoadAsset(const FString& Key, const FString& Path);
 
 	void CreateDefaultTextures();
@@ -84,6 +86,7 @@ public:
 	static UStaticMesh* LoadObjStaticMesh(const FString& Path);
 	static URenderAsset* LoadFbxMesh(const FString& Path, FString& OutError);
 	static UAnimSequence* LoadAnimSequence(const FString& Path);
+	static UBlendSpace1D* LoadBlendSpace(const FString& Path);
 
 	FLODGenerateResult GenerateStaticMeshLODs(UStaticMesh& Mesh,const FLODGenerateRequest& Request);
 
@@ -104,6 +107,7 @@ private:
 	TMap<FString, URenderAsset*> AssetMap;
 	TMap<FString, USoundWave*> SoundMap;
 	TMap<FString, UAnimSequence*> AnimSequenceMap;
+	TMap<FString, UBlendSpace1D*> BlendSpaceMap;
 
 	//TMap<FString, UStaticMesh*> MeshMap;	// KEY: FILE NAME OR 쉐입 첫글자 대문자
 	TMap<FString, TUniquePtr<FShader>> ShaderMap;	// KEY: FILE NAME

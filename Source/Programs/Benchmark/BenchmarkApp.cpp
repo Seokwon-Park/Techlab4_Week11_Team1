@@ -43,7 +43,7 @@ FEngineConfig UBenchmarkEngine::GetConfig() const
 {
 	FEngineConfig Desc = Super::GetConfig();
 	Desc.Title = L"Benchmarker";
-	Desc.SplashImage = "Resources/Splash.png";
+	Desc.SplashImage = "Engine/Splash/Splash.png";
 	return Desc;
 }
 

@@ -10,6 +10,7 @@
 #include "GameFramework/Pawn.h"
 #include "GameFramework/DefaultPawn.h"
 #include "GameFramework/PlayerController.h"
+#include "GameFramework/MyPlayerController.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "Input/InputSystem.h"
 
@@ -865,6 +866,8 @@ bool UWorld::LineTraceSingle(const FRay& WorldRay, FHitResult& OutHit,
 void UWorld::BeginPlay()
 {
 	if (!IsGameWorld() || bBegunPlay) return;
+
+	//TODO : PlayerPawn, PlayerController Class 설정을 GameMode로 옮겨 수정 가능하게 바꿔야 한다.
 	if (!PlayerPawn)
 	{
 		for (AActor* Actor : PersistentLevel->GetActors())
@@ -878,7 +881,7 @@ void UWorld::BeginPlay()
 		PlayerPawn = SpawnActor<ADefaultPawn>(NAME_None, &Transform);
 	}
 	if (!PlayerController) 
-		PlayerController = SpawnActor<APlayerController>();
+		PlayerController = SpawnActor<AMyPlayerController>();
 	
 	if (PlayerController)
 		PlayerController->SpawnPlayerCameraManager();

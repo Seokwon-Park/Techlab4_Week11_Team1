@@ -1,7 +1,10 @@
 #include "EnginePCH.h"
 #include "JsonArchiveOutputFormatter.h"
 
+#include "Asset/AssetUtils.h"
 #include "Asset/RenderAsset.h"
+#include "Animation/AnimSequence.h"
+#include "UObject/Casts.h"
 
 FJsonArchiveOutputFormatter::FJsonArchiveOutputFormatter(FArchive& InInner)
 	: Inner(InInner)
@@ -170,6 +173,20 @@ void FJsonArchiveOutputFormatter::Serialize(FName& Value)
 
 void FJsonArchiveOutputFormatter::Serialize(UObject*& Value)
 {
+	if (UAnimSequence* Sequence = Cast<UAnimSequence>(Value))
+	{
+		const FString Path = FAssetUtils::GetAssetKey(Sequence->GetAssetPath());
+		if (!Path.empty())
+		{
+			Top() = Path;
+		}
+		else
+		{
+			Top() = nullptr;
+		}
+		return;
+	}
+
 	// 패키지가 없으므로 에셋 경로가 참조의 식별자 역할을 한다
 	URenderAsset* Asset = Cast<URenderAsset>(Value);
 	if (Asset && !Asset->GetPath().empty())

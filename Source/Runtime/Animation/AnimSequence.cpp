@@ -1,4 +1,5 @@
 #include "EnginePCH.h"
+#include "Asset/AssetUtils.h"
 #include "Animation/AnimSequence.h"
 #include "Animation/AnimSequenceFile.h"
 #include "Animation/AnimationAsset.h"
@@ -191,7 +192,11 @@ bool AnimSequenceFile::Read(const std::filesystem::path& Path, UAnimSequence& Se
 	}
 	FMemoryReader Reader(Bytes, true);
 	Sequence.Serialize(Reader);
-	if (!Reader.IsError()) return true;
+	if (!Reader.IsError())
+	{
+		Sequence.SetAssetPath(FAssetUtils::GetAssetKey(Path.generic_string()));
+		return true;
+	}
 	OutError = "Animation binary: invalid or unsupported sequence data";
 	return false;
 }

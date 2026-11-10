@@ -10,6 +10,12 @@ struct FAnimNode_TwoWayBlend : public FAnimNode_Base
 
 	float Alpha = 0.0f;
 
+    void Initialize(const FAnimationInitializeContext& Context) override
+    {
+        A.Initialize(Context);
+        B.Initialize(Context);
+    }
+
 	virtual void Update(const FAnimationUpdateContext& Context) override
 	{
 		const float ClampedAlpha = FMath::Clamp(Alpha, 0.0f, 1.0f);

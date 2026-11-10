@@ -14,6 +14,8 @@ class FLineBatcher;
 void DrawSkeletalRootDebug(UWorld* World, FLineBatcher* LineBatcher);
 // Settings > Debug Draw (PIE) > Show Root 값. 에디터가 매 프레임 갱신하고, 런타임 액터("root" 라벨 등)가 읽는다
 extern bool GShowSkeletalRootDebug;
+class UAnimationAsset;
+class UAnimSingleNodeInstance;
 
 UCLASS()
 class USkeletalMeshComponent : public USkinnedMeshComponent
@@ -22,6 +24,7 @@ class USkeletalMeshComponent : public USkinnedMeshComponent
 
 public:
 	void SetAnimInstance(UAnimInstance* InInstance);
+	UAnimSingleNodeInstance* GetSingleNodeInstance() const;
 	UAnimInstance* GetAnimInstance() const { return AnimInstance; }
 	void BeginPlay() override;
 	void TickComponent(float DeltaTime) override;
@@ -34,7 +37,6 @@ public:
 	void SetBoneSpaceTransforms(const struct FCompactPose& Pose); // 애니메이션 평가 결과를 받는 입구
 	FMatrix GetBoneComponentMatrix(int32 BoneIndex) const;
 	FMatrix GetBoneWorldMatrix(int32 BoneIndex) const;
-	void SetEnableAnimation(const bool EnableAnimation);
 
 	void ResetPose();
 	void RefreshBoneTransformsNow();
@@ -42,10 +44,14 @@ public:
 	using Super::Serialize;
 	virtual void Serialize(FStructuredArchive::FRecord Record) override;
 
-	void PlayAnimation(UAnimSequence* Sequence, bool bLoop = true);
-	void PlayBlendSpace(UBlendSpace1D* BlendSpace);
+	void SetAnimation(UAnimationAsset* NewAnimToPlay);
+	void Play(bool bLooping = true);
+	void Stop();
+	bool IsPlaying() const;
+	void PlayAnimation(UAnimationAsset* NewAnimToPlay, bool bLoop = true);
+	void RefreshAnimationPose();
 
-	UPROPERTY(EditAnywhere)
+	UPROPERTY()
 	float BlendSpaceInput = 300.0f;
 
 	// 루트 모션: 이번 Tick까지 모인 이동량(월드 공간). CharacterMovement가 가져가 Actor를 움직인다
@@ -65,9 +71,6 @@ protected:
 private:
 	UPROPERTY()
 	UAnimInstance* AnimInstance = nullptr;
-
-	UPROPERTY(EditAnywhere)
-	bool bEnableAnimation = false;
 
 	TArray<FTransform> BoneSpaceTransforms;
 

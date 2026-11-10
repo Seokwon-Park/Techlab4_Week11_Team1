@@ -8,7 +8,6 @@
 #include "Core/StatOverlay.h"
 #include "Input/InputSystem.h"
 
-
 #include "Render/GeometryGenerator.h"
 
 #include "Engine/World.h"
@@ -65,11 +64,18 @@ namespace
 }
 
 #include "Core/SplashScreen.h"
+#include "Core/Misc/Paths.h"
+#include "Editor/EditorUI/EditorTitleBar.h"
 
 FEngineConfig UEditorEngine::GetConfig() const
 {
 	FEngineConfig Desc;
-	Desc.Title = L"Hitori Engine";
+	// 창 제목에 연 프로젝트 이름을 붙인다. Title은 포인터만 넘기므로 문자열을 static으로 둔다.
+	static std::wstring Title;
+	Title = L"Hitori Engine";
+	if (FPaths::HasProject())
+		Title += L" - " + FPaths::ProjectFilePath().stem().wstring();
+	Desc.Title = Title.c_str();
 	Desc.Width = 1920;
 	Desc.Height = 1080;
 	Desc.bBorderless = false;
@@ -78,7 +84,7 @@ FEngineConfig UEditorEngine::GetConfig() const
 	Desc.bCreateDepthBuffer = false;
 	Desc.bExitOnEscape = false;
 	// 파일이 없으면 검은 배경에 상태 텍스트만 표시된다.
-	Desc.SplashImage = "Resources/Splash.png";
+	Desc.SplashImage = "Engine/Splash/Splash.png";
 	return Desc;
 }
 
@@ -125,6 +131,19 @@ bool UEditorEngine::Init()
 		HTR_LOG(Error, "Failed To Initialize ImGui!");
 	}
 	HTR_LOG(Info, "Initialize ImGui Success!");
+
+	// 기본 제목 표시줄을 없애고 ImGui 메인 메뉴 바를 제목 표시줄로 쓴다.
+	EditorTitleBar::Install(*MainWindow);
+	// 엔진 콘텐츠에 로고 이미지가 있으면 제목 표시줄 왼쪽 위 칸에 그린다. 없으면 빈 칸으로 둔다.
+	{
+		const FString LogoPath = "Engine/Icons/Logo.png";
+		std::error_code Ec;
+		if (std::filesystem::exists(FPaths::FromUtf8(FPaths::ResolveContentPath(LogoPath)), Ec))
+		{
+			if (UTexture2D* Logo = UAssetManager::GetAssetByPath<UTexture2D>(LogoPath))
+				EditorTitleBar::SetLogo((ImTextureID)Logo->GetResource()->GetSRV());
+		}
+	}
 
 	GridRenderer = MakeUnique<FGridRenderer>();
 	GridRenderer->Init(Renderer);
@@ -174,16 +193,25 @@ bool UEditorEngine::Init()
 	SequencerPanel = LevelEditorTab->AddPanel<FSequencerPanel>();
 	OutputLogPanel->SetEditorSettings(&SettingsPanel->GetMutableSettings());
 
-	UIEditorPanel = LevelEditorTab->AddPanel<FUIEditorPanel>();
-	ContentDrawerPanel->SetCreateWidgetCallback([this](const FString& Path) { UIEditorPanel->NewAsset(Path); });
-	ContentDrawerPanel->SetOpenWidgetCallback([this](const FString& Path) { UIEditorPanel->OpenAsset(Path); });
+	// 위젯 에셋은 다른 에셋처럼 EditorManager가 여는 탭에서 편집한다.
+	// 새로 만들 때는 디스크에 바로 만들어 콘텐츠 드로어에 곧장 보이도록 한 뒤 연다.
+	ContentDrawerPanel->SetCreateWidgetCallback([this](const FString& Path)
+	{
+		if (FUIEditor::CreateDefaultAsset(Path))
+		{
+			EditorManager->OpenEditor(Path);
+		}
+	});
+	ContentDrawerPanel->SetOpenWidgetCallback([this](const FString& Path) { EditorManager->OpenEditor(Path); });
 
 	// StaticMesh / SkeletalMesh Viewer 열기
 	ContentDrawerPanel->SetOpenMeshCallback([this](const FString& Path) { EditorManager->OpenEditor(Path); });
 
+	ContentDrawerPanel->SetBlendSpaceCreatedCallback([this](const FString& Path) { EditorManager->OpenEditor(Path); });
+
 	Outline = MakeUnique<FOutline>();
 
-	SystemFont = UAssetManager::GetAssetByPath<UFont>("Assets/Fonts/Pretendard.json");
+	SystemFont = UAssetManager::GetAssetByPath<UFont>("Engine/Fonts/Pretendard.json");
 
 	TextRenderer = MakeUnique<FTextRenderer>();
 	TextRenderer->Init();
@@ -295,13 +323,13 @@ bool UEditorEngine::Init()
 	const ImVec4 White = { 1, 1, 1, 1 };
 	const ImVec4 Green = { 0.40f, 0.80f, 0.30f, 1.0f };
 
-	Save = { "Save",   "Save Current Scene",UAssetManager::GetAssetByPath<UTexture2D>("Assets/Icons/Toolbar/Save.png"),  White, { EKeyCode::S, true } };
+	Save = { "Save",   "Save Current Scene",UAssetManager::GetAssetByPath<UTexture2D>("Engine/Icons/Toolbar/Save.png"),  White, { EKeyCode::S, true } };
 
 	Save.CanExecute = [this]()->bool {return !PlayWorld; };
 	Save.Execute = [this]() { SaveCurrentScene(); };
 
 	// UE: Save As = Ctrl+Alt+S
-	SaveAs = { "Save As", "Save Current Scene As", UAssetManager::GetAssetByPath<UTexture2D>("Assets/Icons/Toolbar/Save.png"),  White, { EKeyCode::S, true, true } };
+	SaveAs = { "Save As", "Save Current Scene As", UAssetManager::GetAssetByPath<UTexture2D>("Engine/Icons/Toolbar/Save.png"),  White, { EKeyCode::S, true, true } };
 
 	SaveAs.CanExecute = [this]()->bool {return !PlayWorld; };
 	SaveAs.Execute = [this]() { SaveSceneAs(); };
@@ -317,29 +345,29 @@ bool UEditorEngine::Init()
 	OpenSceneCommand.CanExecute = [this]()->bool {return !PlayWorld; };
 	OpenSceneCommand.Execute = [this]() { OpenScene(); };
 
-	Play = { "Play",   "Play World",        UAssetManager::GetAssetByPath<UTexture2D>("Assets/Icons/Toolbar/Play.png"),  Green, { EKeyCode::P, false, true } };
+	Play = { "Play",   "Play World",        UAssetManager::GetAssetByPath<UTexture2D>("Engine/Icons/Toolbar/Play.png"),  Green, { EKeyCode::P, false, true } };
 
 	Play.CanExecute = [this]()->bool {return !PlayWorld; };
 	Play.Execute = [this]() { RequestPlaySession(); };
 
-	Pause = { "Pause",  "Pause",			UAssetManager::GetAssetByPath<UTexture2D>("Assets/Icons/Toolbar/Pause.png"), White, { EKeyCode::Pause } };
+	Pause = { "Pause",  "Pause",			UAssetManager::GetAssetByPath<UTexture2D>("Engine/Icons/Toolbar/Pause.png"), White, { EKeyCode::Pause } };
 
 	Pause.CanExecute = [this]()->bool {return !bIsPaused && PlayWorld; };
 	Pause.Execute = [this]() { bIsPaused = true; if (PlayWorld) PlayWorld->SetPaused(true); };
 
 
-	Resume = { "Resume", "Resume",          UAssetManager::GetAssetByPath<UTexture2D>("Assets/Icons/Toolbar/Play.png"),  White, { EKeyCode::Pause } };
+	Resume = { "Resume", "Resume",          UAssetManager::GetAssetByPath<UTexture2D>("Engine/Icons/Toolbar/Play.png"),  White, { EKeyCode::Pause } };
 
 	Resume.CanExecute = [this]()->bool {return bIsPaused && PlayWorld; };
 	Resume.Execute = [this]() { bIsPaused = false; if (PlayWorld) PlayWorld->SetPaused(false); };
 
-	StepFrame = { "Step", "Step One Frame", UAssetManager::GetAssetByPath<UTexture2D>("Assets/Icons/Toolbar/Step.png"),  White, {} };
+	StepFrame = { "Step", "Step One Frame", UAssetManager::GetAssetByPath<UTexture2D>("Engine/Icons/Toolbar/Step.png"),  White, {} };
 
 	StepFrame.CanExecute = [this]()->bool {return bIsPaused && PlayWorld; };
 	StepFrame.Execute = [this]() { bStepRequested = true; };
 
 
-	Stop = { "Stop",   "Stop",				UAssetManager::GetAssetByPath<UTexture2D>("Assets/Icons/Toolbar/Stop.png"),  White, { EKeyCode::Escape } };
+	Stop = { "Stop",   "Stop",				UAssetManager::GetAssetByPath<UTexture2D>("Engine/Icons/Toolbar/Stop.png"),  White, { EKeyCode::Escape } };
 
 	Stop.CanExecute = [this]()->bool {return PlayWorld; };
 	Stop.Execute = [this]() { RequestEndPlayMap(); };
@@ -712,8 +740,6 @@ void UEditorEngine::RenderViewports()
 			}
 		}
 	}
-
-	UIEditorPanel->RenderPreview(*UIRenderer);
 }
 
 void UEditorEngine::UpdatePIEViewCamera()
@@ -1502,7 +1528,6 @@ void UEditorEngine::PreExit()
 	SequencerPanel = nullptr;
 	ViewportsPanel = nullptr;
 	ContentDrawerPanel = nullptr;
-	UIEditorPanel = nullptr;
 	OutlinerPanel = nullptr;
 	AllViewportClients.Empty();
 

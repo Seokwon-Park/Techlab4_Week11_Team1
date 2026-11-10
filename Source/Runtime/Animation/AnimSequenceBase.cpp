@@ -21,16 +21,55 @@ const FAnimNotifyEvent* UAnimSequenceBase::FindNotify(const FGuid& NotifyGuid) c
     return Index != -1 ? &AnimNotifies[Index] : nullptr;
 }
 
-FGuid UAnimSequenceBase::AddNotify(float Time, const FName& NotifyName)
+FGuid UAnimSequenceBase::AddNotify(float Time, const FName& NotifyName, float Duration)
 {
     FAnimNotifyEvent NewEvent;
     NewEvent.NotifyName = NotifyName;
-    return AddNotifyEvent(Time, NewEvent);
+    return AddNotifyEvent(Time, Duration, NewEvent);
 }
 
-FGuid UAnimSequenceBase::AddNotifyEvent(float Time, FAnimNotifyEvent& NewEvent)
+UObject* UAnimSequenceBase::AddNotifyOfClass(UClass* NotifyClass, float Time, float Duration, FGuid* OutGuid)
+{
+    if (!NotifyClass)
+    {
+        return nullptr;
+    }
+
+    const bool bIsState = NotifyClass->IsChildOf(UAnimNotifyState::StaticClass());
+    if (!bIsState && !NotifyClass->IsChildOf(UAnimNotify::StaticClass()))
+    {
+        return nullptr;
+    }
+
+    UObject* NotifyObject = NewObject<UObject>(this, NotifyClass);
+    if (!NotifyObject)
+    {
+        return nullptr;
+    }
+
+    FAnimNotifyEvent NewEvent;
+    if (bIsState)
+    {
+        NewEvent.NotifyStateClass = static_cast<UAnimNotifyState*>(NotifyObject);
+    }
+    else
+    {
+        NewEvent.Notify = static_cast<UAnimNotify*>(NotifyObject);
+        Duration = 0.f;   // 단발 Notify에 Duration을 주면 구간 동안 매 프레임 불리므로 막는다
+    }
+
+    const FGuid NewGuid = AddNotifyEvent(Time, Duration, NewEvent);
+    if (OutGuid)
+    {
+        *OutGuid = NewGuid;
+    }
+    return NotifyObject;
+}
+
+FGuid UAnimSequenceBase::AddNotifyEvent(float Time, float Duration, FAnimNotifyEvent& NewEvent)
 {
     NewEvent.TriggerTime = ClampNotifyTime(Time);
+    NewEvent.Duration = ClampNotifyDuration(NewEvent.TriggerTime, Duration);
     NewEvent.Guid = FGuid::NewGuid();
 
     const FGuid NewGuid = NewEvent.Guid;
@@ -47,8 +86,23 @@ bool UAnimSequenceBase::SetNotifyTriggerTime(const FGuid& NotifyGuid, float Time
         return false;
     }
 
-    AnimNotifies[Index].TriggerTime = ClampNotifyTime(Time);
+    FAnimNotifyEvent& Event = AnimNotifies[Index];
+    Event.TriggerTime = ClampNotifyTime(Time);
+    // 뒤로 밀면 끝이 시퀀스 밖으로 나갈 수 있으므로 Duration도 다시 자른다
+    Event.Duration = ClampNotifyDuration(Event.TriggerTime, Event.Duration);
     SortNotifies();
+    return true;
+}
+
+bool UAnimSequenceBase::SetNotifyTriggerWeightThreshold(const FGuid& NotifyGuid, float Threshold)
+{
+    const int32 Index = FindNotifyIndex(NotifyGuid);
+    if (Index == -1)
+    {
+        return false;
+    }
+
+    AnimNotifies[Index].TriggerWeightThreshold = FMath::Clamp(Threshold, 0.f, 1.f);
     return true;
 }
 
@@ -112,6 +166,12 @@ float UAnimSequenceBase::ClampNotifyTime(float Time) const
 {
     const float PlayLength = DataModel ? DataModel->GetPlayLength() : 0.f;
     return FMath::Clamp(Time, 0.f, FMath::Max(PlayLength, 0.f));
+}
+
+float UAnimSequenceBase::ClampNotifyDuration(float TriggerTime, float Duration) const
+{
+    const float PlayLength = DataModel ? DataModel->GetPlayLength() : 0.f;
+    return FMath::Clamp(Duration, 0.f, FMath::Max(PlayLength - TriggerTime, 0.f));
 }
 
 int32 UAnimSequenceBase::FindNotifyIndex(const FGuid& NotifyGuid) const
