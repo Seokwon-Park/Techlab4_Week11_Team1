@@ -63,6 +63,27 @@ void AMyCharacter::Attack()
 	}
 }
 
+void AMyCharacter::Jump()
+{
+	// 공중이면 무시 (이중 점프 없음)
+	if (!CanJump())
+		return;
+
+	Super::Jump();
+
+	// C++ MyAnimInstance에는 점프 상태가 없다. AnimGraph(AnimBlueprint/Lua)만 변수를 켠다
+	if (UAnimGraphInstance* Graph = Cast<UAnimGraphInstance>(SkeletalMeshComponent->GetAnimInstance()))
+		Graph->SetBool(JumpingVariable, true);
+}
+
+void AMyCharacter::Landed(const FHitResult& Hit)
+{
+	Super::Landed(Hit);
+
+	if (UAnimGraphInstance* Graph = Cast<UAnimGraphInstance>(SkeletalMeshComponent->GetAnimInstance()))
+		Graph->SetBool(JumpingVariable, false);
+}
+
 void AMyCharacter::DetectedHit(const FHitResult& Hit)
 {
 	AActor* HitActor = Hit.HitComponent ? Hit.HitComponent->GetOwner() : nullptr;

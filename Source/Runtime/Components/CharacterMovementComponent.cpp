@@ -3,6 +3,9 @@
 #include "GameFramework/Pawn.h"
 #include "GameFramework/Character.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Components/CapsuleComponent.h"
+#include "Collision/HitResult.h"
+#include "Engine/World.h"
 #include "UObject/Casts.h"
 #include <algorithm>
 #include <cmath>
@@ -45,20 +48,157 @@ FVector UCharacterMovementComponent::ScaleInputAcceleration(const FVector& Input
 
 void UCharacterMovementComponent::PerformMovement(float DeltaTime)
 {
-	if (ApplyRootMotion(DeltaTime))
+	if (MovementMode == ECharacterMovementMode::Falling)
 	{
+		DiscardRootMotion();
+		PhysFalling(DeltaTime);
+		PhysicsRotation(DeltaTime);
+		UpdateComponentVelocity();
 		return;
 	}
 
+	// 루트 모션은 회전까지 직접 정하므로 PhysicsRotation을 하지 않는다
+	const bool bRootMotion = ApplyRootMotion(DeltaTime);
+	if (!bRootMotion)
+		PhysWalking(DeltaTime);
+
+	MaintainFloor();
+
+	if (!bRootMotion)
+		PhysicsRotation(DeltaTime);
+	UpdateComponentVelocity();
+}
+
+void UCharacterMovementComponent::PhysWalking(float DeltaTime)
+{
 	CalcVelocity(DeltaTime, GroundFriction, BrakingDecelerationWalking * CmToWorld);
 	Velocity.Z = 0.0f;
 
 	const FVector Delta = Velocity * DeltaTime;
 	if (Delta.SizeSquared() > SMALL_NUMBER)
 		SafeMoveWithSlide(Delta, UpdatedComponent->GetWorldRotation());
+}
 
-	PhysicsRotation(DeltaTime);
-	UpdateComponentVelocity();
+void UCharacterMovementComponent::PhysFalling(float DeltaTime)
+{
+	// 수평: 입력은 AirControl 비율만 쓰고, 마찰·제동은 없다 (UE FallingLateralFriction/BrakingDecelerationFalling = 0)
+	const float VerticalSpeed = Velocity.Z;
+	Velocity.Z = 0.0f;
+	const FVector InputAcceleration = Acceleration;
+	Acceleration = InputAcceleration * AirControl;
+	CalcVelocity(DeltaTime, 0.0f, 0.0f);
+	Acceleration = InputAcceleration;   // 회전(bOrientRotationToMovement)은 원래 입력 방향을 쓴다
+
+	const FRotator Rotation = UpdatedComponent->GetWorldRotation();
+	const FVector Horizontal = Velocity * DeltaTime;
+	if (Horizontal.SizeSquared() > SMALL_NUMBER)
+		SafeMoveWithSlide(Horizontal, Rotation);   // 벽에 막히면 미끄러진다 (Velocity.Z는 아직 0)
+
+	// 수직: 중력 적분 (사다리꼴)
+	const float GravityZ = -Gravity * GravityScale;   // 월드 단위 m/s²
+	const float NewVerticalSpeed = std::max(VerticalSpeed + GravityZ * DeltaTime, -TerminalVelocity * CmToWorld);
+	const float DeltaZ = 0.5f * (VerticalSpeed + NewVerticalSpeed) * DeltaTime;
+	Velocity.Z = NewVerticalSpeed;
+
+	if (DeltaZ > 0.0f)
+	{
+		// 올라가는 중: 천장에 막히면 SafeMoveWithSlide가 위쪽 속도를 없앤다
+		SafeMoveWithSlide(FVector(0.0f, 0.0f, DeltaZ), Rotation);
+		return;
+	}
+
+	// 내려가는 중: 이번 프레임에 발이 바닥을 지나치면 바닥 위에 세우고 착지
+	FHitResult Floor;
+	const float FallDistance = -DeltaZ;
+	if (FindFloor(FallDistance + KINDA_SMALL_NUMBER, Floor))
+	{
+		const float Gap = Floor.Distance - GetCapsuleHalfHeight();   // 발과 바닥 사이 (음수면 이미 묻힘)
+		if (Gap <= FallDistance)
+		{
+			MoveUpdatedComponent(FVector(0.0f, 0.0f, -Gap), Rotation, false, nullptr);
+			ProcessLanded(Floor);
+			return;
+		}
+	}
+
+	MoveUpdatedComponent(FVector(0.0f, 0.0f, DeltaZ), Rotation, false, nullptr);
+}
+
+void UCharacterMovementComponent::MaintainFloor()
+{
+	if (!CanUseFloor()) return;
+
+	FHitResult Floor;
+	if (FindFloor(MaxStepHeight * CmToWorld, Floor))
+	{
+		// 경사·계단을 따라 발을 바닥에 붙인다. 묻혀 있으면 위로 올린다
+		const float Gap = Floor.Distance - GetCapsuleHalfHeight();
+		if (std::abs(Gap) > KINDA_SMALL_NUMBER)
+			MoveUpdatedComponent(FVector(0.0f, 0.0f, -Gap), UpdatedComponent->GetWorldRotation(), false, nullptr);
+		return;
+	}
+
+	// 발밑에 바닥이 없다 (절벽 끝): 떨어진다
+	if (GravityScale > 0.0f)
+	{
+		Velocity.Z = 0.0f;
+		SetMovementMode(ECharacterMovementMode::Falling);
+	}
+}
+
+bool UCharacterMovementComponent::FindFloor(float ExtraDistance, FHitResult& OutHit) const
+{
+	if (!CanUseFloor()) return false;
+
+	// 반지름 0 Sweep = 아래 방향 레이. 메시는 AABB 윗면, 스킨드 메시는 삼각형에 닿는다
+	const FVector Start = UpdatedComponent->GetWorldLocation();
+	const float TraceLength = GetCapsuleHalfHeight() + std::max(ExtraDistance, 0.0f);
+	return GetOwner()->GetWorld()->SweepSingle(FRay(Start, FVector(0.0f, 0.0f, -1.0f)), TraceLength, 0.0f, OutHit, GetOwner());
+}
+
+float UCharacterMovementComponent::GetCapsuleHalfHeight() const
+{
+	if (const UCapsuleComponent* Capsule = Cast<UCapsuleComponent>(UpdatedComponent))
+		return Capsule->GetScaledCapsuleHalfHeight();
+	return UpdatedComponent ? UpdatedComponent->GetCollisionRadius() : 0.0f;
+}
+
+bool UCharacterMovementComponent::CanUseFloor() const
+{
+	const AActor* Owner = GetOwner();
+	return UpdatedComponent && Owner && Owner->GetActorEnableCollision() && Owner->GetWorld();
+}
+
+void UCharacterMovementComponent::SetMovementMode(ECharacterMovementMode NewMode)
+{
+	MovementMode = NewMode;
+}
+
+bool UCharacterMovementComponent::DoJump()
+{
+	if (!IsMovingOnGround() || !CanUseFloor() || JumpZVelocity <= 0.0f)
+		return false;
+
+	Velocity.Z = JumpZVelocity * CmToWorld;
+	SetMovementMode(ECharacterMovementMode::Falling);
+	return true;
+}
+
+void UCharacterMovementComponent::ProcessLanded(const FHitResult& Hit)
+{
+	Velocity.Z = 0.0f;
+	SetMovementMode(ECharacterMovementMode::Walking);
+
+	if (ACharacter* Character = Cast<ACharacter>(PawnOwner))
+		Character->Landed(Hit);
+}
+
+void UCharacterMovementComponent::DiscardRootMotion()
+{
+	const ACharacter* Character = Cast<ACharacter>(PawnOwner);
+	USkeletalMeshComponent* Mesh = Character ? Character->SkeletalMeshComponent : nullptr;
+	if (Mesh && Mesh->HasPendingRootMotion())
+		Mesh->ConsumeRootMotion();
 }
 
 bool UCharacterMovementComponent::ApplyRootMotion(float DeltaTime)
@@ -110,7 +250,8 @@ void UCharacterMovementComponent::PhysicsRotation(float DeltaTime)
 	// 캐릭터는 수직을 유지한다 (UE ShouldRemainVertical): Pitch/Roll은 0, Yaw만 RotationRate로 돌린다
 	FRotator NewRotation(0.0f, FixedTurn(CurrentRotation.Yaw, DesiredRotation.Yaw, RotationRate.Yaw * DeltaTime), 0.0f);
 	if (std::abs(FMath::UnwindDegrees(NewRotation.Yaw - CurrentRotation.Yaw)) <= KINDA_SMALL_NUMBER &&
-		std::abs(CurrentRotation.Pitch) <= KINDA_SMALL_NUMBER && std::abs(CurrentRotation.Roll) <= KINDA_SMALL_NUMBER)
+		std::abs(CurrentRotation.Pitch) <= KINDA_SMALL_NUMBER
+		&& std::abs(CurrentRotation.Roll) <= KINDA_SMALL_NUMBER)
 		return;
 
 	// 위치는 그대로, 회전만 바꾼다

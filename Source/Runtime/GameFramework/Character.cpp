@@ -35,3 +35,19 @@ FVector ACharacter::GetVelocity() const
 {
 	return CharacterMovementComponent->Velocity;
 }
+
+void ACharacter::Jump()
+{
+	if (CanJump())
+		CharacterMovementComponent->DoJump();
+}
+
+bool ACharacter::CanJump() const
+{
+	return CharacterMovementComponent && CharacterMovementComponent->IsMovingOnGround();
+}
+
+bool ACharacter::IsFalling() const
+{
+	return CharacterMovementComponent && CharacterMovementComponent->IsFalling();
+}

@@ -17,4 +17,12 @@ void AMyPlayerController::InputKey(int32 Key, bool bDown)
 			MyCharacter->Attack();
 		}
 	}
+
+	if (Key == static_cast<int32>(EKeyCode::Space))
+	{
+		if (AMyCharacter* MyCharacter = Cast<AMyCharacter>(GetPawn()))
+		{
+			MyCharacter->Jump();
+		}
+	}
 }
