@@ -192,9 +192,16 @@ bool UEditorEngine::Init()
 	SequencerPanel = LevelEditorTab->AddPanel<FSequencerPanel>();
 	OutputLogPanel->SetEditorSettings(&SettingsPanel->GetMutableSettings());
 
-	UIEditorPanel = LevelEditorTab->AddPanel<FUIEditorPanel>();
-	ContentDrawerPanel->SetCreateWidgetCallback([this](const FString& Path) { UIEditorPanel->NewAsset(Path); });
-	ContentDrawerPanel->SetOpenWidgetCallback([this](const FString& Path) { UIEditorPanel->OpenAsset(Path); });
+	// 위젯 에셋은 다른 에셋처럼 EditorManager가 여는 탭에서 편집한다.
+	// 새로 만들 때는 디스크에 바로 만들어 콘텐츠 드로어에 곧장 보이도록 한 뒤 연다.
+	ContentDrawerPanel->SetCreateWidgetCallback([this](const FString& Path)
+	{
+		if (FUIEditor::CreateDefaultAsset(Path))
+		{
+			EditorManager->OpenEditor(Path);
+		}
+	});
+	ContentDrawerPanel->SetOpenWidgetCallback([this](const FString& Path) { EditorManager->OpenEditor(Path); });
 
 	// StaticMesh / SkeletalMesh Viewer 열기
 	ContentDrawerPanel->SetOpenMeshCallback([this](const FString& Path) { EditorManager->OpenEditor(Path); });
@@ -708,8 +715,6 @@ void UEditorEngine::RenderViewports()
 			}
 		}
 	}
-
-	UIEditorPanel->RenderPreview(*UIRenderer);
 }
 
 void UEditorEngine::UpdatePIEViewCamera()
@@ -1491,7 +1496,6 @@ void UEditorEngine::PreExit()
 	SequencerPanel = nullptr;
 	ViewportsPanel = nullptr;
 	ContentDrawerPanel = nullptr;
-	UIEditorPanel = nullptr;
 	OutlinerPanel = nullptr;
 	AllViewportClients.Empty();
 

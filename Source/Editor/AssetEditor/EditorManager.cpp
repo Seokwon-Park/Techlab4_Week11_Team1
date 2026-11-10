@@ -9,6 +9,7 @@
 #include "Render/SkeletalMesh.h"
 #include "Editor/AnimSequenceEditor/AnimSequenceEditor.h"
 #include "Editor/BlendSpaceEditor/BlendSpaceEditor.h"
+#include "Editor/UIEditor/UIEditor.h"
 #include "Animation/AnimSequenceFile.h"
 #include "Animation/BlendSpaceFile.h"
 
@@ -97,6 +98,21 @@ void FEditorManager::CreateEditor(const FString& AssetPath)
 			return;
 		}
 		Editors.Add(std::move(Editor));
+		return;
+	}
+
+	// 위젯 에셋은 에디터가 파일을 직접 읽는다
+	if (FUIEditor::IsWidgetPath(AssetPath))
+	{
+		TUniquePtr<FAssetEditor> Editor = MakeUnique<FUIEditor>(EditorEngine, *this, AssetPath);
+		if (!Editor->Initialize())
+		{
+			Editor->Shutdown();
+			HTR_LOG(Warning, "Widget editor initialization failed: {}", AssetPath);
+			return;
+		}
+		Editors.Add(std::move(Editor));
+		HTR_LOG(Info, "Opened asset editor: {}", AssetPath.c_str());
 		return;
 	}
 
