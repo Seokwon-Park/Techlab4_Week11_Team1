@@ -3,18 +3,15 @@
 #include "Editor/AssetEditor/AssetEditorPanel.h"
 #include "SkeletalPreviewEditor.h"
 
-class FSkeletalPreviewViewportPanel : public FAssetEditorPanel
+class FSkeletalPreviewViewportPanel : public TAssetEditorPanel<FSkeletalPreviewEditor>
 {
 public:
     explicit FSkeletalPreviewViewportPanel(FSkeletalPreviewEditor& InEditor)
-        : FAssetEditorPanel(InEditor, "Viewport")
-        , Editor(InEditor)
+        : TAssetEditorPanel<FSkeletalPreviewEditor>(InEditor, "Viewport", "AnimSequencePanel")
     {
     }
 
 protected:
     void DrawContent() override;
 
-private:
-    FSkeletalPreviewEditor& Editor;
 };

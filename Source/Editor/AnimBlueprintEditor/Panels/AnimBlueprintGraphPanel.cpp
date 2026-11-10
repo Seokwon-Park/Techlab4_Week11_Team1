@@ -5,8 +5,7 @@
 namespace NodeEditor = ax::NodeEditor;
 
 FAnimBlueprintGraphPanel::FAnimBlueprintGraphPanel(FAnimBlueprintEditor& InEditor)
-    : FAssetEditorPanel(InEditor, "AnimGraph")
-    , Editor(InEditor)
+    : TAssetEditorPanel<FAnimBlueprintEditor>(InEditor, "AnimGraph", "AnimSequencePanel")
 {
 }
 

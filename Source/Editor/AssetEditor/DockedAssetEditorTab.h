@@ -13,13 +13,13 @@ public:
     void OnRender(bool bActive) override;
 
 protected:
-    void RegisterPanel(TUniquePtr<FAssetEditorPanel> Panel);
+    void RegisterPanel(TUniquePtr<FAssetEditorPanelBase> Panel);
     virtual void BeforeRender()
     {
     }
     virtual void BuildDefaultLayout(ImGuiID InDockSpaceId, const ImVec2& Size) = 0;
 
-    TArray<TUniquePtr<FAssetEditorPanel>> Panels;
+    TArray<TUniquePtr<FAssetEditorPanelBase>> Panels;
 
 private:
     FAssetEditor& Editor;

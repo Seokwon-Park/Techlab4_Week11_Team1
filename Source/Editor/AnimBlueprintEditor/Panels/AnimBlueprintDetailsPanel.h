@@ -9,7 +9,7 @@ class FAnimBlueprintEditor;
 struct FAnimBlueprintNode;
 struct FAnimBlueprintFloatInput;
 
-class FAnimBlueprintDetailsPanel : public FAssetEditorPanel
+class FAnimBlueprintDetailsPanel : public TAssetEditorPanel<FAnimBlueprintEditor>
 {
 public:
     explicit FAnimBlueprintDetailsPanel(FAnimBlueprintEditor& InEditor);
@@ -25,8 +25,6 @@ private:
     void DrawPreviewVariables();
     void DrawTransitionDetails(FAnimBlueprintTransition& Transition);
     void DrawVariableSelector(const char* Label, FString& Name, EAnimBlueprintVariableType Type);
-
-    FAnimBlueprintEditor& Editor;
 
     std::vector<FString> AssetPaths;
     FString AssetListMessage;

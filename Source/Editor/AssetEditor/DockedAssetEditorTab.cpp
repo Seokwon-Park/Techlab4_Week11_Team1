@@ -11,7 +11,7 @@ FDockedAssetEditorTab::FDockedAssetEditorTab(FAssetEditor& InEditor, const char*
     PanelClassId = ImHashStr(PanelClassName, 0, AssetId);
 }
 
-void FDockedAssetEditorTab::RegisterPanel(TUniquePtr<FAssetEditorPanel> Panel)
+void FDockedAssetEditorTab::RegisterPanel(TUniquePtr<FAssetEditorPanelBase> Panel)
 {
     Panel->SetDockClass(PanelClassId);
     Panel->Init();

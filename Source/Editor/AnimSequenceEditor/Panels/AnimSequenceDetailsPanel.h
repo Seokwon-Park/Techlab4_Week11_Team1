@@ -3,18 +3,15 @@
 #include "Editor/AssetEditor/AssetEditorPanel.h"
 #include "Editor/AnimSequenceEditor/AnimSequenceEditor.h"
 
-class FAnimSequenceDetailsPanel : public FAssetEditorPanel
+class FAnimSequenceDetailsPanel : public TAssetEditorPanel<FAnimSequenceEditor>
 {
 public:
     explicit FAnimSequenceDetailsPanel(FAnimSequenceEditor& InEditor)
-        : FAssetEditorPanel(InEditor, "Details")
-        , Editor(InEditor)
+        : TAssetEditorPanel<FAnimSequenceEditor>(InEditor, "Details", "AnimSequencePanel")
     {
     }
 
 protected:
     void DrawContent() override;
 
-private:
-    FAnimSequenceEditor& Editor;
 };

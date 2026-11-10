@@ -4,12 +4,11 @@
 #include "Editor/BlendSpaceEditor/BlendSpaceEditor.h"
 #include <vector>
 
-class FBlendSpacePlayPanel : public FAssetEditorPanel
+class FBlendSpacePlayPanel : public TAssetEditorPanel<FBlendSpaceEditor>
 {
 public:
     explicit FBlendSpacePlayPanel(FBlendSpaceEditor& InEditor)
-        : FAssetEditorPanel(InEditor, "Preview Controls")
-        , Editor(InEditor)
+        : TAssetEditorPanel<FBlendSpaceEditor>(InEditor, "Preview Controls", "AnimSequencePanel")
     {
     }
 
@@ -17,8 +16,6 @@ protected:
     void DrawContent() override;
 
 private:
-    FBlendSpaceEditor& Editor;
-
     void DrawSamples();
     void RefreshAnimationList();
 

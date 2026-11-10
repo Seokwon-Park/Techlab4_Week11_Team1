@@ -11,8 +11,7 @@
 #include "Asset/AssetUtils.h"
 
 FAnimBlueprintDetailsPanel::FAnimBlueprintDetailsPanel(FAnimBlueprintEditor& InEditor)
-    : FAssetEditorPanel(InEditor, "Details")
-    , Editor(InEditor)
+    : TAssetEditorPanel<FAnimBlueprintEditor>(InEditor, "Details", "AnimSequencePanel")
 {
 }
 

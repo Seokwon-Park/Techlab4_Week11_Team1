@@ -9,7 +9,7 @@
 
 class FAnimBlueprintEditor;
 
-class FAnimBlueprintGraphPanel : public FAssetEditorPanel
+class FAnimBlueprintGraphPanel : public TAssetEditorPanel<FAnimBlueprintEditor>
 {
 public:
     explicit FAnimBlueprintGraphPanel(FAnimBlueprintEditor& InEditor);
@@ -40,7 +40,6 @@ private:
     void UpdateNodePositions(FAnimBlueprintGraph& Graph);
     void UpdateSelection();
 
-    FAnimBlueprintEditor& Editor;
     ax::NodeEditor::EditorContext* NodeEditorContext = nullptr;
 
     TMap<int32, FGraphView> GraphViews;
