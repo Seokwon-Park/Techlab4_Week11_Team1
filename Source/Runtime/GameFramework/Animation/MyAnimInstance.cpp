@@ -3,6 +3,16 @@
 #include "Animation/AnimSequenceFile.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFrameWork/Pawn.h"
+#include "GameFramework/Actor/MyCharacter.h"
+#include "Engine/World.h"
+#include "Collision/HitResult.h"
+
+namespace
+{
+	// Punch_Jab(30fps)에서 왼팔이 가장 뻗는 프레임 7 ≈ 0.233초
+	const FName AttackHitNotifyName("AttackHit");
+	constexpr float AttackHitNotifyTime = 7.0f / 30.0f;
+}
 
 void UMyAnimInstance::NativeInitializeAnimation()
 {
@@ -11,7 +21,12 @@ void UMyAnimInstance::NativeInitializeAnimation()
 
 	//AnimNode 설정
 	int32 Loco = StateMachine.AddState("Locomotion", &LocomotionPlayer);
-	int32 Hit = StateMachine.AddState("Hit", &HitPlayer);
+	// Hit 상태를 빠져나가는 순간 피격 플래그를 내린다
+	FAnimStateDesc HitState;
+	HitState.Name = "Hit";
+	HitState.Pose.SetLinkNode(&HitPlayer);
+	HitState.OnExit = [this](UAnimInstance*) { bIsHit = false; };
+	int32 Hit = StateMachine.AddState(HitState);
 
 	// Attack 상태를 빠져나가는 순간(정상 종료든 Hit에 끊기든) 공격 플래그를 내린다
 	FAnimStateDesc AttackState;
@@ -50,6 +65,12 @@ void UMyAnimInstance::NativeInitializeAnimation()
 	AttackPlayer.Sequence = LoadSequence(
 		"Assets/FBX/UAL1_Standard/UAL1_Standard_Armature_Punch_Jab.anim.bin");
 	AttackPlayer.bLooping = false;
+	if (AttackPlayer.Sequence)
+		AttackPlayer.Sequence->AddNotify(AttackHitNotifyTime, AttackHitNotifyName);
+
+	HitPlayer.Sequence = LoadSequence(
+		"Assets/FBX/UAL1_Standard/UAL1_Standard_Armature_Hit_Chest.anim.bin");
+	HitPlayer.bLooping = false;
 
 	StateMachine.SetInitialState(Loco);
 
@@ -74,6 +95,13 @@ void UMyAnimInstance::NativeInitializeAnimation()
 	AnyToHit.Rule = [this](const FAnimTransitionContext&) { return bIsHit; };
 	StateMachine.AddTransition(AnyToHit);
 
+	// Hit 클립이 끝나면 Locomotion으로 복귀 (OnExit에서 bIsHit = false)
+	FAnimTransitionDesc HitToLoco;
+	HitToLoco.From = Hit;
+	HitToLoco.To = Loco;
+	HitToLoco.Rule = [this](const FAnimTransitionContext&) { return HitPlayer.IsFinished(); };
+	StateMachine.AddTransition(HitToLoco);
+
 	RootNode = &StateMachine;
 }
 
@@ -87,4 +115,21 @@ void UMyAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	}
 
 	LocomotionPlayer.X = Speed;                     // UE 에서는 핀 바인딩이 대신한다
+}
+
+void UMyAnimInstance::HandleNamedNotify(const FName& NotifyName)
+{
+	if (!(NotifyName == AttackHitNotifyName)) return;
+
+	AMyCharacter* OwnerCharacter = Cast<AMyCharacter>(TryGetPawnOwner());
+	UWorld* World = OwnerCharacter ? OwnerCharacter->GetWorld() : nullptr;
+	if (!World) return;
+
+	// 몸은 이동 방향을 향하므로(bOrientRotationToMovement) 액터 전방이 주먹 방향이다
+	const FVector Forward = OwnerCharacter->GetActorRotation().Quaternion().GetForwardVector();
+	const FRay AttackRay{ OwnerCharacter->GetActorLocation() + FVector(0.0f, 0.0f, AttackHeight), Forward };
+
+	FHitResult Hit;
+	if (World->SweepSingle(AttackRay, AttackRange, AttackRadius, Hit, OwnerCharacter))
+		OwnerCharacter->DetectedHit(Hit);
 }

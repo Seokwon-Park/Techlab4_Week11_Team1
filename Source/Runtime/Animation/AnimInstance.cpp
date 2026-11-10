@@ -67,9 +67,9 @@ void UAnimInstance::TriggerAnimNotifies(float DeltaSeconds)
 		if (NotifyEvent->Notify)
 			NotifyEvent->Notify->Notify(SkeletalMeshComp, NotifyRef.Source, NotifyRef);
 
-		//TODO : 이름 만으로 호출하고 싶을 떄 HandleNamedNotify에서 구현
-		//else if (/* NotifyName이 비어 있지 않으면 */)
-		//	HandleNamedNotify(NotifyEvent->NotifyName);       // MyAnimInstance가 오버라이드
+		// 이름 기반 Notify는 파생 AnimInstance가 HandleNamedNotify에서 처리한다
+		else if (!NotifyEvent->NotifyName.IsNone())
+			HandleNamedNotify(NotifyEvent->NotifyName);
 	}
 }
 

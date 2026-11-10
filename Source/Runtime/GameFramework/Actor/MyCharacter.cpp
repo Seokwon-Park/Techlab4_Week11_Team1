@@ -7,6 +7,7 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/Animation/MyAnimInstance.h"
 #include "Components/CharacterMovementComponent.h"
+#include "Collision/HitResult.h"
 
 AMyCharacter::AMyCharacter()
 {
@@ -47,6 +48,24 @@ void AMyCharacter::Attack()
 	if (UMyAnimInstance* AnimInstance = Cast<UMyAnimInstance>(SkeletalMeshComponent->GetAnimInstance()))
 	{
 		AnimInstance->RequestAttack();
+	}
+}
+
+void AMyCharacter::DetectedHit(const FHitResult& Hit)
+{
+	AActor* HitActor = Hit.HitComponent ? Hit.HitComponent->GetOwner() : nullptr;
+	if (AMyCharacter* HitCharacter = Cast<AMyCharacter>(HitActor))
+	{
+		HTR_LOG(Info, "[Attack] {} -> {}", GetName(), HitCharacter->GetName());
+		HitCharacter->SetIsHit();
+	}
+}
+
+void AMyCharacter::SetIsHit()
+{
+	if (UMyAnimInstance* AnimInstance = Cast<UMyAnimInstance>(SkeletalMeshComponent->GetAnimInstance()))
+	{
+		AnimInstance->SetIsHit(true);
 	}
 }
 
