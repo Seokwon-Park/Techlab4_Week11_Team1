@@ -1,6 +1,7 @@
 #include "EnginePCH.h"
 #include "Editor/Details/DetailsPanel.h"
 #include "Editor/Details/PropertyEditor.h"
+#include "Core/Misc/Paths.h"
 
 #include <filesystem>
 
@@ -1134,8 +1135,13 @@ namespace
 		ImGui::AlignTextToFramePadding();
 		ImGui::TextWrapped("%s", DisplayName);
 
+		// SameLine(x)는 테이블 칸 안에서 칸 시작 위치를 한 번 더 더해 값 위젯이 칸 밖으로 밀려난다.
+		// StartX는 이미 칸 시작을 포함한 창 기준 좌표이므로 SetCursorPosX로 직접 옮긴다.
 		if (bInline)
-			ImGui::SameLine(StartX + LabelWidth);
+		{
+			ImGui::SameLine();
+			ImGui::SetCursorPosX(StartX + LabelWidth);
+		}
 
 		ImGui::SetNextItemWidth(-1.0f);
 
@@ -1265,11 +1271,12 @@ bool FDetailsPanel::Init()
 
 	io.Fonts->AddFontDefault();
 
-	const char* fontPath = "HMKMRHD.ttf";
+	// 폰트 파일은 엔진 폴더 루트에 있다. 작업 디렉터리는 프로젝트 폴더이므로 절대 경로로 연다.
+	const FString fontPath = FPaths::EngineFileUtf8("NanumSquareR.TTF");
 	float fontSize = 15.0f;
 	const ImWchar* koreanRanges = io.Fonts->GetGlyphRangesKorean();
 
-	CustomFont = io.Fonts->AddFontFromFileTTF(fontPath, fontSize, nullptr, koreanRanges);
+	CustomFont = io.Fonts->AddFontFromFileTTF(fontPath.c_str(), fontSize, nullptr, koreanRanges);
 	assert(CustomFont != nullptr);
 
 	return true;

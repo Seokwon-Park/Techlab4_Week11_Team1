@@ -5,7 +5,7 @@
 ARectLightActor::ARectLightActor()
 {
     RectLightComponent = CreateDefaultSubobject<URectLightComponent>("URectLightComponent");
-	SetupLightRoot(RectLightComponent, "Assets/Icons/Rect.png");
+	SetupLightRoot(RectLightComponent, "Engine/Icons/Rect.png");
 
     // Icon 옆에 붙어서 빛의 방향을 알려주는 기즈모 arrow (로컬 x축)
     ArrowComponent = CreateDefaultSubobject<UStaticMeshComponent>("UArrowComponent");

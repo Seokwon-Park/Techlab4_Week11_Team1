@@ -37,8 +37,8 @@ private:
 	fs::path AssetRootPath = "Assets";
 	fs::path CurrentPath = "Assets";
 
-	const FString FolderIconPath = "Assets/Icons/Folder.png";
-	const FString FileIconPath = "Assets/Icons/File.png";
+	const FString FolderIconPath = "Engine/Icons/Folder.png";
+	const FString FileIconPath = "Engine/Icons/File.png";
 
 	FBlendSpaceAssetCreator BlendSpaceCreator;
 };

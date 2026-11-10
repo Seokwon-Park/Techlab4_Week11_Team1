@@ -43,7 +43,8 @@ public:
 	static void Init(const FAssetLoadProgress& OnProgress = nullptr);
 	static void Shutdown();
 
-	void ScanAssets(const fs::path& AssetRoot, const FAssetLoadProgress& OnProgress);
+	// KeyPrefix가 있으면 키와 경로를 KeyPrefix + 상대 경로로 등록한다 (엔진 콘텐츠의 "Engine/").
+	void ScanAssets(const fs::path& AssetRoot, const FAssetLoadProgress& OnProgress, const FString& KeyPrefix = {});
 	void LoadAsset(const FString& Key, const FString& Path);
 
 	void CreateDefaultTextures();

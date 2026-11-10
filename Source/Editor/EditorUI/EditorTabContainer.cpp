@@ -1,5 +1,6 @@
 #include "EnginePCH.h"
 #include "Editor/EditorUI/EditorTabContainer.h"
+#include "Editor/EditorUI/EditorTitleBar.h"
 
 void FEditorTabContainer::AddTab(IEditorTab* Tab)
 {
@@ -242,6 +243,9 @@ void FEditorTabContainer::DrawTabMenu(IEditorTab& Tab)
 
 void FEditorTabContainer::OnRender(bool bPassthruCentralNode)
 {
+	// 창 제목 표시줄(로고, 제목, 창 버튼)을 맨 위에 먼저 그린다. 그 높이만큼 WorkPos가 내려가서 메뉴 바가 그 아래에 온다.
+	EditorTitleBar::Draw();
+
 	const ImGuiViewport* Viewport = ImGui::GetMainViewport();
 	ImGui::SetNextWindowPos(Viewport->WorkPos);
 	ImGui::SetNextWindowSize(Viewport->WorkSize);
