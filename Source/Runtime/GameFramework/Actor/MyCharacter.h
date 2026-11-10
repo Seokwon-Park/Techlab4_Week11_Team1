@@ -22,6 +22,8 @@ public:
 
 	virtual FRotator GetMovementInputRotation() const override;
 
+	void Attack();
+
 	USpringArmComponent* SpringArmComponent = nullptr;
 	UCameraComponent* CameraComponent = nullptr;
 };

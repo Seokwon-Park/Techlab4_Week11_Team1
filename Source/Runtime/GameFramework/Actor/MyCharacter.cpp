@@ -42,6 +42,14 @@ void AMyCharacter::BeginPlay()
 	SkeletalMeshComponent->SetAnimInstance(Instance);
 }
 
+void AMyCharacter::Attack()
+{
+	if (UMyAnimInstance* AnimInstance = Cast<UMyAnimInstance>(SkeletalMeshComponent->GetAnimInstance()))
+	{
+		AnimInstance->RequestAttack();
+	}
+}
+
 FRotator AMyCharacter::GetMovementInputRotation() const
 {
 	// UE 3인칭 템플릿처럼 컨트롤 회전의 Yaw만 써서 수평 이동 방향을 만든다

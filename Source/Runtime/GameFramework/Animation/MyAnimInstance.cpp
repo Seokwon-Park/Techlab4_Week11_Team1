@@ -11,8 +11,14 @@ void UMyAnimInstance::NativeInitializeAnimation()
 
 	//AnimNode 설정
 	int32 Loco = StateMachine.AddState("Locomotion", &LocomotionPlayer);
-	int32 Attack = StateMachine.AddState("Attack", &AttackPlayer);
 	int32 Hit = StateMachine.AddState("Hit", &HitPlayer);
+
+	// Attack 상태를 빠져나가는 순간(정상 종료든 Hit에 끊기든) 공격 플래그를 내린다
+	FAnimStateDesc AttackState;
+	AttackState.Name = "Attack";
+	AttackState.Pose.SetLinkNode(&AttackPlayer);
+	AttackState.OnExit = [this](UAnimInstance*) { bIsAttacking = false; };
+	int32 Attack = StateMachine.AddState(AttackState);
 
 	//TEMP : BlendSpace 생성 밎 설정
 	auto LoadSequence = [&](const char* Path) -> UAnimSequence*
@@ -41,6 +47,10 @@ void UMyAnimInstance::NativeInitializeAnimation()
 	LocomotionPlayer.BlendSpace = BlendSpace;
 	LocomotionPlayer.X = 0.f;
 
+	AttackPlayer.Sequence = LoadSequence(
+		"Assets/FBX/UAL1_Standard/UAL1_Standard_Armature_Punch_Jab.anim.bin");
+	AttackPlayer.bLooping = false;
+
 	StateMachine.SetInitialState(Loco);
 
 	FAnimTransitionDesc LocoToAttack;
@@ -52,7 +62,7 @@ void UMyAnimInstance::NativeInitializeAnimation()
 	FAnimTransitionDesc AttackToLoco;
 	AttackToLoco.From = Attack;
 	AttackToLoco.To = Loco;
-	AttackToLoco.Rule = [this](const FAnimTransitionContext& Context) {  return Context.StateElapsedTime >= 0.8f; };
+	AttackToLoco.Rule = [this](const FAnimTransitionContext&) { return AttackPlayer.IsFinished(); };
 	StateMachine.AddTransition(AttackToLoco);
 
 	//AnyTransition으로 Hit 추가
