@@ -28,6 +28,44 @@ FGuid UAnimSequenceBase::AddNotify(float Time, const FName& NotifyName, float Du
     return AddNotifyEvent(Time, Duration, NewEvent);
 }
 
+UObject* UAnimSequenceBase::AddNotifyOfClass(UClass* NotifyClass, float Time, float Duration, FGuid* OutGuid)
+{
+    if (!NotifyClass)
+    {
+        return nullptr;
+    }
+
+    const bool bIsState = NotifyClass->IsChildOf(UAnimNotifyState::StaticClass());
+    if (!bIsState && !NotifyClass->IsChildOf(UAnimNotify::StaticClass()))
+    {
+        return nullptr;
+    }
+
+    UObject* NotifyObject = NewObject<UObject>(this, NotifyClass);
+    if (!NotifyObject)
+    {
+        return nullptr;
+    }
+
+    FAnimNotifyEvent NewEvent;
+    if (bIsState)
+    {
+        NewEvent.NotifyStateClass = static_cast<UAnimNotifyState*>(NotifyObject);
+    }
+    else
+    {
+        NewEvent.Notify = static_cast<UAnimNotify*>(NotifyObject);
+        Duration = 0.f;   // 단발 Notify에 Duration을 주면 구간 동안 매 프레임 불리므로 막는다
+    }
+
+    const FGuid NewGuid = AddNotifyEvent(Time, Duration, NewEvent);
+    if (OutGuid)
+    {
+        *OutGuid = NewGuid;
+    }
+    return NotifyObject;
+}
+
 FGuid UAnimSequenceBase::AddNotifyEvent(float Time, float Duration, FAnimNotifyEvent& NewEvent)
 {
     NewEvent.TriggerTime = ClampNotifyTime(Time);

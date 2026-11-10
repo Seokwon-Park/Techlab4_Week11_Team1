@@ -8,6 +8,7 @@
 #include "GameFramework/Animation/MyAnimInstance.h"
 #include "Components/CharacterMovementComponent.h"
 #include "Collision/HitResult.h"
+#include "Animation/AnimGraphInstance.h"
 
 AMyCharacter::AMyCharacter()
 {
@@ -37,17 +38,28 @@ AMyCharacter::AMyCharacter()
 
 void AMyCharacter::BeginPlay()
 {
+	// Super::BeginPlay 안에서 Lua BeginPlay가 돈다. 스크립트가 AnimGraph를 만들었으면 그대로 쓴다.
 	Super::BeginPlay();
 
-	UMyAnimInstance* Instance = NewObject<UMyAnimInstance>(SkeletalMeshComponent);
-	SkeletalMeshComponent->SetAnimInstance(Instance);
+	if (!Cast<UAnimGraphInstance>(SkeletalMeshComponent->GetAnimInstance()))
+	{
+		UMyAnimInstance* Instance = NewObject<UMyAnimInstance>(SkeletalMeshComponent);
+		SkeletalMeshComponent->SetAnimInstance(Instance);
+	}
 }
 
 void AMyCharacter::Attack()
 {
-	if (UMyAnimInstance* AnimInstance = Cast<UMyAnimInstance>(SkeletalMeshComponent->GetAnimInstance()))
+	UAnimInstance* AnimInstance = SkeletalMeshComponent->GetAnimInstance();
+	if (UMyAnimInstance* MyInstance = Cast<UMyAnimInstance>(AnimInstance))
 	{
-		AnimInstance->RequestAttack();
+		MyInstance->RequestAttack();
+	}
+	// Lua AnimGraph: 공격 중이면 무시, false 복귀는 그래프(Attack 상태 OnExit)가 맡는다
+	else if (UAnimGraphInstance* Graph = Cast<UAnimGraphInstance>(AnimInstance))
+	{
+		if (!Graph->GetBool(AttackingVariable))
+			Graph->SetBool(AttackingVariable, true);
 	}
 }
 
@@ -63,9 +75,14 @@ void AMyCharacter::DetectedHit(const FHitResult& Hit)
 
 void AMyCharacter::SetIsHit()
 {
-	if (UMyAnimInstance* AnimInstance = Cast<UMyAnimInstance>(SkeletalMeshComponent->GetAnimInstance()))
+	UAnimInstance* AnimInstance = SkeletalMeshComponent->GetAnimInstance();
+	if (UMyAnimInstance* MyInstance = Cast<UMyAnimInstance>(AnimInstance))
 	{
-		AnimInstance->SetIsHit(true);
+		MyInstance->SetIsHit(true);
+	}
+	else if (UAnimGraphInstance* Graph = Cast<UAnimGraphInstance>(AnimInstance))
+	{
+		Graph->SetBool(HitVariable, true);
 	}
 }
 

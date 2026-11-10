@@ -33,12 +33,20 @@ public:
 
 	void AddNotifies(const TArray<FAnimNotifyEventReference>& ActiveNotifies, const float Weight);
 
+	// 이름 기반 NotifyState(UAnimNotifyState_Named)가 부른다. 파생 AnimInstance가 이름으로 처리한다.
+	virtual void HandleNamedNotifyStateBegin(const FName& NotifyName, float TotalDuration) {}
+	virtual void HandleNamedNotifyStateTick(const FName& NotifyName, float DeltaTime) {}
+	virtual void HandleNamedNotifyStateEnd(const FName& NotifyName) {}
+
 protected:
 	virtual void NativeInitializeAnimation() {}
 	virtual void NativeUpdateAnimation(float DeltaSeconds) {}
 	virtual void NativeUninitializeAnimation() {}
 	// 클래스 없이 이름만 있는 Notify(FAnimNotifyEvent::NotifyName)를 받는다
 	virtual void HandleNamedNotify(const FName& NotifyName) {}
+
+	// 진행 중인 NotifyState에 End를 보내고 비운다. 시퀀스를 지우기 전에 불러야 한다.
+	void EndAllAnimNotifyStates();
 
 protected:
 	FAnimNode_Base* RootNode = nullptr;
@@ -49,6 +57,4 @@ private:
 	// 이번 프레임 큐와 비교해 새로 들어온 것은 Begin, 사라진 것은 End를 보낸다 (UE ActiveAnimNotifyState).
 	// 주의: 시퀀스의 Notify 배열 원소를 포인터로 가리키므로 재생 중에 시퀀스 Notify를 편집하면 안 된다.
 	TArray<FAnimNotifyEventReference> ActiveAnimNotifyStates;
-
-	void EndAllAnimNotifyStates();
 };

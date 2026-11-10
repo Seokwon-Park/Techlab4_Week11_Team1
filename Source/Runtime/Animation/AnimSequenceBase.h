@@ -64,6 +64,10 @@ public:
 		return NotifyObject;
 	}
 
+	// 클래스 기반 Notify를 UClass로 추가 (Lua, 노드 에디터처럼 타입을 런타임에 고르는 곳용).
+	// UAnimNotify 또는 UAnimNotifyState 파생이 아니면 nullptr. 파라미터는 리플렉션으로 채운다.
+	UObject* AddNotifyOfClass(UClass* NotifyClass, float Time, float Duration = 0.f, FGuid* OutGuid = nullptr);
+
 	// 시간 변경 (타임라인에서 드래그). 범위를 제한하고 다시 정렬한다.
 	bool SetNotifyTriggerTime(const FGuid& NotifyGuid, float Time);
 	// 이 가중치 이상으로 블렌드될 때만 발동한다 (BlendSpace에서 우세한 샘플만 울리게 할 때)

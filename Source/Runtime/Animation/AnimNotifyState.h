@@ -17,3 +17,18 @@ public:
 	virtual void NotifyTick(USkeletalMeshComponent* MeshComp, const UAnimSequenceBase* Animation, float FrameDeltaTime, const FAnimNotifyEventReference& EventReference){}
 	virtual void NotifyEnd(USkeletalMeshComponent* MeshComp, const UAnimSequenceBase* Animation, const FAnimNotifyEventReference& EventReference){}
 };
+
+// 클래스를 따로 만들지 않고 이름으로 받는 NotifyState.
+// Begin/Tick/End를 메시의 AnimInstance::HandleNamedNotifyState*로 넘긴다 (Lua, AnimGraph에서 쓴다).
+UCLASS()
+class UAnimNotifyState_Named : public UAnimNotifyState
+{
+	GENERATED_BODY()
+public:
+	UPROPERTY(EditAnywhere)
+	FString NotifyName;
+
+	virtual void NotifyBegin(USkeletalMeshComponent* MeshComp, const UAnimSequenceBase* Animation, float TotalDuration, const FAnimNotifyEventReference& EventReference) override;
+	virtual void NotifyTick(USkeletalMeshComponent* MeshComp, const UAnimSequenceBase* Animation, float FrameDeltaTime, const FAnimNotifyEventReference& EventReference) override;
+	virtual void NotifyEnd(USkeletalMeshComponent* MeshComp, const UAnimSequenceBase* Animation, const FAnimNotifyEventReference& EventReference) override;
+};
