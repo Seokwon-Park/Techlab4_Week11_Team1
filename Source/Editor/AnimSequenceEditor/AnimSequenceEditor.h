@@ -23,7 +23,21 @@ public:
     float GetFrameRate() const;
     int32 GetNumFrames() const;
     UAnimSequence* GetSequence() const { return Sequence; }
-    
+
+    // Notify 선택 (타임라인과 디테일 패널이 공유). 배열 Index는 정렬마다 바뀌므로 Guid로 가리킨다.
+    const FGuid& GetSelectedNotify() const { return SelectedNotify; }
+    void SelectNotify(const FGuid& Guid) { SelectedNotify = Guid; }
+    void ClearNotifySelection() { SelectedNotify.Invalidate(); }
+    // 선택한 Notify가 지워졌으면 nullptr. 편집 함수를 부른 뒤에는 포인터가 바뀔 수 있으니 다시 받는다.
+    const FAnimNotifyEvent* GetSelectedNotifyEvent() const
+    {
+        return (Sequence && SelectedNotify.IsValid()) ? Sequence->FindNotify(SelectedNotify) : nullptr;
+    }
+
+    // 저장하지 않은 Notify 편집이 있는지 (저장 UI 단계에서 쓴다)
+    void MarkNotifiesDirty() { bNotifiesDirty = true; }
+    bool HasUnsavedNotifyChanges() const { return bNotifiesDirty; }
+
     bool  bLooping = true;
     float PlayRate = 1.0f;
 
@@ -42,4 +56,7 @@ private:
     float CurrentTime = 0.0f;
     bool  bPlaying = true;            
     bool  bPoseDirty = true;
+
+    FGuid SelectedNotify;
+    bool  bNotifiesDirty = false;
 };

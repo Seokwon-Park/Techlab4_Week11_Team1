@@ -27,6 +27,9 @@ struct FAnimNotifyEvent
 
     float TriggerWeightThreshold = 0.f;   // 가중치 필터
 
+    // 타임라인에서 몇 번째 줄에 그릴지 (UE FAnimNotifyEvent::TrackIndex). 재생에는 영향이 없다.
+    int32 TrackIndex = 0;
+
     // 타임라인 UI가 Notify를 가리키는 식별자 (UE의 FAnimNotifyEvent::Guid).
     // 배열 Index는 추가/삭제/정렬마다 바뀌므로 Index 대신 이 값을 쓴다.
     FGuid Guid;

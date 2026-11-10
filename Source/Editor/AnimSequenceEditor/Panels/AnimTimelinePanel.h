@@ -15,6 +15,8 @@ protected:
 private:
     void DrawTransport();
     void DrawTrack();
+    // 눈금자 아래 Notify 트랙들. 그린 높이를 돌려준다.
+    float DrawNotifyTracks(const ImVec2& TracksOrigin, float Width, float PixelsPerSecond);
 
     bool bWasPlayingBeforeScrub = false;
 };

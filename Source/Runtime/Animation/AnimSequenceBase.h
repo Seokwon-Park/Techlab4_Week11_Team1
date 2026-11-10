@@ -70,8 +70,13 @@ public:
 
 	// 시간 변경 (타임라인에서 드래그). 범위를 제한하고 다시 정렬한다.
 	bool SetNotifyTriggerTime(const FGuid& NotifyGuid, float Time);
+	// 길이 변경 (NotifyState 끝 핸들 드래그). 단발 Notify(Notify 객체/이름 기반)는 0으로 유지된다.
+	bool SetNotifyDuration(const FGuid& NotifyGuid, float Duration);
 	// 이 가중치 이상으로 블렌드될 때만 발동한다 (BlendSpace에서 우세한 샘플만 울리게 할 때)
 	bool SetNotifyTriggerWeightThreshold(const FGuid& NotifyGuid, float Threshold);
+	bool SetNotifyTrackIndex(const FGuid& NotifyGuid, int32 TrackIndex);
+	// 이름 기반 Notify의 이름 (클래스 Notify는 HandleNamedNotify로 가지 않으므로 표시용일 뿐이다)
+	bool SetNotifyName(const FGuid& NotifyGuid, const FName& NotifyName);
 
 	bool RemoveNotify(const FGuid& NotifyGuid);
 	int32 RemoveNotifies(const TArray<FGuid>& NotifyGuids);   // 다중 선택 삭제, 삭제한 개수 반환
@@ -88,6 +93,16 @@ private:
 	void RemoveNotifyAt(int32 Index);   // 소유한 Notify 객체를 delete하고 순서를 유지한 채 제거
 
 protected:
+	// .anim.bin v3 Notify 섹션.
+	// 저장: AnimNotifies를 쓴다 (OutLoaded는 쓰지 않음).
+	// 불러오기: OutLoaded에 담기만 한다. DataModel이 아직 없어 시간 범위를 확인할 수 없으므로
+	//          Initialize 뒤에 ReplaceNotifies로 넣는다. 실패하면 OutLoaded의 객체는 호출한 쪽이 DeleteNotifyObjects로 지운다.
+	void SerializeNotifyEvents(FArchive& Ar, TArray<FAnimNotifyEvent>& OutLoaded);
+
+	// 기존 Notify(객체 포함)를 지우고 Events로 바꾼다. 시간/길이를 다시 자르고 정렬한다.
+	void ReplaceNotifies(TArray<FAnimNotifyEvent>&& Events);
+	static void DeleteNotifyObjects(TArray<FAnimNotifyEvent>& Events);
+
 	void InitializeDataModel(
 		TArray<FBoneAnimationTrack> Tracks, FFrameRate FrameRate, float PlayLength)
 	{
