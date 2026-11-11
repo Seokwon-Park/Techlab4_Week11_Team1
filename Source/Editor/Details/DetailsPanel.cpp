@@ -22,7 +22,6 @@
 
 #include "Components/RotatingMovementComponent.h"
 #include "Components/ProjectileMovementComponent.h"
-#include "Components/FireBallComponent.h"
 
 #include "Animation/AnimSingleNodeInstance.h"
 #include "Animation/AnimSequence.h"

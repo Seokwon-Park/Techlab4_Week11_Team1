@@ -4,7 +4,6 @@
 #include "Camera/PlayerCameraManager.h" 
 #include "Engine/World.h"               
 #include "Camera/CameraShakeBase.h"
-#include "Curves/CurveFloat.h"
 #include <cstring>
 
 APlayerController::APlayerController()
@@ -75,17 +74,6 @@ void APlayerController::InputKey(int32 Key, bool bDown)
 		auto* Settings = static_cast<UCameraShakeBase*>(
 			ShakeClass->GetDefaultObject());
 
-		UCurveFloat* TestFOVCurve = nullptr;
-
-
-		if (!TestFOVCurve)
-		{
-			TestFOVCurve = NewObject<UCurveFloat>(this);
-			TestFOVCurve->AddKey(0.0f, 0.0f);
-			TestFOVCurve->AddKey(0.15f, 1.0f);
-			TestFOVCurve->AddKey(1.0f, 0.0f);
-		}
-
 		if (!Settings) return;
 
 		// 새 Shake를 생성할 때 복사할 테스트용 기본 설정.
@@ -101,7 +89,6 @@ void APlayerController::InputKey(int32 Key, bool bDown)
 
 		// 이전 테스트를 끊고 새로 실행한다.
 		PlayerCameraManager->StopAllCameraShakes(true);
-		PlayerCameraManager->PlayFOVPunch(TestFOVCurve, 1.0f, 15.0f);
 		PlayerCameraManager->StartCameraShake(ShakeClass, 1.0f);
 
 	}

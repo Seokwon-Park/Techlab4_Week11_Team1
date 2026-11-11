@@ -4,8 +4,6 @@
 #include <sol/sol.hpp>
 
 #include "Components/MovementComponent.h"
-#include "Components/SlidingMovementComponent.h"
-#include "Components/IceVolumeComponent.h"
 #include "Components/PrimitiveComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/ParticleSubUVComponent.h"
@@ -217,13 +215,6 @@ namespace
 		return nullptr;
 	}
 
-	USlidingMovementComponent& SlidingMovement(const FLuaActorRef& Ref)
-	{
-		for (UActorComponent* Comp : Deref(Ref).GetComponents())
-			if (auto* Movement = Cast<USlidingMovementComponent>(Comp)) return *Movement;
-		throw sol::error("Actor does not have a SlidingMovementComponent.");
-	}
-
 	UParticleSubUVComponent& ParticleComponent(const FLuaActorRef& Ref)
 	{
 		for (UActorComponent* Comp : Deref(Ref).GetComponents())
@@ -302,69 +293,6 @@ namespace
 				for (int32 Index = 0; Index < Actors.Num(); ++Index)
 					Result[Index + 1] = FLuaActorRef::Make(Actors[Index]);
 				return Result;
-			},
-			"GetIceType", [](const FLuaActorRef& Ref) -> sol::optional<FString>
-			{
-				for (UActorComponent* Component : Deref(Ref).GetComponents())
-				{
-					if (!Component || !Component->IsRegistered())
-						continue;
-
-					if (auto* Ice = Cast<UIceVolumeComponent>(Component))
-					{
-						return Ice->GetIceType();
-					}
-				}
-				return sol::nullopt;
-			},
-			"GetOverlappingIceType", [](const FLuaActorRef& Ref) -> sol::optional<FString>
-			{
-				AActor& Actor = Deref(Ref);
-
-				for (UActorComponent* Component : Actor.GetComponents())
-				{
-					auto* Primitive = Cast<UPrimitiveComponent>(Component);
-					if (!Primitive || !Primitive->IsRegistered())
-						continue;
-
-					// OverlapInfos는 들어간 순서로 쌓인다. 두 빙판 경계에 걸쳐 있을 때 막 들어간 빙판을 따르도록 뒤에서부터 본다.
-					const auto& Infos = Primitive->GetOverlapInfos();
-					for (int32 Index = Infos.Num() - 1; Index >= 0; --Index)
-					{
-						auto* OtherComp = Infos[Index].OtherComp;
-						if (!OtherComp || !OtherComp->IsRegistered())
-							continue;
-
-						AActor* OtherActor = OtherComp->GetOwner();
-						if (!OtherActor ||
-							OtherActor == &Actor ||
-							OtherActor->GetWorld() != Actor.GetWorld())
-						{
-							continue;
-						}
-
-						if (auto* Ice = Cast<UIceVolumeComponent>(OtherComp))
-						{
-							return Ice->GetIceType();
-						}
-					}
-				}
-				return sol::nullopt;
-			},
-			"IsOnIce", sol::property([](const FLuaActorRef& Ref) { return SlidingMovement(Ref).IsOnIce(); }),
-			"SetOnIce", [](const FLuaActorRef& Ref, bool bOnIce) { SlidingMovement(Ref).SetOnIce(bOnIce); },
-			"IsMovementEnabled", sol::property([](const FLuaActorRef& Ref) { return SlidingMovement(Ref).IsMovementEnabled(); }),
-			"SetMovementEnabled", [](const FLuaActorRef& Ref, bool bEnabled) { SlidingMovement(Ref).SetMovementEnabled(bEnabled); },
-			"ResetMovement", [](const FLuaActorRef& Ref) { SlidingMovement(Ref).ResetMovement(); },
-			"SetMoveInput", [](const FLuaActorRef& Ref, const FVector& Direction) { SlidingMovement(Ref).SetMoveInput(Direction); },
-			"GetSteeringDirection", [](const FLuaActorRef& Ref) { return SlidingMovement(Ref).GetSteeringDirection(); },
-			"SetMoveSpeed", [](const FLuaActorRef& Ref, float MoveSpeed)
-			{
-				SlidingMovement(Ref).MoveSpeed = MoveSpeed;
-			},
-			"GetMoveSpeed", [](const FLuaActorRef& Ref)
-			{
-				return SlidingMovement(Ref).MoveSpeed;
 			},
 			"SetParticleTexture", [](const FLuaActorRef& Ref, const FString& Path) { return ParticleComponent(Ref).SetParticleTexture(Path); },
 			"SetSubUVSize", [](const FLuaActorRef& Ref, int32 Cols, int32 Rows)
@@ -905,36 +833,6 @@ namespace
 				{
 					PCM->StopAllCameraShakes(bImmediately);
 				}
-			});
-
-		Lua.set_function("PlayFOVPunch",
-			[](sol::this_environment Env,
-				float Strength,
-				float InTime,
-				float HoldTime,
-				float OutTime) -> bool
-			{
-				UWorld* World = WorldFromEnv(Env, "PlayFOVPunch");
-				APlayerController* PC = World->GetPlayerController();
-				APlayerCameraManager* PCM =
-					PC ? PC->GetCameraManager() : nullptr;
-
-				if (!PCM) return false;
-
-				return PCM->PlayFOVPunch(
-					Strength, InTime, HoldTime, OutTime) != nullptr;
-			});
-
-		Lua.set_function("StopFOVPunch",
-			[](sol::this_environment Env)
-			{
-				UWorld* World = WorldFromEnv(Env, "StopFOVPunch");
-				APlayerController* PC = World->GetPlayerController();
-				APlayerCameraManager* PCM =
-					PC ? PC->GetCameraManager() : nullptr;
-
-				if (PCM)
-					PCM->StopFOVPunch(true);
 			});
 	}
 

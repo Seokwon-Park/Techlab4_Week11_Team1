@@ -11,13 +11,9 @@
 #include "GameFramework/Actor/RectLightActor.h"
 #include "GameFramework/Actor/SkyLightActor.h"
 #include "GameFramework/Actor/DecalActor.h"
-#include "GameFramework/Actor/FakeSpotLightActor.h"
 #include "GameFramework/Actor/TextRenderActor.h"
 #include "LevelSequence/LevelSequenceActor.h"
 #include "GameFramework/Actor/ExponentialHeightFogActor.h"
-#include "GameFramework/Actor/FireBallActor.h"
-#include "GameFramework/Actor/ProjectileActor.h"
-#include "GameFramework/Actor/ScoreboardManager.h"
 #include "GameFramework/Character.h"
 class FViewportsPanel;
 
@@ -42,7 +38,7 @@ public:
 
 	int32 SelectedIndex = 0;
 
-	const char* Items[8] = {"StaticMesh", "Particle", "Text", "HeightFog", "FireBall", "Projectile", "ScoreboardManager", "Character" };
+	const char* Items[5] = {"StaticMesh", "Particle", "Text", "HeightFog", "Character" };
 
 	FGizmo* Gizmo = nullptr;
 	int32 GizmoSelectedIndex = 0;
@@ -57,9 +53,6 @@ public:
 		AParticleActor::StaticClass(),
 		ATextRenderActor::StaticClass(),
 		AExponentialHeightFogActor::StaticClass(),
-		AFireBallActor::StaticClass(),
-		AProjectileActor::StaticClass(),
-		AScoreboardManager::StaticClass(),
 		ACharacter::StaticClass(),
 		ALevelSequenceActor::StaticClass(),
 	};

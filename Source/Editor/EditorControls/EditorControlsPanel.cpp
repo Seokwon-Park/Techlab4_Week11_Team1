@@ -111,8 +111,6 @@ void FEditorControlsPanel::OnRender()
 	ImGui::SameLine();
 	if (ImGui::Button("Decal"))
 		World->SpawnActor(ADecalActor::StaticClass());
-	if (ImGui::Button("Fake Spot"))
-		World->SpawnActor(AFakeSpotLightActor::StaticClass());
 
 	ImGui::Dummy(ImVec2(0.0f, SubsectionGap));
 	ImGui::SeparatorText("Skeletal Mesh");
