@@ -653,6 +653,10 @@ void UEditorEngine::TickWorldAndEditor(const float DeltaTime)
 		SCOPE_CYCLE_COUNTER(STAT_EditorTick);
 		EditorManager->Tick(DeltaTime);
 	}
+	// SIE 화면은 게임 뷰포트의 SIE 카메라로 그려진다. 피킹과 기즈모 조작은 에디터 뷰포트 클라이언트의
+	// 카메라로 Ray를 만들므로, 그 전에 PIE View의 카메라를 SIE 카메라에 맞춘다.
+	if (IsSimulatingInEditor())
+		UpdatePIEViewCamera();
 	UpdateGizmoAndPicking();
 	EditorWorld->GetScene().UpdateAllTransforms();
 	if (PlayWorld && bIsPaused)
