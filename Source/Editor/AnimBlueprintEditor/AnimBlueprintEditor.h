@@ -36,6 +36,10 @@ public:
 
     const FAnimBlueprintData& GetBlueprintData() const { return BlueprintData; }
 
+    // Class Defaults (Unreal AnimBP Class Defaults > Root Motion). 바꾸면 저장 안 됨 표시가 뜨고 Save로 .animblueprint에 저장된다
+    ERootMotionMode GetRootMotionMode() const { return BlueprintData.RootMotionMode; }
+    void SetRootMotionMode(ERootMotionMode Mode) { BlueprintData.RootMotionMode = Mode; }
+
     void SelectNode(int32 NodeId);
     int32 AddSequencePlayer(const FAnimBlueprintPosition& Position);
     int32 AddPoseNode(EAnimBlueprintNodeType Type, const FAnimBlueprintPosition& Position);
@@ -95,6 +99,14 @@ private:
     
     bool ApplyPreview();
     bool SetPreviewError(int32 NodeId, const FString& Message);
+
+    // 루트 모션 미리보기 (Unreal 미리보기 Process Root Motion = Loop)
+    // 게임에서는 CharacterMovement가 가져가는 이동량을 여기서 가져가 미리보기 메시를 옮긴다.
+    // 상태 머신·블렌드가 섞이므로 시간으로 계산하지 않고 프레임마다 누적한다
+    void ApplyPreviewRootMotion();
+    void ResetPreviewRootMotion();
+    FTransform PreviewBaseTransform;   // 루트 모션을 적용하기 전 메시 위치 (리셋 위치)
+    bool bHasPreviewBase = false;
 
     FAnimBlueprintData BlueprintData;
 

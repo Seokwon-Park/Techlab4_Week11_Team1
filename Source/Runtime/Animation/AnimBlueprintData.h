@@ -3,6 +3,7 @@
 #include "Core/EngineString.h"
 #include "Math/MathUtility.h"
 #include "Containers/Array.h"
+#include "Animation/AnimInstance.h"   // ERootMotionMode
 
 // Version 1 files store enum values. Append new values instead of reordering them.
 enum class EAnimBlueprintGraphType : uint8
@@ -137,6 +138,9 @@ struct FAnimBlueprintVariable
 struct FAnimBlueprintData
 {
     FString PreviewMeshPath;
+
+    // Unreal AnimBP Class Defaults > Root Motion > Root Motion Mode. 빌드한 AnimInstance에 넣는다
+    ERootMotionMode RootMotionMode = ERootMotionMode::RootMotionFromEverything;
 
     int32 RootGraphId = INDEX_NONE;
     int32 NextId = 1;

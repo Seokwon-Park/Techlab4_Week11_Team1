@@ -39,7 +39,9 @@ public:
     // 편집한 곳은 MarkNotifiesDirty를 부르고, 마우스를 놓은 뒤 CommitNotifyUndo가 실행 취소 단계 하나로 묶는다.
     void MarkNotifiesDirty() { bNotifiesDirty = true; bUndoCommitPending = true; }
     bool HasUnsavedNotifyChanges() const { return bNotifiesDirty; }
-    bool IsDirty() const override { return bNotifiesDirty; }
+    // Notify 또는 Root Motion 설정(Enable / Root Lock / Force)이 저장된 값과 다르면 dirty (Unreal은 에셋 프로퍼티를 바꾸면 dirty)
+    bool IsDirty() const override { return bNotifiesDirty || HasUnsavedRootMotionChanges(); }
+    bool HasUnsavedRootMotionChanges() const;
 
     // .anim.bin(v3)에 덮어쓴다. 임시 파일에 먼저 써서 실패해도 원본이 깨지지 않는다.
     bool Save();
@@ -87,8 +89,25 @@ private:
     bool  bPlaying = true;            
     bool  bPoseDirty = true;
 
+    // 루트 모션 미리보기 (Unreal 뷰어 Process Root Motion = LoopAndReset)
+    // root는 포즈에서 고정되고, 그만큼 미리보기 메시 컴포넌트를 옮긴다. 루프하면 처음 위치로 돌아간다
+    void ApplyPreviewRootMotion();
+    FTransform PreviewBaseTransform;   // 루트 모션을 적용하기 전 메시 컴포넌트 위치
+    bool  bHasPreviewBase = false;
+
     FGuid SelectedNotify;
     bool  bNotifiesDirty = false;
+
+    // 마지막으로 저장(또는 열기·되돌리기)했을 때의 Root Motion 설정. 지금 값과 비교해 dirty를 판단한다
+    struct FRootMotionSettings
+    {
+        bool bEnableRootMotion = false;
+        bool bForceRootLock = false;
+        uint8 RootLock = 0;
+        bool operator==(const FRootMotionSettings& Other) const = default;
+    };
+    FRootMotionSettings CaptureRootMotionSettings() const;
+    FRootMotionSettings SavedRootMotionSettings;
 
     FString SaveMessage;
     bool  bUnsavedPromptRequested = false;

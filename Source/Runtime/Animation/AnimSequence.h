@@ -9,7 +9,6 @@
 extern bool GDebugSkipRootLock;
 
 // Unreal ERootMotionRootLock: root를 고정할 때 어느 위치에 고정할지.
-// TODO: 아직 기능 연결 안 됨. GetAnimationPose는 항상 AnimFirstFrame으로 고정한다
 UENUM()
 enum class ERootMotionRootLock : uint8
 {
@@ -40,7 +39,7 @@ public:
 	void GetAnimationPose(float Time, FCompactPose& OutPose, const TArray<FBoneInfo>& RefSkeleton, bool bExtractRootMotion = true) const;
 	const FString& GetClipName() const { return ClipName; }
 
-	// 루트 모션 설정. .anim.bin(Version 4)에 저장된다. 뷰어 Details에서 바꾸고 Save로 저장한다
+	// 루트 모션 설정. .anim.bin(Version 5)에 저장된다. 뷰어 Details에서 바꾸고 Save로 저장한다
 	bool GetEnableRootMotion() const { return bEnableRootMotion; }
 	void SetEnableRootMotion(bool bEnable) { bEnableRootMotion = bEnable; }
 	bool GetForceRootLock() const { return bForceRootLock; }
@@ -62,6 +61,6 @@ private:
 
 	FString ClipName;
 	bool bEnableRootMotion = false;  // 켜면 root 이동을 추출해 Actor 이동으로 넘긴다
-	bool bForceRootLock = false;     // 켜면 루트 모션이 꺼져 있어도 root를 첫 Key에 고정한다 (Actor 이동 없음)
-	ERootMotionRootLock RootMotionRootLock = ERootMotionRootLock::AnimFirstFrame;  // UI만 있음 (저장·기능 X)
+	bool bForceRootLock = false;     // 루트 모션 추출 여부와 관계없이 선택한 기준으로 root를 고정한다
+	ERootMotionRootLock RootMotionRootLock = ERootMotionRootLock::AnimFirstFrame;
 };

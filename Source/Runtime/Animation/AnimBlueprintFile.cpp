@@ -200,6 +200,7 @@ namespace
         Root["Format"] = "HitoriAnimBlueprint";
         Root["Version"] = FileVersion;
         Root["PreviewMeshPath"] = Data.PreviewMeshPath;
+        Root["RootMotionMode"] = static_cast<int32>(Data.RootMotionMode);
         Root["RootGraphId"] = Data.RootGraphId;
         Root["NextId"] = Data.NextId;
         Root["Variables"] = json::array();
@@ -253,6 +254,11 @@ namespace
 
         FAnimBlueprintData Data;
         Data.PreviewMeshPath = Root.at("PreviewMeshPath").get<FString>();
+        // 없으면 기본값 (이 필드가 생기기 전 파일)
+        if (Root.contains("RootMotionMode"))
+        {
+            Data.RootMotionMode = ReadEnum<ERootMotionMode>(Root, "RootMotionMode", static_cast<int32>(ERootMotionMode::RootMotionFromEverything));
+        }
         Data.RootGraphId = ReadInt(Root, "RootGraphId");
         Data.NextId = ReadInt(Root, "NextId");
 

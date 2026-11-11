@@ -4,11 +4,10 @@
 #include "Animation/AnimInstance.h"
 #include "RootMotionTestCharacter.generated.h"
 
-class UAnimSequence;
 class UTextRenderComponent;
 
-// TEMP: 루트 모션 시연용 캐릭터. RM 클립 하나를 루프 재생하고, bUseRootMotion으로 ON/OFF를 비교한다.
-// 시퀀스는 AssetManager 캐시를 공유한다. 루트 모션 설정(Enable / Force Root Lock)은 시퀀스 에셋에 저장된 값을 쓴다.
+// TEMP: 루트 모션 시연용 캐릭터. 메시와 애니메이션은 SkeletalMeshComponent에 지정한 AnimBP(.animblueprint)가 정한다.
+// Root Motion Mode도 AnimBP Class Defaults에 저장된 값을 쓴다 (Unreal과 같음). 머리 위 라벨은 그 모드 이름이다.
 UCLASS()
 class ARootMotionTestCharacter : public ACharacter
 {
@@ -16,22 +15,12 @@ class ARootMotionTestCharacter : public ACharacter
 
 public:
 	ARootMotionTestCharacter();
-	void BeginPlay() override;
 	void Tick(float DeltaTime) override;
 
-	// 이 캐릭터 AnimInstance의 Root Motion Mode. BeginPlay에서 SetRootMotionMode로 넣는다
-	// (시퀀스의 Enable Root Motion / Force Root Lock은 뷰어에서 설정·저장한다)
-	UPROPERTY(EditAnywhere)
-	ERootMotionMode RootMotionMode = ERootMotionMode::RootMotionFromEverything;
-
-	UPROPERTY(EditAnywhere)
-	FString MeshPath = "Assets/FBX/UAL2_Standard_RM/UAL2_Standard_RM.fbx.bin";
-
-	UPROPERTY(EditAnywhere)
-	FString AnimationPath = "Assets/FBX/UAL2_Standard_RM/UAL2_Standard_RM_Armature_Zombie_Walk_Fwd_Loop.anim.bin";
-
 private:
-	UAnimSequence* Sequence = nullptr;
-	UTextRenderComponent* LabelComponent = nullptr;  // 머리 위 "Root Motion ON/OFF" 표시
+	void UpdateModeLabel();
+
+	UTextRenderComponent* LabelComponent = nullptr;      // 머리 위 Root Motion Mode 이름
 	UTextRenderComponent* RootLabelComponent = nullptr;  // root 본을 따라다니는 "root" 표시
+	int32 ShownMode = -1;                                // 라벨에 마지막으로 쓴 모드 (바뀔 때만 SetText)
 };

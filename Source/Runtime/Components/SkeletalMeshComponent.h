@@ -66,6 +66,9 @@ public:
 	bool HasPendingRootMotion() const { return bHasPendingRootMotion; }
 	FTransform ConsumeRootMotion();
 
+	// root 부모 공간 delta → 월드 공간 delta (Unreal ConvertLocalRootMotionToWorld + Armature 변환). 시퀀스 뷰어 미리보기도 쓴다
+	FTransform ConvertRootMotionToWorld(const FTransform& ParentSpaceDelta) const;
+
 	// 루트 모션이 뽑히는 본. "root"를 먼저, 없으면 첫 본 (UAnimSequence::FindRootTrack과 같은 규칙)
 	int32 GetRootMotionBoneIndex() const;
 
@@ -92,9 +95,6 @@ private:
 	UAnimInstance* AnimInstance = nullptr;
 
 	TArray<FTransform> BoneSpaceTransforms;
-
-	// root 부모 공간 delta → 월드 공간 delta (Unreal ConvertLocalRootMotionToWorld + Armature 변환)
-	FTransform ConvertRootMotionToWorld(const FTransform& ParentSpaceDelta) const;
 
 	FTransform PendingRootMotion;           // 월드 공간 누적값
 	bool bHasPendingRootMotion = false;

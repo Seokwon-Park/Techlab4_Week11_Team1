@@ -47,12 +47,13 @@ void FAnimSequenceDetailsPanel::DrawContent()
         Editor.MarkPoseDirty();   // 일시정지 중에도 포즈를 다시 계산해 root 고정을 바로 보여준다
     }
 
-    // root를 고정할 위치 (아직 기능 연결 안 됨, 항상 Anim First Frame으로 동작)
+    // root를 고정할 기준. 일시정지 중에도 변경된 기준으로 포즈를 갱신한다.
     static const char* RootLockNames[] = { "Ref Pose", "Anim First Frame", "Zero" };
     int RootLock = static_cast<int>(Sequence->GetRootMotionRootLock());
     if (ImGui::Combo("Root Motion Root Lock", &RootLock, RootLockNames, IM_ARRAYSIZE(RootLockNames)))
     {
         Sequence->SetRootMotionRootLock(static_cast<ERootMotionRootLock>(RootLock));
+        Editor.MarkPoseDirty();
     }
 
     // 루트 모션이 꺼져 있어도 root를 고정한다 (Actor는 움직이지 않는 제자리 재생)
@@ -63,20 +64,8 @@ void FAnimSequenceDetailsPanel::DrawContent()
         Editor.MarkPoseDirty();
     }
 
-    // 설정을 .anim.bin에 저장한다. 같은 시퀀스를 쓰는 게임에도 바로 적용된다 (AssetManager 캐시 공유)
-    if (ImGui::Button("Save"))
-    {
-        const FString& AssetPath = Editor.GetAssetPath();
-        const FString FilePath = FAssetUtils::ResolveAssetFilePath(AssetPath);
-        FString Error;
-        SaveMessage = AnimSequenceFile::Write(FilePath.empty() ? AssetPath : FilePath, *Sequence, Error)
-            ? "Saved." : "Save failed: " + Error;
-    }
-    if (!SaveMessage.empty())
-    {
-        ImGui::SameLine();
-        ImGui::TextDisabled("%s", SaveMessage.c_str());
-    }
+    // 바꾸면 Unsaved changes로 표시되고, 타임라인의 Save(Ctrl+S)로 .anim.bin에 저장한다.
+    // 저장 전에도 같은 시퀀스를 쓰는 미리보기·게임에 바로 적용된다 (AssetManager 캐시 공유)
 
     ImGui::SeparatorText("Preview Mesh");
     ImGui::TextWrapped("%s", Sequence->GetPreviewMeshPath().c_str());
