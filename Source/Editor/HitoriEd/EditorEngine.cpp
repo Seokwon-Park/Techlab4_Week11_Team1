@@ -178,26 +178,12 @@ void UEditorEngine::InitImGui()
 	}
 }
 
-// 그리드·기즈모·외곽선·텍스트처럼 에디터 화면에만 쓰는 렌더러를 만든다.
+// 선택 상태(기즈모, 외곽선 대상)와 UI 렌더러를 만든다. 뷰포트에 그리는 도구는 뷰포트 클라이언트가 갖는다.
 void UEditorEngine::InitEditorRenderers()
 {
 	Gizmo = MakeUnique<FGizmo>();
 
-	// OutLine
-	OutlineRenderer = MakeUnique<FOutlineRenderer>();
-	OutlineRenderer->Init(Renderer);
-
-	SceneDepthRenderer = MakeUnique<FSceneDepthRenderer>();
-	SceneDepthRenderer->Init(Renderer);
-	CascadeFloorRenderer = MakeUnique<FCascadeFloorRenderer>();
-	CascadeFloorRenderer->Init();
-
 	Outline = MakeUnique<FOutline>();
-
-	SystemFont = UAssetManager::GetAssetByPath<UFont>("Engine/Fonts/Pretendard.json");
-
-	TextRenderer = MakeUnique<FTextRenderer>();
-	TextRenderer->Init();
 
 	UIRenderer = MakeUnique<FUIRenderer>();
 	UIRenderer->Init();
@@ -885,51 +871,6 @@ void UEditorEngine::UpdateGizmoAndPicking()
 //	}
 //	return false;
 //}
-
-void UEditorEngine::RenderActorUUIDs(const FSceneView& SceneView)
-{
-	const bool bOrtho = !SceneView.bIsPerspective;
-	UWorld* TargetWorld = PlayWorld ? PlayWorld : EditorWorld;
-
-	for (AActor* Actor : TargetWorld->GetPersistentLevel()->GetActors())
-	{
-		if (!Actor)
-			continue;
-		USceneComponent* Root = Actor->GetRootComponent();
-
-		if (!Root)
-			continue;
-
-		FBox Box = Root->CalcBounds();
-		FVector UUIDLoc((Box.Min.X + Box.Max.X) * 0.5f,
-			(Box.Min.Y + Box.Max.Y) * 0.5f, Box.Max.Z + 0.5f);
-
-		FString Text = "UUID : " + std::to_string(Actor->GetUUID());
-		TextRenderer->BuildTextMesh(Text, 0.5f, *SystemFont);
-
-		FVector Facing = bOrtho ? (SceneView.ViewForward * -1.0f)
-			: (SceneView.ViewLocation - UUIDLoc).Normalized();
-		FVector Up = FVector(0.0f, 0.0f, 1.0f);
-		FVector Right = FVector::Cross(Up, Facing).Normalized();
-		FVector RealUp = FVector::Cross(Facing, Right).Normalized();
-		FMatrix BillboardWorld = FMatrix::Identity;
-		BillboardWorld.M[0][0] = Facing.X;
-		BillboardWorld.M[0][1] = Facing.Y;
-		BillboardWorld.M[0][2] = Facing.Z;
-		BillboardWorld.M[1][0] = Right.X;
-		BillboardWorld.M[1][1] = Right.Y;
-		BillboardWorld.M[1][2] = Right.Z;
-		BillboardWorld.M[2][0] = RealUp.X;
-		BillboardWorld.M[2][1] = RealUp.Y;
-		BillboardWorld.M[2][2] = RealUp.Z;
-		BillboardWorld.M[3][0] = UUIDLoc.X;
-		BillboardWorld.M[3][1] = UUIDLoc.Y;
-		BillboardWorld.M[3][2] = UUIDLoc.Z;
-
-		TextRenderer->OnRender(Text, BillboardWorld, 0.5f, *SystemFont,
-			SceneView.ViewProjectionMatrix);
-	}
-}
 
 // View Texture가 포함된 UI를 Swapchain 백버퍼에 합성한다. Present는 FEngineLoop가 한다.
 void UEditorEngine::PresentFrame()

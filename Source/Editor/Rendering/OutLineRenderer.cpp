@@ -5,6 +5,7 @@
 #include "Render/RenderResourceManager.h"
 #include "Components/SkinnedMeshComponent.h"
 #include "Render/SkeletalMeshObject.h"
+#include "Render/SceneView.h"
 
 // 스텐실 마스크·외곽선 두 패스의 Shader와 상수 버퍼를 준비한다.
 // 두 패스 모두 깊이 테스트를 끄므로 다른 물체에 가려져도 외곽선이 보인다.
@@ -107,4 +108,19 @@ void FOutlineRenderer::OnRender(const FOutline& InOutline, const FMatrix& InView
 	// 이후 패스(Gizmo 등)에 스텐실·블렌드 상태가 새지 않도록 기본값으로 되돌린다.
 	RenderCommand::SetBlendState(EBlendState::Opaque);
 	RenderCommand::SetDepthStencilState(EDepthStencilState::Default);
+}
+
+// 그리는 도구를 만들고 셰이더와 상수 버퍼를 준비한다. FOutlineRenderer::Init의 렌더러 인자는 쓰이지 않는다.
+FOutline::FOutline()
+{
+	Renderer = MakeUnique<FOutlineRenderer>();
+	Renderer->Init(nullptr);
+}
+
+// FOutlineRenderer가 완전한 타입인 이 파일에서 소멸자를 정의해야 TUniquePtr가 지울 수 있다.
+FOutline::~FOutline() = default;
+
+void FOutline::Render(const FSceneView* View, const FViewportSettings& Viewport) const
+{
+	Renderer->OnRender(*this, View->ViewProjectionMatrix, Viewport);
 }

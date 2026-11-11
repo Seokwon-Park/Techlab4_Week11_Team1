@@ -392,7 +392,7 @@ void UEditorEngine::StartPlayInEditorSession()
 			if (Outline->GetTarget())
 				Overlays.SIEOutline = [this, &SceneView, ViewportSetting]
 				{
-					OutlineRenderer->OnRender(*Outline, SceneView.ViewProjectionMatrix, ViewportSetting);
+					Outline->Render(&SceneView, ViewportSetting);
 				};
 			if (Gizmo->GetTarget())
 				Overlays.SIEGizmo = [this, &SceneView]

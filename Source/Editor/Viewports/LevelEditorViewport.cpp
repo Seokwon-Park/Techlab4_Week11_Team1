@@ -15,6 +15,9 @@
 #include "GameFramework/Actor/SpotLightActor.h"
 #include "GameFramework/Actor/RectLightActor.h"
 #include "Engine/World.h"
+#include "Engine/Level.h"
+#include "GameFramework/Actor.h"
+#include "Asset/AssetManager.h"
 
 FLevelEditorViewportClient* GCurrentLevelEditingViewportClient = nullptr;
 
@@ -22,6 +25,12 @@ FLevelEditorViewportClient::FLevelEditorViewportClient()
 {
 	// 그리드 셰이더와 버퍼를 준비한다.
 	DrawHelper.Init(GEditor ? GEditor->GetEngineLoop().GetRenderer() : nullptr);
+
+	// 깊이 시각화와 UUID 글자를 그리는 도구를 준비한다. 두 Init의 렌더러 인자는 쓰이지 않는다.
+	SceneDepthRenderer.Init(nullptr);
+	CascadeFloorRenderer.Init();
+	TextRenderer.Init();
+	SystemFont = UAssetManager::GetAssetByPath<UFont>("Engine/Fonts/Pretendard.json");
 }
 
 // 사라지는 뷰포트를 전역이 계속 가리키지 않게 한다. UE도 소멸자에서 같은 일을 한다.
@@ -38,9 +47,9 @@ FLevelEditorViewportClient::~FLevelEditorViewportClient()
 // UE의 FLevelEditorViewportClient::Draw(FViewport*, FCanvas*)도 준비를 한 뒤 FEditorViewportClient::Draw를 부른다.
 void FLevelEditorViewportClient::Draw(FRenderer* Renderer)
 {
-	if (GEditor && GEditor->SettingsPanel)
+	if (const FEditorSettings* EditorSettings = GEditor ? GEditor->GetEditorSettings() : nullptr)
 	{
-		const FEditorSettings& S = GEditor->SettingsPanel->GetSettings();
+		const FEditorSettings& S = *EditorSettings;
 
 		// 모든 뷰포트에 똑같이 적용되는 에디터 설정
 		EngineShowFlags.bEnableFXAA = S.bEnableFXAA;
@@ -81,32 +90,28 @@ void FLevelEditorViewportClient::Draw(FRenderer* Renderer)
 // 여기서는 그릴 시점에 불릴 함수를 등록만 하고, 등록한 함수는 FSceneRenderer::Render 안에서 불린다.
 void FLevelEditorViewportClient::Draw(const FSceneView* View, FScenePassCallbacks& Callbacks)
 {
-	if (!GEditor || !GEditor->SettingsPanel) return;
+	if (!GEditor || !GEditor->GetEditorSettings()) return;
 	const FSceneView& SceneView = *View;
 
 	// 디버그 선은 이 뷰포트가 보는 월드의 LineBatcher로 그린다.
-	// 나머지 에디터 도구는 엔진(GEditor)이 한 벌만 갖고 있고 네 뷰포트가 같이 쓴다.
-	const FEditorSettings& Settings = GEditor->SettingsPanel->GetSettings();
+	// 무엇이 선택됐는지(Gizmo, Outline)와 에디터 설정은 에디터 전체가 공유하므로 엔진(GEditor)에서 읽는다.
+	const FEditorSettings& Settings = *GEditor->GetEditorSettings();
 	UWorld* EditorWorld = GEditor->GetEditorWorldContext().World();
 	FLineBatcher* LineBatcher = GetWorld()->LineBatcher.get();
-	FGizmo* Gizmo = GEditor->Gizmo.get();
-	FOutline* Outline = GEditor->Outline.get();
-	FOutlineRenderer* OutlineRenderer = GEditor->OutlineRenderer.get();
-	FSceneDepthRenderer* SceneDepthRenderer = GEditor->SceneDepthRenderer.get();
-	FCascadeFloorRenderer* CascadeFloorRenderer = GEditor->CascadeFloorRenderer.get();
+	FGizmo* Gizmo = GEditor->GetGizmo();
+	FOutline* Outline = GEditor->GetOutline();
 
 	// 뷰 모드가 Scene Depth, Cascade일 때 깊이를 색으로 바꿔 보여 준다.
 	FTexture2D* ColorTarget = ViewTargets.SceneColor.get();
 	FTexture2D* DepthTarget = ViewTargets.Depth.get();
-	if (SceneDepthRenderer)
-		Callbacks.DepthVisualization = [SceneDepthRenderer, &SceneView, DepthTarget, ColorTarget, Range = MaxRange]
+	Callbacks.DepthVisualization = [this, &SceneView, DepthTarget, ColorTarget]
 		{
-			SceneDepthRenderer->OnRender(SceneView, DepthTarget, ColorTarget, Range);
+			SceneDepthRenderer.OnRender(SceneView, DepthTarget, ColorTarget, MaxRange);
 		};
-	if (IsCascade() && CascadeFloorRenderer)
-		Callbacks.CascadeVisualization = [this, CascadeFloorRenderer, &SceneView, DepthTarget, ColorTarget]
+	if (IsCascade())
+		Callbacks.CascadeVisualization = [this, &SceneView, DepthTarget, ColorTarget]
 		{
-			CascadeFloorRenderer->OnRender(SceneView, RenderData, DepthTarget, ColorTarget);
+			CascadeFloorRenderer.OnRender(SceneView, RenderData, DepthTarget, ColorTarget);
 		};
 
 	const FViewportSettings ViewportSetting{ 0, 0, ViewTargets.SceneColor->GetWidth(), ViewTargets.SceneColor->GetHeight(), 0.0f, 1.0f };
@@ -197,9 +202,9 @@ void FLevelEditorViewportClient::Draw(const FSceneView* View, FScenePassCallback
 			};
 	}
 	if (bIsActiveViewport && Outline->GetTarget())
-		Callbacks.Overlays.EditorOutline = [&SceneView, Outline, OutlineRenderer, ViewportSetting]
+		Callbacks.Overlays.EditorOutline = [&SceneView, Outline, ViewportSetting]
 		{
-			OutlineRenderer->OnRender(*Outline, SceneView.ViewProjectionMatrix, ViewportSetting);
+			Outline->Render(&SceneView, ViewportSetting);
 		};
 	if (bIsActiveViewport && Gizmo->GetTarget())
 		Callbacks.Overlays.EditorGizmo = [&SceneView, Gizmo]
@@ -208,5 +213,52 @@ void FLevelEditorViewportClient::Draw(const FSceneView* View, FScenePassCallback
 		};
 	Callbacks.Overlays.bClearEditorDepth = true;
 	if (Settings.bShowUUID)
-		Callbacks.Overlays.EditorUUID = [&SceneView] { GEditor->RenderActorUUIDs(SceneView); };
+		Callbacks.Overlays.EditorUUID = [this, &SceneView] { RenderActorUUIDs(SceneView); };
+}
+
+// 이 뷰포트가 보는 월드의 액터마다, 경계 상자 위에 카메라를 향한 UUID 글자를 그린다.
+void FLevelEditorViewportClient::RenderActorUUIDs(const FSceneView& SceneView)
+{
+	const bool bOrtho = !SceneView.bIsPerspective;
+	UWorld* TargetWorld = GetWorld();
+	if (!TargetWorld || !SystemFont) return;
+
+	for (AActor* Actor : TargetWorld->GetPersistentLevel()->GetActors())
+	{
+		if (!Actor)
+			continue;
+		USceneComponent* Root = Actor->GetRootComponent();
+
+		if (!Root)
+			continue;
+
+		FBox Box = Root->CalcBounds();
+		FVector UUIDLoc((Box.Min.X + Box.Max.X) * 0.5f,
+			(Box.Min.Y + Box.Max.Y) * 0.5f, Box.Max.Z + 0.5f);
+
+		FString Text = "UUID : " + std::to_string(Actor->GetUUID());
+		TextRenderer.BuildTextMesh(Text, 0.5f, *SystemFont);
+
+		FVector Facing = bOrtho ? (SceneView.ViewForward * -1.0f)
+			: (SceneView.ViewLocation - UUIDLoc).Normalized();
+		FVector Up = FVector(0.0f, 0.0f, 1.0f);
+		FVector Right = FVector::Cross(Up, Facing).Normalized();
+		FVector RealUp = FVector::Cross(Facing, Right).Normalized();
+		FMatrix BillboardWorld = FMatrix::Identity;
+		BillboardWorld.M[0][0] = Facing.X;
+		BillboardWorld.M[0][1] = Facing.Y;
+		BillboardWorld.M[0][2] = Facing.Z;
+		BillboardWorld.M[1][0] = Right.X;
+		BillboardWorld.M[1][1] = Right.Y;
+		BillboardWorld.M[1][2] = Right.Z;
+		BillboardWorld.M[2][0] = RealUp.X;
+		BillboardWorld.M[2][1] = RealUp.Y;
+		BillboardWorld.M[2][2] = RealUp.Z;
+		BillboardWorld.M[3][0] = UUIDLoc.X;
+		BillboardWorld.M[3][1] = UUIDLoc.Y;
+		BillboardWorld.M[3][2] = UUIDLoc.Z;
+
+		TextRenderer.OnRender(Text, BillboardWorld, 0.5f, *SystemFont,
+			SceneView.ViewProjectionMatrix);
+	}
 }

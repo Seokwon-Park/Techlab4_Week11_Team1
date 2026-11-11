@@ -55,10 +55,6 @@ UCLASS()
 class UEditorEngine : public UEngine
 {
 	GENERATED_BODY()
-	// 뷰포트 클라이언트의 Draw가 그리드·기즈모·외곽선 같은 에디터 도구를 GEditor로 꺼내 쓴다.
-	// UE에서는 이런 것을 클라이언트가 직접 갖거나(Widget, DrawHelper) 엔진의 public 멤버로 둔다.
-	// 이 엔진은 아직 엔진이 갖고 있어서 friend로 열어 둔다.
-	friend class FLevelEditorViewportClient;
 public:
 	FEngineConfig GetConfig() const override;
 	bool Init() override;
@@ -89,6 +85,16 @@ public:
 	void OnActiveWorldChanged();
 
 	void EndPlayMap();
+
+	// 아래 셋은 에디터 전체가 공유하는 상태를 읽는 접근자다. 레벨 뷰포트 클라이언트가 그릴 때 쓴다.
+	// UE도 선택과 설정은 에디터 전역이 갖고 뷰포트 클라이언트가 읽어 간다(GEditor->GetSelectedActors(),
+	// GetDefault<ULevelEditorViewportSettings>()). 다만 이 세 함수의 이름은 UE에 없는, 이 엔진 고유의 이름이다.
+	// 설정 패널이 아직 없으면 nullptr이다.
+	const FEditorSettings* GetEditorSettings() const { return SettingsPanel ? &SettingsPanel->GetSettings() : nullptr; }
+	// 지금 선택된 컴포넌트와 조작 모드를 가진 기즈모
+	FGizmo* GetGizmo() const { return Gizmo.get(); }
+	// 지금 선택된 메시의 외곽선
+	FOutline* GetOutline() const { return Outline.get(); }
 
 	// 에디터 월드가 들어 있는 월드 컨텍스트. UE에서도 public이라 GEditor->GetEditorWorldContext().World()로 에디터 월드를 얻는다.
 	FWorldContext& GetEditorWorldContext();
@@ -151,7 +157,6 @@ private:
 	void EndFrame();
 
 
-	void RenderActorUUIDs(const FSceneView& View);
 
 	FWorldContext* GetPIEWorldContext(int32 WorldPIEInstance = 0);
 	UWorld* GetActiveWorld() const { return PlayWorld ? PlayWorld : EditorWorld; }
@@ -168,15 +173,10 @@ private:
 	TUniquePtr<FEditorManager> EditorManager;
 
 	TUniquePtr<FImGuiRenderer> ImGuiRenderer;
-	TUniquePtr<FTextRenderer> TextRenderer;
 	TUniquePtr<FOutline> Outline;
-	TUniquePtr<FOutlineRenderer> OutlineRenderer;
-	TUniquePtr<FSceneDepthRenderer> SceneDepthRenderer;
-	TUniquePtr<FCascadeFloorRenderer> CascadeFloorRenderer;
 	TUniquePtr<FUIRenderer> UIRenderer;
 	TUniquePtr<FGizmo> Gizmo;
 
-	UFont* SystemFont;
 
 	FLevelEditorTab* LevelEditorTab = nullptr;
 	FOutputLogPanel* OutputLogPanel = nullptr;
