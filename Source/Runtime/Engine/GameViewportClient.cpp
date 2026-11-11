@@ -386,7 +386,7 @@ void FGameViewportClient::TickSIEInput(float DeltaTime, float MoveSpeed, float M
 	SIEMouseDeltaX = SIEMouseDeltaY = SIEWheelDelta = 0.0f;
 }
 
-bool FGameViewportClient::Draw(FRenderer* Renderer, const FSceneRenderOptions& Options, FUIRenderer* UIRenderer)
+bool FGameViewportClient::Draw(FRenderer* Renderer, FUIRenderer* UIRenderer)
 {
 	if (!World || !Renderer || !Width || !Height) return false;
 
@@ -396,9 +396,9 @@ bool FGameViewportClient::Draw(FRenderer* Renderer, const FSceneRenderOptions& O
 
 	// 보이는 물체와 라이트를 모은 뒤 패스를 순서대로 실행해 ViewTargets에 그린다.
 	FSceneRenderer SceneRenderer(World, SceneView, RenderData);
-	SceneRenderer.InitViews(Renderer, Options);
-	return SceneRenderer.Render(Renderer, ViewTargets, Options,
-		[this, UIRenderer](FScenePassCallbacks& Callbacks)
+	SceneRenderer.InitViews(Renderer, EngineShowFlags);
+	return SceneRenderer.Render(Renderer, ViewTargets, EngineShowFlags,
+		[this, UIRenderer, &SceneView](FScenePassCallbacks& Callbacks)
 		{
 			// 게임 UI는 씬 위에 그려야 하므로 그 시점에 불릴 함수로 등록한다.
 			Callbacks.Overlays.GameUI = [this, UIRenderer]
@@ -407,6 +407,9 @@ bool FGameViewportClient::Draw(FRenderer* Renderer, const FSceneRenderOptions& O
 					PaintUI(UIDrawList);
 					UIRenderer->Render(UIDrawList, Width, Height);
 				};
+
+			// 에디터가 등록해 둔 디버그 요소가 있으면 같이 등록한다.
+			if (DebugDrawDelegate) DebugDrawDelegate(SceneView, Callbacks.Overlays);
 		});
 }
 

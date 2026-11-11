@@ -687,9 +687,35 @@ void UEditorEngine::RenderViewports()
 			{
 				Context->GameViewport->GetRenderData().PreviewLight = PreviewLight;
 				Context->GameViewport->GetRenderData().PreviewShadowRange = {};
+
+				// PIE 게임 화면은 에디터 설정 창의 값으로 그린다. 게임 뷰포트는 에디터를 모르므로 여기서 넘겨 준다.
+				if (SettingsPanel)
+				{
+					const FEditorSettings& S = SettingsPanel->GetSettings();
+					FSceneRenderOptions& ShowFlags = Context->GameViewport->EngineShowFlags;
+					ShowFlags.bEnableFXAA = S.bEnableFXAA;
+					ShowFlags.bCacheShadows = S.bCacheShadows;
+					ShowFlags.PcfMode = S.PcfMode;
+					ShowFlags.RenderingPath = S.RenderingPath;
+					ShowFlags.LightingModel = S.LightingModel;
+					ShowFlags.LightCullingMode = S.LightCullingMode;
+					ShowFlags.DirectionalShadowMapSize = S.GetDirectionalShadowMapSize();
+					ShowFlags.PointShadowMapSize = S.GetPointShadowMapSize();
+					ShowFlags.SpotShadowMapSize = S.GetSpotShadowMapSize();
+					ShowFlags.bGammaCorrection = S.bGammaCorrection;
+					ShowFlags.DisplayGamma = S.DisplayGamma;
+					ShowFlags.bShowVignette = S.bShowVignette;
+					ShowFlags.bShowCameraOverlay = S.bShowCameraOverlay;
+					ShowFlags.bShowSkeletalMesh = S.bShowSkeletalMesh;
+				}
 			}
 		}
 	}
+
+	// 지금 편집 중인 뷰포트를 전역에 알려 둔다. 선택 외곽선과 기즈모는 그 뷰포트의 Draw만 그린다.
+	GCurrentLevelEditingViewportClient = ViewportsPanel
+		? ViewportsPanel->GetViewportClient(ViewportsPanel->GetActiveViewIndex())
+		: nullptr;
 
 	// UE의 UEditorEngine::Tick처럼 View마다 UpdateSingleViewportClient를 불러 그린다.
 	for (int32 ViewIndex = 0; ViewIndex < AllViewportClients.Num(); ++ViewIndex)
@@ -709,16 +735,7 @@ void UEditorEngine::RenderViewports()
 			const uint32 Height = GameClient->GetHeight();
 			if (Width > 0 && Height > 0)
 			{
-				FSceneRenderOptions Options;
-				BuildSceneRenderOptions(GameClient, Options);
-
-				FRect ViewRect{ 0.0f, 0.0f, static_cast<float>(Width), static_cast<float>(Height) };
-				FSceneView SceneView = GameClient->CalcSceneView(ViewRect);
-
-				FSceneRenderer SceneRenderer(Context->World(), SceneView, GameClient->GetRenderData());
-				SceneRenderer.InitViews(Renderer, Options);
-
-				RenderGameFrame(GameClient, SceneView, Options, SceneRenderer, GameClient->IsSIEMode());
+				GameClient->Draw(Renderer, UIRenderer.get());
 
 				CopyPIEWindowToBackbuffer();
 			}
@@ -727,8 +744,7 @@ void UEditorEngine::RenderViewports()
 }
 
 // View 하나를 그린다. PIE를 시작한 View는 게임 뷰포트로, 나머지는 에디터 뷰포트로 그린다.
-// UE의 UEditorEngine::UpdateSingleViewportClient와 같은 자리다. UE처럼 에디터 뷰포트는 클라이언트의 Draw가 그린다.
-// 게임 뷰포트는 아직 엔진의 RenderGameFrame이 그린다.
+// UE의 UEditorEngine::UpdateSingleViewportClient와 같은 자리다. UE처럼 어느 쪽이든 뷰포트 클라이언트의 Draw가 그린다.
 void UEditorEngine::UpdateSingleViewportClient(FEditorViewportClient* ViewClient, int32 ViewIndex)
 {
 	const bool bIsPIE = (PlayWorld != nullptr);
@@ -749,11 +765,6 @@ void UEditorEngine::UpdateSingleViewportClient(FEditorViewportClient* ViewClient
 		TargetPlayerIndex = 0;
 	}
 
-	// 선택된 게임 뷰포트와 나머지 에디터 뷰포트는 같은 PIE 월드를 본다.
-	UWorld* CurrentWorld = bIsPIE ? PlayWorld : EditorWorld;
-
-	FSceneView SceneView;
-	FSceneRenderOptions Options;
 	if (bIsGameView && TargetPlayerIndex >= 0)
 	{
 		FGameViewportClient* GameClient = nullptr;
@@ -764,19 +775,11 @@ void UEditorEngine::UpdateSingleViewportClient(FEditorViewportClient* ViewClient
 				WorldContextlist[WorldIdx].GameViewport)
 			{
 				GameClient = WorldContextlist[WorldIdx].GameViewport.get();
-				BuildSceneRenderOptions(GameClient, Options);
-
-				if (WorldContextlist[WorldIdx].World())
-				{
-					CurrentWorld = WorldContextlist[WorldIdx].World();
-				}
-
-				SceneView = GameClient->CalcSceneView(ViewRect);
-
-				FSceneRenderer SceneRenderer(CurrentWorld, SceneView, GameClient->GetRenderData());
-				SceneRenderer.InitViews(Renderer, Options);
-
-				RenderGameFrame(GameClient, SceneView, Options, SceneRenderer, GameClient->IsSIEMode());
+				// 게임 뷰포트의 타깃 크기를 이 View의 영역에 맞춘 뒤 그린다.
+				GameClient->Resize(
+					static_cast<uint32>(std::max(ViewRect.Width, 1.0f)),
+					static_cast<uint32>(std::max(ViewRect.Height, 1.0f)));
+				GameClient->Draw(Renderer, UIRenderer.get());
 
 				break;
 			}
@@ -784,9 +787,7 @@ void UEditorEngine::UpdateSingleViewportClient(FEditorViewportClient* ViewClient
 	}
 	else
 	{
-		BuildSceneRenderOptions(ViewClient, bIsGameView, Options);
-
-		ViewClient->Draw(Renderer, Options);
+		ViewClient->Draw(Renderer);
 	}
 }
 
@@ -846,205 +847,6 @@ void UEditorEngine::UpdateGizmoAndPicking()
 	const FVector2 LocalMousePosition = ViewportsPanel->GetLocalMousePosition();
 	ViewClient->UpdateGizmoAndPicking(Gizmo.get(), LocalMousePosition, [this](AActor* SelectedActor) {
 		OutlinerPanel->SelectActor(SelectedActor);
-		});
-}
-
-void UEditorEngine::BuildSceneRenderOptions(FGameViewportClient* ViewClient, FSceneRenderOptions& Options)
-{
-	if (!SettingsPanel)
-	{
-		return;
-	}
-
-	Options.bEnableFXAA = SettingsPanel->GetSettings().bEnableFXAA;
-	Options.bCacheShadows = SettingsPanel->GetSettings().bCacheShadows;
-	Options.PcfMode = SettingsPanel->GetSettings().PcfMode;
-	Options.RenderingPath = SettingsPanel->GetSettings().RenderingPath;
-	Options.LightingModel = SettingsPanel->GetSettings().LightingModel;
-	Options.LightCullingMode = SettingsPanel->GetSettings().LightCullingMode;
-	Options.DirectionalShadowMapSize = SettingsPanel->GetSettings().GetDirectionalShadowMapSize();
-	Options.PointShadowMapSize = SettingsPanel->GetSettings().GetPointShadowMapSize();
-	Options.SpotShadowMapSize = SettingsPanel->GetSettings().GetSpotShadowMapSize();
-
-	const FEditorSettings& S = SettingsPanel->GetSettings();
-	Options.bGammaCorrection = S.bGammaCorrection;
-	Options.DisplayGamma = S.DisplayGamma;
-	Options.bShowVignette = S.bShowVignette;
-	Options.bShowCameraOverlay = S.bShowCameraOverlay;
-	Options.bShowSkeletalMesh = S.bShowSkeletalMesh;
-}
-
-void UEditorEngine::BuildSceneRenderOptions(FEditorViewportClient* ViewClient, bool IsPIE, FSceneRenderOptions& Options)
-{
-	if (!SettingsPanel)
-	{
-		return;
-	}
-
-	Options.bEnableFXAA = SettingsPanel->GetSettings().bEnableFXAA;
-	Options.bCacheShadows = SettingsPanel->GetSettings().bCacheShadows;
-	Options.PcfMode = SettingsPanel->GetSettings().PcfMode;
-	Options.RenderingPath = SettingsPanel->GetSettings().RenderingPath;
-	Options.LightingModel = SettingsPanel->GetSettings().LightingModel;
-	Options.LightCullingMode = SettingsPanel->GetSettings().LightCullingMode;
-	Options.DirectionalShadowMapSize = SettingsPanel->GetSettings().GetDirectionalShadowMapSize();
-	Options.PointShadowMapSize = SettingsPanel->GetSettings().GetPointShadowMapSize();
-	Options.SpotShadowMapSize = SettingsPanel->GetSettings().GetSpotShadowMapSize();
-
-	const FEditorSettings& S = SettingsPanel->GetSettings();
-	Options.bGammaCorrection = S.bGammaCorrection;
-	Options.DisplayGamma = S.DisplayGamma;
-	Options.bShowVignette = S.bShowVignette;
-	Options.bShowCameraOverlay = S.bShowCameraOverlay;
-	Options.bShowSkeletalMesh = S.bShowSkeletalMesh;
-
-	Options.bDrawPrimitives = IsPIE || SettingsPanel->GetSettings().bDrawPrimitives;
-	Options.bEnableFog = ViewClient->GetViewportMode() == EViewportMode::Solid;
-	Options.bShowSceneDepth = !IsPIE && ViewClient->IsSceneDepth();
-	Options.bShowCascade = !IsPIE && ViewClient->IsCascade();
-	Options.bShowShadowMask = !IsPIE && ViewClient->IsShadowMask();
-	Options.bShowWorldNormal = !IsPIE && ViewClient->IsWorldNormal();
-	Options.bShowLightCulling = !IsPIE && ViewClient->IsLightCulling();
-	Options.SceneDepthRange = ViewClient->GetMaxRange();
-	Options.bDrawDecals = S.bDrawDecals;
-	Options.bDecalCulling = S.bDecalCulling;
-	Options.bDecalNarrowCulling = S.bDecalNarrowCulling;
-	Options.bDecalBVHCulling = S.bDecalBVHCulling;
-	Options.bDecalOBBTree = S.bDecalOBBTree;
-}
-
-// 게임 뷰포트 화면을 렌더링한다
-void UEditorEngine::RenderGameFrame(FGameViewportClient* GameClient, const FSceneView& SceneView, const FSceneRenderOptions& RenderOptions, FSceneRenderer& SceneRenderer, bool bIsSIEMode)
-{
-	if (!GameClient) return;
-
-	FSceneViewTargets& Targets = GameClient->GetViewTargets();
-	UWorld* TargetWorld = GameClient->GetWorld();
-	const bool bRendered = RenderScene(Targets, SceneView, SceneRenderer, TargetWorld, RenderOptions,
-		[this, GameClient, &Targets, &SceneView, bIsSIEMode](FSceneOverlayCallbacks& Overlays)
-		{
-			const uint32 Width = Targets.SceneColor->GetWidth();
-			const uint32 Height = Targets.SceneColor->GetHeight();
-			Overlays.GameUI = [this, GameClient, Width, Height]
-				{
-					if (!UIRenderer) return;
-					GameClient->PaintUI(UIDrawList);
-					UIRenderer->Render(UIDrawList, Width, Height);
-				};
-
-			Overlays.EditorLines = [this, &SceneView, GameClient, bIsSIEMode]
-				{
-					if (bIsSIEMode)
-					{
-						// SIE: 기존처럼 충돌 도형·스프링암을 항상 그린다
-						LineBatcher->BeginFrame();
-						DrawCollisionShapes(GameClient->GetWorld(), LineBatcher.get(), nullptr);
-						DrawSpringArms(GameClient->GetWorld(), LineBatcher.get(), nullptr);
-						LineBatcher->OnRender(SceneView.ViewProjectionMatrix);
-						return;
-					}
-					// PIE 게임 화면: Settings > Debug Draw (PIE)
-					DrawPIEDebug(GameClient->GetWorld(), SceneView.ViewProjectionMatrix);
-				};
-
-			if (!bIsSIEMode) return;
-			if (!bIsSIEMode) return;
-			const FViewportSettings ViewportSetting{ 0, 0, Targets.SceneColor->GetWidth(),
-				Targets.SceneColor->GetHeight(), 0.0f, 1.0f };
-			if (Outline->GetTarget())
-				Overlays.SIEOutline = [this, &SceneView, ViewportSetting]
-				{
-					OutlineRenderer->OnRender(*Outline, SceneView.ViewProjectionMatrix, ViewportSetting);
-				};
-			if (Gizmo->GetTarget())
-				Overlays.SIEGizmo = [this, &SceneView]
-				{
-					GizmoRenderer->OnRender(*Gizmo, SceneView.ViewProjectionMatrix,
-						SceneView.ViewLocation, !SceneView.bIsPerspective);
-				};
-		});
-	if (!bRendered) return;
-}
-
-void UEditorEngine::RenderAssetEditor(FAssetEditor& AssetEditor)
-{
-	FEditorViewportClient& ViewClient = *AssetEditor.GetViewportClient();
-	UWorld* World = ViewClient.GetWorld();
-
-	// 렌더러가 없음
-	if (!Renderer)
-	{
-		return;
-	}
-
-	// EditorViewportClient에 월드가 없음
-	if (!World)
-	{
-		return;
-	}
-
-	// 월드 타입이 EditorPreview가 아님
-	if (World->GetWorldType() != EWorldType::EditorPreview)
-	{
-		return;
-	}
-
-	// SceneView와 Option 생성
-	FSceneView View = ViewClient.CalcSceneView();
-	FSceneRenderOptions Options
-	{
-		.bEnableFog = false,
-		.bEnableFXAA = true,
-		.bShowVignette = false,
-		.bShowCameraOverlay = false,
-		.RenderingPath = ERenderingPath::Forward,   // 웨이트 히트맵은 Forward 패스에만 있다
-	};
-
-	// SceneRenderer 생성 및 초기화
-	FSceneRenderer SceneRenderer(World, View, ViewClient.GetRenderData());
-	SceneRenderer.InitViews(Renderer, Options);
-
-	// PreviewViewport 그리기
-	SceneRenderer.Render(Renderer, ViewClient.GetViewTargets(), Options,
-		[&](FScenePassCallbacks& Callbacks)
-		{
-			// TODO: 지금은 EditorGizmo 슬롯에 들어있지만
-			// 추후 AssetEditor 전용 Gizmo 슬롯을 만들어서 그쪽으로 옮기는 게 좋을 듯
-			Callbacks.Overlays.EditorGizmo = [&]
-			{
-				LineBatcher->BeginFrame();
-				AssetEditor.OnRenderLine(*LineBatcher);
-				LineBatcher->OnRender(View.ViewProjectionMatrix);
-
-				if (const FGizmo* PreviewGizmo = AssetEditor.GetPreviewGizmo())
-				{
-					GizmoRenderer->OnRender(*PreviewGizmo, View.ViewProjectionMatrix,
-						View.ViewLocation, !View.bIsPerspective);
-				}
-			};
-		});
-}
-
-bool UEditorEngine::RenderScene(FSceneViewTargets& Targets, const FSceneView& SceneView,
-	FSceneRenderer& SceneRenderer, UWorld* TargetWorld, const FSceneRenderOptions& Options,
-	const std::function<void(FSceneOverlayCallbacks&)>& BuildOverlays)
-{
-	return SceneRenderer.Render(Renderer, Targets, Options,
-		[&](FScenePassCallbacks& Callbacks)
-		{
-			FTexture2D* ColorTarget = Targets.SceneColor.get();
-			FTexture2D* DepthTarget = Targets.Depth.get();
-			if (SceneDepthRenderer)
-				Callbacks.DepthVisualization = [this, &SceneView, DepthTarget, ColorTarget, Range = Options.SceneDepthRange]
-				{
-					SceneDepthRenderer->OnRender(SceneView, DepthTarget, ColorTarget, Range);
-				};
-			if (Options.bShowCascade && CascadeFloorRenderer)
-				Callbacks.CascadeVisualization = [this, &SceneView, &SceneRenderer, DepthTarget, ColorTarget]
-				{
-					CascadeFloorRenderer->OnRender(SceneView, SceneRenderer.GetRenderData(), DepthTarget, ColorTarget);
-				};
-			if (BuildOverlays) BuildOverlays(Callbacks.Overlays);
 		});
 }
 

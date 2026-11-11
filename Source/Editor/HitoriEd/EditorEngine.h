@@ -55,10 +55,11 @@ UCLASS()
 class UEditorEngine : public UEngine
 {
 	GENERATED_BODY()
-	// FEditorViewportClient::Draw가 그리드·기즈모·외곽선 같은 에디터 도구를 GEditor로 꺼내 쓴다.
+	// 뷰포트 클라이언트의 Draw가 그리드·기즈모·외곽선 같은 에디터 도구를 GEditor로 꺼내 쓴다.
 	// UE에서는 이런 것을 클라이언트가 직접 갖거나(Widget, DrawHelper) 엔진의 public 멤버로 둔다.
 	// 이 엔진은 아직 엔진이 갖고 있어서 friend로 열어 둔다.
-	friend class FEditorViewportClient;
+	friend class FLevelEditorViewportClient;
+	friend class FAssetEditorViewportClient;
 public:
 	FEngineConfig GetConfig() const override;
 	bool Init() override;
@@ -67,12 +68,10 @@ public:
 
 	// Active View의 입력과 Picking 결과만 Gizmo 및 선택 상태에 반영한다.
 	void UpdateGizmoAndPicking();
-	// 게임 뷰포트 화면을 렌더링한다.
+	// PIE 게임 화면 위에 Settings > Debug Draw (PIE)에서 켠 디버그 표시를 그린다.
 	void DrawPIEDebug(UWorld* World, const FMatrix& ViewProjection);
-	void RenderGameFrame(FGameViewportClient* GameClient, const FSceneView& SceneView, const FSceneRenderOptions& RenderOptions, FSceneRenderer& SceneRenderer, bool bIsSIEMode = false);
 	// 네 View 결과와 ImGui를 메인 Swapchain 백버퍼에 합성한다. Present는 FEngineLoop가 한다.
 	void PresentFrame();
-	void RenderAssetEditor(FAssetEditor& AssetEditor);
 	// 위젯 에디터가 미리보기 텍스처를 그릴 때 쓴다. 초기화 전에는 nullptr이다.
 	FUIRenderer* GetUIRenderer() const { return UIRenderer.get(); }
 	void DeleteActor(AActor* Actor);
@@ -91,6 +90,9 @@ public:
 	void OnActiveWorldChanged();
 
 	void EndPlayMap();
+
+	// 에디터 월드가 들어 있는 월드 컨텍스트. UE에서도 public이라 GEditor->GetEditorWorldContext().World()로 에디터 월드를 얻는다.
+	FWorldContext& GetEditorWorldContext();
 
 	bool IsPlaying() const { return PlayWorld != nullptr; }
 	EPIEState GetPIEState() const
@@ -149,15 +151,9 @@ private:
 	// 화면 합성과 View 설정 보관으로 프레임을 마무리한다.
 	void EndFrame();
 
-	void BuildSceneRenderOptions(FGameViewportClient* ViewClient, FSceneRenderOptions& Options);
-	void BuildSceneRenderOptions(FEditorViewportClient* ViewClient, bool IsPIE, FSceneRenderOptions& Options);
 
-	bool RenderScene(FSceneViewTargets& Targets, const FSceneView& SceneView,
-		FSceneRenderer& SceneRenderer, UWorld* TargetWorld, const FSceneRenderOptions& Options,
-		const std::function<void(FSceneOverlayCallbacks&)>& BuildOverlays);
 	void RenderActorUUIDs(const FSceneView& View);
 
-	FWorldContext& GetEditorWorldContext();
 	FWorldContext* GetPIEWorldContext(int32 WorldPIEInstance = 0);
 	UWorld* GetActiveWorld() const { return PlayWorld ? PlayWorld : EditorWorld; }
 
@@ -183,8 +179,6 @@ private:
 	TUniquePtr<FCascadeFloorRenderer> CascadeFloorRenderer;
 	TUniquePtr<FUIRenderer> UIRenderer;
 	TUniquePtr<FGizmo> Gizmo;
-
-	FUIDrawList UIDrawList;
 
 	UFont* SystemFont;
 

@@ -1,0 +1,19 @@
+#pragma once
+
+#include "Editor/Viewports/EditorViewportClient.h"
+
+// 레벨 에디터 뷰포트의 클라이언트. 레벨을 그리고 그 위에 그리드, 선택 외곽선, 기즈모 같은 레벨 편집용 요소를 올린다.
+// UE의 FLevelEditorViewportClient와 같은 자리이고, UE도 LevelEditorViewport.h / .cpp에 둔다.
+class FLevelEditorViewportClient : public FEditorViewportClient
+{
+public:
+	~FLevelEditorViewportClient() override;
+
+	void Draw(FRenderer* Renderer) override;
+	void Draw(const FSceneView* View, FScenePassCallbacks& Callbacks) override;
+};
+
+// 지금 편집 중인(활성) 레벨 뷰포트. 선택 외곽선과 기즈모는 이 뷰포트에만 그린다.
+// UE의 GCurrentLevelEditingViewportClient와 같다. UE는 뷰포트가 포커스를 받을 때 바꾸고,
+// 이 엔진은 UEditorEngine::RenderViewports가 그리기 전에 뷰포트 패널의 활성 인덱스로 맞춘다.
+extern FLevelEditorViewportClient* GCurrentLevelEditingViewportClient;

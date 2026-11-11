@@ -177,7 +177,10 @@ void UGameEngine::RedrawViewports(FGameViewportClient& Viewport)
 	// 크기가 같으면 아무것도 하지 않으므로 매 프레임 불러도 된다. 창 크기 변경도 여기서 따라간다.
 	Viewport.Resize(Width, Height);
 
-	if (!Viewport.Draw(Loop.GetRenderer(), Settings.RenderOptions, UIRenderer.get()))
+	// 게임 설정 파일에서 읽은 렌더 설정을 뷰포트에 넘긴다.
+	Viewport.EngineShowFlags = Settings.RenderOptions;
+
+	if (!Viewport.Draw(Loop.GetRenderer(), UIRenderer.get()))
 		return;
 
 	// FXAA를 켜면 SceneColor가 FXAA 결과로 바뀌어 있다. PIE 별도 창과 같은 방식으로 복사한다.

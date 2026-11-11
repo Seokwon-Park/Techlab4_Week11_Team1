@@ -10,19 +10,8 @@
 #include "Render/RenderCommand.h"
 #include "Editor/AssetEditor/FPreviewScene.h"
 #include "Math/BoxSphereBounds.h"
-#include "Editor/HitoriEd/Editor.h"
 #include "Render/Renderer.h"
 #include "Render/SceneRenderer.h"
-#include "Components/ShapeComponent.h"
-#include "Components/DecalComponent.h"
-#include "Components/PointLightComponent.h"
-#include "Components/SpotLightComponent.h"
-#include "Components/RectLightComponent.h"
-#include "GameFramework/SpringArmComponent.h"
-#include "GameFramework/Actor/DecalActor.h"
-#include "GameFramework/Actor/PointLightActor.h"
-#include "GameFramework/Actor/SpotLightActor.h"
-#include "GameFramework/Actor/RectLightActor.h"
 
 FEditorViewportClient::FEditorViewportClient() {}
 
@@ -227,151 +216,31 @@ FSceneView FEditorViewportClient::CalcSceneView() const {
       FRect(0.0f, 0.0f, static_cast<float>(Width), static_cast<float>(Height)));
 }
 
-// 레벨 에디터 뷰포트 하나를 그린다. 씬을 그리고 그 위에 선, 그리드, 외곽선, 기즈모를 올린다.
-void FEditorViewportClient::Draw(FRenderer* Renderer, const FSceneRenderOptions& Options)
+// 이 뷰포트의 월드를 자기 카메라로 자기 타깃에 그린다. 레벨 에디터와 에셋 에디터가 같이 쓰는 순서다.
+void FEditorViewportClient::Draw(FRenderer* Renderer)
 {
 	UWorld* TargetWorld = GetWorld();
-	if (!GEditor || !GEditor->SettingsPanel || !TargetWorld || !Renderer) return;
+	if (!TargetWorld || !Renderer) return;
 
 	// 카메라를 뷰·투영 행렬로 바꾼다.
-	const FSceneView SceneView = CalcSceneView(Rect);
+	const FSceneView SceneView = CalcSceneView();
 
 	// 보이는 물체와 라이트를 모은다.
 	FSceneRenderer SceneRenderer(TargetWorld, SceneView, RenderData);
-	SceneRenderer.InitViews(Renderer, Options);
+	SceneRenderer.InitViews(Renderer, EngineShowFlags);
 
-	// 에디터 도구는 엔진(GEditor)이 한 벌만 갖고 있고 네 뷰포트가 같이 쓴다.
-	const FEditorSettings& Settings = GEditor->SettingsPanel->GetSettings();
-	FLineBatcher* LineBatcher = GEditor->LineBatcher.get();
-	FGizmo* Gizmo = GEditor->Gizmo.get();
-	FOutline* Outline = GEditor->Outline.get();
-	FGridRenderer* GridRenderer = GEditor->GridRenderer.get();
-	FGizmoRenderer* GizmoRenderer = GEditor->GizmoRenderer.get();
-	FOutlineRenderer* OutlineRenderer = GEditor->OutlineRenderer.get();
-	FSceneDepthRenderer* SceneDepthRenderer = GEditor->SceneDepthRenderer.get();
-	FCascadeFloorRenderer* CascadeFloorRenderer = GEditor->CascadeFloorRenderer.get();
-
-	// 패스를 순서대로 실행해 ViewTargets에 그린다. 에디터 요소는 씬 위에 그려야 하므로
-	// 각각 그 시점에 불릴 함수로 등록한다. 등록한 함수는 Render 안에서 불린다.
-	SceneRenderer.Render(Renderer, ViewTargets, Options,
-		[&](FScenePassCallbacks& Callbacks)
+	// 패스를 순서대로 실행해 ViewTargets에 그린다. 씬 위에 올릴 에디터 요소는
+	// 두 번째 Draw가 등록하고, 등록한 함수는 Render 안에서 불린다.
+	SceneRenderer.Render(Renderer, ViewTargets, EngineShowFlags,
+		[this, &SceneView](FScenePassCallbacks& Callbacks)
 		{
-			// 뷰 모드가 Scene Depth, Cascade일 때 깊이를 색으로 바꿔 보여 준다.
-			FTexture2D* ColorTarget = ViewTargets.SceneColor.get();
-			FTexture2D* DepthTarget = ViewTargets.Depth.get();
-			if (SceneDepthRenderer)
-				Callbacks.DepthVisualization = [SceneDepthRenderer, &SceneView, DepthTarget, ColorTarget, Range = Options.SceneDepthRange]
-				{
-					SceneDepthRenderer->OnRender(SceneView, DepthTarget, ColorTarget, Range);
-				};
-			if (Options.bShowCascade && CascadeFloorRenderer)
-				Callbacks.CascadeVisualization = [CascadeFloorRenderer, &SceneView, &SceneRenderer, DepthTarget, ColorTarget]
-				{
-					CascadeFloorRenderer->OnRender(SceneView, SceneRenderer.GetRenderData(), DepthTarget, ColorTarget);
-				};
-
-			const FViewportSettings ViewportSetting{ 0, 0, ViewTargets.SceneColor->GetWidth(), ViewTargets.SceneColor->GetHeight(), 0.0f, 1.0f };
-			const bool bIsActiveViewport = GEditor->ViewportsPanel && ViewIndex == GEditor->ViewportsPanel->GetActiveViewIndex();
-
-			const bool bDrawSelectedLight = bIsActiveViewport && Gizmo->GetTarget() &&
-				(Cast<ASpotLightActor>(Gizmo->GetTarget()->GetOwner()) ||
-					Cast<APointLightActor>(Gizmo->GetTarget()->GetOwner()) ||
-					Cast<ARectLightActor>(Gizmo->GetTarget()->GetOwner()) ||
-					Cast<ADecalActor>(Gizmo->GetTarget()->GetOwner()));
-
-			const bool bDrawCascadeBounds = Settings.bDrawCascadeBounds;
-			{
-				Callbacks.Overlays.EditorLines = [this, &SceneView, &Settings, LineBatcher, Gizmo, bDrawSelectedLight, bDrawCascadeBounds]
-					{
-						LineBatcher->BeginFrame();
-						if (bDrawCascadeBounds)
-						{
-							FSceneRenderData& Data = RenderData;
-							const FVector4 Colors[4] = {
-								FVector4(1.f, 0.2f, 0.2f, 1.f),
-								FVector4(1.f, 0.8f, 0.2f, 1.f),
-								FVector4(0.2f, 1.f, 0.4f, 1.f),
-								FVector4(0.2f, 0.6f, 1.f, 1.f)
-							};
-							const FBox ClipBox{ FVector(-1.f, -1.f, 0.f), FVector(1.f, 1.f, 1.f) };
-							// 광원의 첫 그림자 뷰(VisibleLightShadowViews)부터 cascade 순서로 들어 있다. 그림자가 없는 방향광은 건너뛴다.
-							const uint32 DirectionalOffset = Data.GetDirectionalLightOffset();
-							for (uint32 LightIndex = 0; LightIndex < Data.GetDirectionalLightCount(); ++LightIndex)
-							{
-								const uint32 VisibleIndex = DirectionalOffset + LightIndex;
-								if (VisibleIndex >= static_cast<uint32>(Data.VisibleLightShadowViews.Num())) continue;
-								const uint32 FirstCascade = Data.VisibleLightShadowViews[VisibleIndex];
-								if (FirstCascade == FSceneRenderData::InvalidShadowView) continue;
-								for (uint32 CascadeIndex = 0; CascadeIndex < Data.CascadeShadowCount; ++CascadeIndex)
-								{
-									const uint32 ShadowIndex = FirstCascade + CascadeIndex;
-									if (ShadowIndex >= static_cast<uint32>(Data.LightShadows.Num())) break;
-									LineBatcher->AddOrientedBox(ClipBox, Data.LightShadows[ShadowIndex].ViewProjection.Inverse(), Colors[CascadeIndex]);
-								}
-							}
-						}
-						if (Settings.bDrawBatchLine && Settings.bDrawBoundingBox)
-						{
-							LineBatcher->BuildVertexBuffer();
-						}
-						
-						if (bDrawSelectedLight)
-						{
-							if (ASpotLightActor* Light = Cast<ASpotLightActor>(Gizmo->GetTarget()->GetOwner()))
-								Light->GetSpotLightComponent()->DrawDebug(LineBatcher);
-							else if (APointLightActor* Light = Cast<APointLightActor>(Gizmo->GetTarget()->GetOwner()))
-								Light->GetPointLightComponent()->DrawDebug(LineBatcher);
-							else if (ARectLightActor* Light = Cast<ARectLightActor>(Gizmo->GetTarget()->GetOwner()))
-								Light->GetRectLightComponent()->DrawDebug(LineBatcher);
-							else if (ADecalActor* Decal = Cast<ADecalActor>(Gizmo->GetTarget()->GetOwner()))
-								Decal->GetDecalComponent()->DrawDebug(LineBatcher);
-						}
-
-						const AActor* SelectedActor =
-							Gizmo->GetTarget() ? Gizmo->GetTarget()->GetOwner() : nullptr;
-
-						DrawCollisionShapes(GEditor->EditorWorld, LineBatcher, SelectedActor);
-						DrawSpringArms(GEditor->EditorWorld, LineBatcher, SelectedActor);
-
-						LineBatcher->OnRender(SceneView.ViewProjectionMatrix);
-					};
-			}
-			if (Settings.bDrawBatchLine)
-			{
-				Callbacks.Overlays.EditorGrid = [this, &SceneView, &Settings, GridRenderer, ViewportSetting]
-					{
-						EGridPlane GridPlane = EGridPlane::XY;
-						switch (ViewportType)
-						{
-						case ELevelViewportType::Front: GridPlane = EGridPlane::YZ; break;
-						case ELevelViewportType::Right: GridPlane = EGridPlane::XZ; break;
-						default: break;
-						}
-						if (Settings.bDrawPSGrid && SceneView.bIsPerspective)
-							GridRenderer->OnRenderPSGrid(SceneView.ViewProjectionMatrix, SceneView.ViewLocation,
-								Settings, ViewportSetting);
-						else
-							GridRenderer->OnRenderBatchGrid(SceneView.ViewProjectionMatrix, SceneView.ViewLocation,
-								SceneView.ViewForward, GridPlane,
-								static_cast<float>(Settings.GridSpacing),
-								SceneView.bIsPerspective, ViewportSetting);
-					};
-			}
-			if (bIsActiveViewport && Outline->GetTarget())
-				Callbacks.Overlays.EditorOutline = [&SceneView, Outline, OutlineRenderer, ViewportSetting]
-				{
-					OutlineRenderer->OnRender(*Outline, SceneView.ViewProjectionMatrix, ViewportSetting);
-				};
-			if (bIsActiveViewport && Gizmo->GetTarget())
-				Callbacks.Overlays.EditorGizmo = [&SceneView, Gizmo, GizmoRenderer]
-				{
-					GizmoRenderer->OnRender(*Gizmo, SceneView.ViewProjectionMatrix,
-						SceneView.ViewLocation, !SceneView.bIsPerspective);
-				};
-			Callbacks.Overlays.bClearEditorDepth = true;
-			if (Settings.bShowUUID)
-				Callbacks.Overlays.EditorUUID = [&SceneView] { GEditor->RenderActorUUIDs(SceneView); };
+			Draw(&SceneView, Callbacks);
 		});
+}
+
+// 기본 뷰포트는 씬 위에 아무것도 올리지 않는다.
+void FEditorViewportClient::Draw(const FSceneView* View, FScenePassCallbacks& Callbacks)
+{
 }
 
 // 뷰포트 크기 변경 및 타깃 생성

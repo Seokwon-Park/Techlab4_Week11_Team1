@@ -361,6 +361,47 @@ void UEditorEngine::StartPlayInEditorSession()
 		return;
 	}
 	PlayWorld = GameInstance->GetWorld();
+
+	// PIE 게임 화면은 게임 뷰포트 클라이언트의 Draw가 그린다. 그 위에 에디터가 올릴 디버그 요소를 여기서 등록해 둔다.
+	// Draw가 패스를 등록할 때마다 이 함수를 부른다.
+	if (FGameViewportClient* GameClient = PIEContext.GameViewport.get())
+	{
+		GameClient->DebugDrawDelegate = [this, GameClient](const FSceneView& SceneView, FSceneOverlayCallbacks& Overlays)
+		{
+			const bool bIsSIEMode = GameClient->IsSIEMode();
+			Overlays.EditorLines = [this, &SceneView, GameClient, bIsSIEMode]
+				{
+					if (bIsSIEMode)
+					{
+						// SIE: 기존처럼 충돌 도형·스프링암을 항상 그린다
+						LineBatcher->BeginFrame();
+						DrawCollisionShapes(GameClient->GetWorld(), LineBatcher.get(), nullptr);
+						DrawSpringArms(GameClient->GetWorld(), LineBatcher.get(), nullptr);
+						LineBatcher->OnRender(SceneView.ViewProjectionMatrix);
+						return;
+					}
+					// PIE 게임 화면: Settings > Debug Draw (PIE)
+					DrawPIEDebug(GameClient->GetWorld(), SceneView.ViewProjectionMatrix);
+				};
+
+			if (!bIsSIEMode) return;
+			const FSceneViewTargets& Targets = GameClient->GetViewTargets();
+			const FViewportSettings ViewportSetting{ 0, 0, Targets.SceneColor->GetWidth(),
+				Targets.SceneColor->GetHeight(), 0.0f, 1.0f };
+			if (Outline->GetTarget())
+				Overlays.SIEOutline = [this, &SceneView, ViewportSetting]
+				{
+					OutlineRenderer->OnRender(*Outline, SceneView.ViewProjectionMatrix, ViewportSetting);
+				};
+			if (Gizmo->GetTarget())
+				Overlays.SIEGizmo = [this, &SceneView]
+				{
+					GizmoRenderer->OnRender(*Gizmo, SceneView.ViewProjectionMatrix,
+						SceneView.ViewLocation, !SceneView.bIsPerspective);
+				};
+		};
+	}
+
 	if (!bNewWindow && PIEContext.GameViewport && ViewportsPanel)
 	{
 		ViewportsPanel->SetGameViewportClient(PIEStartEditorViewIndex, PIEContext.GameViewport.get());

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Editor/EditorUI/EditorPanel.h"
-#include "Editor/Viewports/EditorViewportClient.h" 
+#include "Editor/Viewports/LevelEditorViewport.h"
 #include "Editor/LevelViewportLayout.h"
 #include <functional>
 
@@ -42,7 +42,7 @@ public:
 	}
 
 	// 뷰포트 클라이언트 조회
-	FEditorViewportClient* GetViewportClient(const int32 ViewIndex) const
+	FLevelEditorViewportClient* GetViewportClient(const int32 ViewIndex) const
 	{
 			if (ViewIndex >= 0 && ViewIndex < 4)
 			{
@@ -70,7 +70,7 @@ private:
 	// 통계 정보 출력
 	void DrawStatOverlay(ImDrawList* DrawList, const ImVec2& ViewMin, FEditorViewportClient* Client) const;
 
-	TUniquePtr<FEditorViewportClient> ViewportClients[4]{};
+	TUniquePtr<FLevelEditorViewportClient> ViewportClients[4]{};
 	// PIE 월드 컨텍스트가 소유하며, 세션 종료 전에 비운다.
 	FGameViewportClient* GameViewportClient = nullptr;
 	int32 GameViewportIndex = -1;

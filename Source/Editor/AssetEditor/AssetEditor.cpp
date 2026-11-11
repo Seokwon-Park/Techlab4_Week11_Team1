@@ -3,6 +3,10 @@
 #include "Editor/AssetEditor/AssetEditorTab.h"
 #include "Editor/AssetEditor/EditorManager.h"
 #include "Editor/HitoriEd/EditorEngine.h"
+#include "Editor/HitoriEd/Editor.h"
+#include "Engine/World.h"
+#include "Render/Renderer.h"
+#include "Render/SceneRenderer.h"
 #include "Runtime/Render/LineBatcher.h"
 
 FAssetEditor::FAssetEditor(
@@ -129,7 +133,7 @@ bool FAssetEditor::InitializeResources()
 	}
 
 	// 새로운 ViewportClient 생성
-	ViewportClient = MakeUnique<FEditorViewportClient>(PreviewScene);
+	ViewportClient = MakeUnique<FAssetEditorViewportClient>(*this, PreviewScene);
 	ViewportClient->SetViewRotation(FRotator(30.0f, 210.0f, 0.0f));
 
 	// Scene 세팅
@@ -147,4 +151,44 @@ void FAssetEditor::ShutdownResources()
 {
 	ViewportClient.reset();
 	PreviewScene.Release();
+}
+
+FAssetEditorViewportClient::FAssetEditorViewportClient(FAssetEditor& InAssetEditor, FPreviewScene& InPreviewScene)
+	: FEditorViewportClient(InPreviewScene)
+	, AssetEditor(InAssetEditor)
+{
+	// 미리보기 화면의 표시 설정. 한 번 정하면 바뀌지 않으므로 생성할 때 채운다.
+	EngineShowFlags.bEnableFog = false;
+	EngineShowFlags.bEnableFXAA = true;
+	EngineShowFlags.bShowVignette = false;
+	EngineShowFlags.bShowCameraOverlay = false;
+	EngineShowFlags.RenderingPath = ERenderingPath::Forward;   // 웨이트 히트맵은 Forward 패스에만 있다
+}
+
+// 미리보기 씬 위에 에디터가 주는 선과 기즈모를 올린다. 씬은 기반 클래스의 Draw가 그린다.
+void FAssetEditorViewportClient::Draw(const FSceneView* View, FScenePassCallbacks& Callbacks)
+{
+	if (!GEditor)
+	{
+		return;
+	}
+
+	// 선과 기즈모를 그리는 도구는 엔진(GEditor)이 갖고 있는 것을 같이 쓴다.
+	FLineBatcher* LineBatcher = GEditor->LineBatcher.get();
+	FGizmoRenderer* GizmoRenderer = GEditor->GizmoRenderer.get();
+
+	// TODO: 지금은 EditorGizmo 슬롯에 들어있지만
+	// 추후 AssetEditor 전용 Gizmo 슬롯을 만들어서 그쪽으로 옮기는 게 좋을 듯
+	Callbacks.Overlays.EditorGizmo = [this, View, LineBatcher, GizmoRenderer]
+	{
+		LineBatcher->BeginFrame();
+		AssetEditor.OnRenderLine(*LineBatcher);
+		LineBatcher->OnRender(View->ViewProjectionMatrix);
+
+		if (const FGizmo* PreviewGizmo = AssetEditor.GetPreviewGizmo())
+		{
+			GizmoRenderer->OnRender(*PreviewGizmo, View->ViewProjectionMatrix,
+				View->ViewLocation, !View->bIsPerspective);
+		}
+	};
 }

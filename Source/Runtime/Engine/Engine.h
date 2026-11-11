@@ -106,14 +106,15 @@ public:
 	void InitializeAudioDevice();     // UE UEngine::InitializeAudioDeviceManager
 	void ShutdownAudioDevice();
 
+	// 창, 스왑체인, 렌더러를 가진 엔진 루프. UE에서는 전역 GEngineLoop로 어디서나 접근한다.
+	FEngineLoop& GetEngineLoop() const { return *EngineLoop; }
+
 protected:
 	// 맵 교체 직전·직후 알림. 에디터는 PIE 월드 포인터와 패널을 여기서 갱신한다.
 	virtual void PreLoadMap(FWorldContext& Context) {}
 	virtual void PostLoadMap(FWorldContext& Context) {}
 
 	FAudioDevice* MainAudioDevice = nullptr;
-
-	FEngineLoop& GetEngineLoop() const { return *EngineLoop; }
 
 	TIndirectArray<FWorldContext> WorldContextlist;
 	//UWorld* World = nullptr;
