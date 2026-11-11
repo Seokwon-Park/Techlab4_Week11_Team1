@@ -9,6 +9,7 @@
 #include "BlendSpaceFile.h"
 #include "Asset/AssetUtils.h"
 #include "GameFramework/Pawn.h"
+#include "GameFramework/Character.h"
 #include <cmath>
 #include <atomic>
 
@@ -320,6 +321,43 @@ UAnimGraphInstance::FStateCallback UAnimGraphInstance::MakeSetBoolAction(const F
 		};
 }
 
+UAnimGraphInstance::FStateCallback UAnimGraphInstance::MakeSetFloatAction(const FString& Variable, float Value)
+{
+	return [this, Variable, Value](UAnimInstance*)
+		{
+			SetFloat(Variable, Value);
+		};
+}
+
+UAnimGraphInstance::FStateCallback UAnimGraphInstance::MakeNamedNotifyAction(const FName& NotifyName)
+{
+	return [this, NotifyName](UAnimInstance*)
+		{
+			HandleNamedNotify(NotifyName);
+		};
+}
+
+UAnimGraphInstance::FStateCallback UAnimGraphInstance::CombineActions(TArray<FStateCallback> Actions)
+{
+	TArray<FStateCallback> Valid;
+	for (FStateCallback& Action : Actions)
+	{
+		if (Action)
+			Valid.Add(std::move(Action));
+	}
+
+	if (Valid.IsEmpty())
+		return {};
+	if (Valid.Num() == 1)
+		return std::move(Valid[0]);
+
+	return [Valid = std::move(Valid)](UAnimInstance* Instance)
+		{
+			for (const FStateCallback& Action : Valid)
+				Action(Instance);
+		};
+}
+
 // ---------------- 변수 ----------------
 
 float UAnimGraphInstance::GetFloat(const FString& Name, float Default) const
@@ -390,6 +428,9 @@ void UAnimGraphInstance::NativeUpdateAnimation(float DeltaSeconds)
 	{
 		const FVector Velocity = Pawn->GetVelocity();
 		SetFloat(GroundSpeedVariable, FVector(Velocity.X, Velocity.Y, 0.0f).Size() * WorldToCm);
+
+		if (const ACharacter* Character = Cast<ACharacter>(Pawn))
+			SetBool(IsFallingVariable, Character->IsFalling());
 	}
 
 	for (const FVariableBinding& Binding : Bindings)

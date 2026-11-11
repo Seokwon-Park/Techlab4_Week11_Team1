@@ -111,14 +111,24 @@ void FEditorTabContainer::ProcessCloseRequests()
 
 void FEditorTabContainer::DrawMainMenuBar()
 {
-	if (ImGui::BeginMenuBar())
-	{
-		if (MainSelectedTab)
+	// UE처럼 메뉴는 창 제목 표시줄 줄에 그린다. 탭 선택이 확정된 뒤(DrawTabs 다음)에 부른다.
+	const auto DrawMenus = [this]()
 		{
-			DrawTabMenu(*MainSelectedTab);
-		}
+			if (MainSelectedTab)
+			{
+				DrawTabMenu(*MainSelectedTab);
+			}
+		};
+	if (EditorTitleBar::DrawMenuBar(DrawMenus))
+	{
+		return;
+	}
 
-		ImGui::EndMenuBar();
+	// 제목 표시줄을 설치하지 않은 경우에는 화면 맨 위 메인 메뉴 바에 그린다.
+	if (ImGui::BeginMainMenuBar())
+	{
+		DrawMenus();
+		ImGui::EndMainMenuBar();
 	}
 }
 
@@ -136,10 +146,28 @@ void FEditorTabContainer::DrawTabs()
 		ImGuiDockNodeFlags_NoWindowMenuButton;
 
 	const ImGuiID DockSpaceId = ImGui::GetID("EditorTabs");
+
+	// 탭 바를 왼쪽 위 로고 칸 오른쪽에서 시작하게 한다. 로고는 제목 표시줄과 이 탭 줄 두 줄에 걸쳐 그려진다.
+	// ImGui는 탭 바 양끝을 style.WindowBorderSize만큼 안으로 들인다(DockNodeCalcTabBarLayout).
+	// DockSpace()가 만드는 호스트 창의 테두리는 ChildBorderSize(0)를 쓰므로, 이 호출 동안만 값을 키우면 탭 바 위치만 바뀐다.
+	// 오른쪽 끝도 같은 만큼 줄어들지만 탭이 그만큼 많아질 때만 드러난다.
+	const float DockSpaceMinX = ImGui::GetCursorScreenPos().x;
+	const float TabBarInset = ImMax(0.0f, EditorTitleBar::GetLogoColumnMaxX() - DockSpaceMinX);
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, TabBarInset);
 	ImGui::DockSpace(DockSpaceId, ImVec2(0.0f, 0.0f),
 		ImGuiDockNodeFlags_NoDockingSplit |
-		ImGuiDockNodeFlags_NoWindowMenuButton | 
+		ImGuiDockNodeFlags_NoWindowMenuButton |
 		ImGuiDockNodeFlags_NoCloseButton, &TabClass);
+	ImGui::PopStyleVar();
+
+	// 로고 아래 끝을 탭 줄 아래 끝에 맞춘다. 탭 바가 아직 없으면 탭 줄 높이로 어림한다.
+	if (const ImGuiDockNode* Node = ImGui::DockBuilderGetNode(DockSpaceId))
+	{
+		const float TabRowBottom = Node->TabBar
+			? Node->TabBar->BarRect.Max.y
+			: Node->Pos.y + ImGui::GetFrameHeight();
+		EditorTitleBar::SetLogoBottom(TabRowBottom);
+	}
 
 	MainSelectedTab = nullptr;
 
@@ -249,7 +277,8 @@ void FEditorTabContainer::DrawTabMenu(IEditorTab& Tab)
 
 void FEditorTabContainer::OnRender(bool bPassthruCentralNode)
 {
-	// 창 제목 표시줄(로고, 제목, 창 버튼)을 맨 위에 먼저 그린다. 그 높이만큼 WorkPos가 내려가서 메뉴 바가 그 아래에 온다.
+	// 창 제목 표시줄(로고, 메뉴 자리, 제목, 창 버튼)을 맨 위에 먼저 그린다. 그 높이만큼 WorkPos가 내려가서 탭 줄이 그 아래에 온다.
+	// 메뉴 내용은 탭 선택이 정해진 뒤 DrawMainMenuBar에서 같은 줄에 채운다.
 	EditorTitleBar::Draw();
 
 	const ImGuiViewport* Viewport = ImGui::GetMainViewport();
@@ -257,8 +286,8 @@ void FEditorTabContainer::OnRender(bool bPassthruCentralNode)
 	ImGui::SetNextWindowSize(Viewport->WorkSize);
 	ImGui::SetNextWindowViewport(Viewport->ID);
 
-	ImGuiWindowFlags Flags = ImGuiWindowFlags_MenuBar
-		| ImGuiWindowFlags_NoDocking
+	// 메뉴는 제목 표시줄 줄에 그리므로 이 창에는 메뉴 바가 없다. 맨 위가 바로 탭 줄이다.
+	ImGuiWindowFlags Flags = ImGuiWindowFlags_NoDocking
 		| ImGuiWindowFlags_NoTitleBar
 		| ImGuiWindowFlags_NoCollapse
 		| ImGuiWindowFlags_NoResize

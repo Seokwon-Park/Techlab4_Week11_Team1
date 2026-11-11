@@ -62,6 +62,25 @@ struct FAnimBlueprintFloatInput
     float Constant = 0.0f;
 };
 
+// State OnEnter/OnExit에서 변수 하나에 값을 쓴다. 변수 타입(Float/Bool)은 Variables에서 이름으로 찾는다.
+struct FAnimBlueprintVariableAssignment
+{
+    FString Variable;
+    bool bBoolValue = false;
+    float FloatValue = 0.0f;
+};
+
+// State 진입/이탈 시 실행할 동작 (UE State의 Entered/Left State Event)
+// - EventName: 비어 있지 않으면 이름 Notify로 보낸다 (HandleNamedNotify → BindNotify / C++ override)
+// - Assignments: 위에서부터 순서대로 변수에 값을 쓴다
+struct FAnimBlueprintStateEvent
+{
+    FString EventName;
+    TArray<FAnimBlueprintVariableAssignment> Assignments;
+
+    bool IsEmpty() const { return EventName.empty() && Assignments.IsEmpty(); }
+};
+
 struct FAnimBlueprintNode
 {
     int32 Id = INDEX_NONE;
@@ -81,6 +100,10 @@ struct FAnimBlueprintNode
     bool bLooping = true;
     bool bResetOnEntry = true;
     float PlayRate = 1.0f;
+
+    // State 노드 전용
+    FAnimBlueprintStateEvent OnEnter;
+    FAnimBlueprintStateEvent OnExit;
 
     int32 ChildGraphId = INDEX_NONE;
 };

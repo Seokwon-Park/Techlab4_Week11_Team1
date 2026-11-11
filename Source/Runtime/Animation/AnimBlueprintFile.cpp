@@ -67,6 +67,50 @@ namespace
         return Array;
     }
 
+    json WriteStateEvent(const FAnimBlueprintStateEvent& Value)
+    {
+        json Object;
+        Object["EventName"] = Value.EventName;
+        Object["Assignments"] = json::array();
+
+        for (const FAnimBlueprintVariableAssignment& Assignment : Value.Assignments)
+        {
+            Object["Assignments"].push_back({ { "Variable", Assignment.Variable }, { "bBoolValue", Assignment.bBoolValue }, { "FloatValue", Assignment.FloatValue } });
+        }
+
+        return Object;
+    }
+
+    // OnEnter/OnExit가 생기기 전 파일에는 키가 없다. 없으면 빈 이벤트로 둔다.
+    FAnimBlueprintStateEvent ReadStateEvent(const json& Node, const char* Key)
+    {
+        FAnimBlueprintStateEvent Value;
+        const auto Found = Node.find(Key);
+
+        if (Found == Node.end())
+        {
+            return Value;
+        }
+
+        if (!Found->is_object())
+        {
+            throw std::runtime_error(FString("Expected an object: ") + Key);
+        }
+
+        Value.EventName = Found->at("EventName").get<FString>();
+
+        for (const json& Object : ReadArray(*Found, "Assignments"))
+        {
+            FAnimBlueprintVariableAssignment Assignment;
+            Assignment.Variable = Object.at("Variable").get<FString>();
+            Assignment.bBoolValue = Object.at("bBoolValue").get<bool>();
+            Assignment.FloatValue = Object.at("FloatValue").get<float>();
+            Value.Assignments.Add(std::move(Assignment));
+        }
+
+        return Value;
+    }
+
     json WriteNode(const FAnimBlueprintNode& Value)
     {
         json Object;
@@ -86,6 +130,13 @@ namespace
         Object["ChildGraphId"] = Value.ChildGraphId;
         Object["Position"] = { { "X", Value.Position.X }, { "Y", Value.Position.Y } };
         Object["FloatInput"] = { { "bUseVariable", Value.FloatInput.bUseVariable }, { "Variable", Value.FloatInput.Variable }, { "Constant", Value.FloatInput.Constant } };
+
+        if (Value.Type == EAnimBlueprintNodeType::State)
+        {
+            Object["OnEnter"] = WriteStateEvent(Value.OnEnter);
+            Object["OnExit"] = WriteStateEvent(Value.OnExit);
+        }
+
         return Object;
     }
 
@@ -113,6 +164,8 @@ namespace
         Value.FloatInput.bUseVariable = Input.at("bUseVariable").get<bool>();
         Value.FloatInput.Variable = Input.at("Variable").get<FString>();
         Value.FloatInput.Constant = Input.at("Constant").get<float>();
+        Value.OnEnter = ReadStateEvent(Object, "OnEnter");
+        Value.OnExit = ReadStateEvent(Object, "OnExit");
         return Value;
     }
 
@@ -513,6 +566,27 @@ bool AnimBlueprintFile::Validate(const FAnimBlueprintData& Data, FString& OutErr
                 if ((Required[Index] && !AddId(Pins[Index])) || (!Required[Index] && Pins[Index] != INDEX_NONE))
                 {
                     return Fail("A node has missing, duplicate or unexpected pins.");
+                }
+            }
+
+            if (Node.Type != EAnimBlueprintNodeType::State && (!Node.OnEnter.IsEmpty() || !Node.OnExit.IsEmpty()))
+            {
+                return Fail("Only State nodes can have OnEnter/OnExit events.");
+            }
+
+            for (const FAnimBlueprintStateEvent* Event : { &Node.OnEnter, &Node.OnExit })
+            {
+                if (Event->EventName.size() >= 128)
+                {
+                    return Fail("A State event name is too long.");
+                }
+
+                for (const FAnimBlueprintVariableAssignment& Assignment : Event->Assignments)
+                {
+                    if (!std::isfinite(Assignment.FloatValue))
+                    {
+                        return Fail("A State event assigns an invalid value.");
+                    }
                 }
             }
 
