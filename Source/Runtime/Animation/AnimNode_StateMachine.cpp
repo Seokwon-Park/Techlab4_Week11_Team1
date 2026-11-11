@@ -205,6 +205,7 @@ void FAnimNode_StateMachine::ProcessState(UAnimInstance* AnimInstance)
 	TransitionContext.AnimInstance = AnimInstance;
 
 	//TODO : 상태 안 시퀀스의 남은 시간 계산 필요
+    //AnimBlueprint의 Sequence Finished는 Sequence의 IsFinished만 검사한다.
 	TransitionContext.StateTimeRemaining = -1.0f;
 
 	for (int32 Step = 0; Step < MaxTransitionsPerFrame; ++Step)

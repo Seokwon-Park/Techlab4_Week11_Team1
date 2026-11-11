@@ -2,7 +2,7 @@
     "Format": "HitoriAnimBlueprint",
     "Graphs": [
         {
-            "EditorSettings": "{\"view\":{\"scroll\":{\"x\":-634.9999389648438,\"y\":-758},\"visible_rect\":{\"max\":{\"x\":1052.1904296875,\"y\":865.4988403320313},\"min\":{\"x\":-496.0214538574219,\"y\":-592.1011962890625}},\"zoom\":1.2801865339279175}}",
+            "EditorSettings": "{\"view\":{\"scroll\":{\"x\":-743.90087890625,\"y\":-930.3135375976563},\"visible_rect\":{\"max\":{\"x\":1254.5128173828125,\"y\":918.3560180664063},\"min\":{\"x\":-752.3026733398438,\"y\":-941.6439819335938}},\"zoom\":0.9876343607902527}}",
             "Id": 1,
             "Links": [
                 {
@@ -55,7 +55,7 @@
                     "PlayRate": 1.0,
                     "Position": {
                         "X": -169.0,
-                        "Y": 103.0
+                        "Y": 87.0
                     },
                     "SecondInputPosePinId": -1,
                     "SequencePath": "",
@@ -72,7 +72,7 @@
             "Type": 0
         },
         {
-            "EditorSettings": "{\"view\":{\"scroll\":{\"x\":-529.288818359375,\"y\":-725.5460815429688},\"visible_rect\":{\"max\":{\"x\":1475.93798828125,\"y\":1129.5548095703125},\"min\":{\"x\":-537.3511352539063,\"y\":-736.4453125}},\"zoom\":0.9844587445259094}}",
+            "EditorSettings": "{\"view\":{\"scroll\":{\"x\":-412.28253173828125,\"y\":-558.0490112304688},\"visible_rect\":{\"max\":{\"x\":1424.1556396484375,\"y\":1133.8818359375},\"min\":{\"x\":-373.72747802734375,\"y\":-506.1648864746094}},\"zoom\":1.1024075746536255}}",
             "Id": 6,
             "Links": [
                 {
@@ -340,8 +340,8 @@
                     "OutputPosePinId": -1,
                     "PlayRate": 1.0,
                     "Position": {
-                        "X": 850.0,
-                        "Y": 426.0
+                        "X": 738.0,
+                        "Y": 471.0
                     },
                     "SecondInputPosePinId": -1,
                     "SequencePath": "",
@@ -485,7 +485,7 @@
             "Type": 1
         },
         {
-            "EditorSettings": "{\"view\":{\"scroll\":{\"x\":-107,\"y\":-533},\"visible_rect\":{\"max\":{\"x\":937.5,\"y\":615.5},\"min\":{\"x\":-53.5,\"y\":-266.5}},\"zoom\":2}}",
+            "EditorSettings": "{\"view\":{\"scroll\":{\"x\":-247,\"y\":-1082},\"visible_rect\":{\"max\":{\"x\":371.3333435058594,\"y\":828.6666870117188},\"min\":{\"x\":-164.6666717529297,\"y\":-721.3333740234375}},\"zoom\":1.5}}",
             "Id": 13,
             "Links": [
                 {
@@ -695,7 +695,7 @@
             "Type": 0
         },
         {
-            "EditorSettings": "{\"view\":{\"scroll\":{\"x\":-478,\"y\":-690},\"visible_rect\":{\"max\":{\"x\":752,\"y\":537},\"min\":{\"x\":-239,\"y\":-345}},\"zoom\":2}}",
+            "EditorSettings": "{\"view\":{\"scroll\":{\"x\":22.000015258789063,\"y\":-1029},\"visible_rect\":{\"max\":{\"x\":660.7999877929688,\"y\":1036.800048828125},\"min\":{\"x\":17.600000381469727,\"y\":-823.2000122070313}},\"zoom\":1.25}}",
             "Id": 47,
             "Links": [
                 {
@@ -747,8 +747,8 @@
                     "OutputPosePinId": 59,
                     "PlayRate": 1.0,
                     "Position": {
-                        "X": 23.0,
-                        "Y": 87.0
+                        "X": 19.0,
+                        "Y": 97.0
                     },
                     "SecondInputPosePinId": -1,
                     "SequencePath": "FBX/UAL1_Standard/UAL1_Standard_Armature_Jump_Start.anim.bin",
@@ -905,9 +905,10 @@
             "Type": 0
         }
     ],
-    "NextId": 76,
+    "NextId": 80,
     "PreviewMeshPath": "FBX/UAL1_Standard/UAL1_Standard.fbx.bin",
     "RootGraphId": 1,
+    "RootMotionMode": 2,
     "Variables": [
         {
             "DefaultFloat": 0.0,
