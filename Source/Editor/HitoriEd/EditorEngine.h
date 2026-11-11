@@ -55,6 +55,10 @@ UCLASS()
 class UEditorEngine : public UEngine
 {
 	GENERATED_BODY()
+	// FEditorViewportClient::Draw가 그리드·기즈모·외곽선 같은 에디터 도구를 GEditor로 꺼내 쓴다.
+	// UE에서는 이런 것을 클라이언트가 직접 갖거나(Widget, DrawHelper) 엔진의 public 멤버로 둔다.
+	// 이 엔진은 아직 엔진이 갖고 있어서 friend로 열어 둔다.
+	friend class FEditorViewportClient;
 public:
 	FEngineConfig GetConfig() const override;
 	bool Init() override;
@@ -63,8 +67,6 @@ public:
 
 	// Active View의 입력과 Picking 결과만 Gizmo 및 선택 상태에 반영한다.
 	void UpdateGizmoAndPicking();
-	// 뷰포트 하나의 씬과 에디터 요소를 렌더링한다.
-	void RenderFrame(FEditorViewportClient* ViewClient, const FSceneView& SceneView, const FSceneRenderOptions& RenderOptions, FSceneRenderer& SceneRenderer, UWorld* TargetWorld, const bool bIsPIE);
 	// 게임 뷰포트 화면을 렌더링한다.
 	void DrawPIEDebug(UWorld* World, const FMatrix& ViewProjection);
 	void RenderGameFrame(FGameViewportClient* GameClient, const FSceneView& SceneView, const FSceneRenderOptions& RenderOptions, FSceneRenderer& SceneRenderer, bool bIsSIEMode = false);
@@ -80,6 +82,8 @@ public:
 	inline void RequestPlaySession() { bPlaySessionRequested = true; }
 	inline void RequestEndPlayMap() { bRequestEndPlayMapQueued = true; bIsPaused = false; }
 
+	// 대기 중인 Play 요청이 있으면 PIE를 시작한다. Tick이 프레임 시작에 부른다.
+	void StartQueuedPlaySessionRequest();
 	//실제 PIE 를 실행
 	void StartPlayInEditorSession();
 	UWorld* CreatePIEWorldByDuplication(FWorldContext& PIEContext, UWorld* InEditorWorld);
@@ -96,16 +100,21 @@ public:
 		return IsSimulatingInEditor() ? EPIEState::Simulating : EPIEState::Playing;
 	}
 
-	////FEditorDelegates::PrePIEEnded / EndPIE.Broadcast()
-	//void TeardownPlaySession(const FWorldContext& PIEContext);            // 액터 EndPlay, 월드 정리(CleanupWorld)
-	//void RestoreEditorWorld(UWorld* EditorWorld);            // GWorld를 에디터 월드로 복구
-	//void DestroyWorldContext(UWorld* PlayWorld);
-
 protected:
 	void PreLoadMap(FWorldContext& Context) override;
 	void PostLoadMap(FWorldContext& Context) override;
 
 private:
+	// 에디터 월드와 그 월드 컨텍스트를 만든다. UE의 UEditorEngine::InitEditor에 해당한다.
+	void InitEditor();
+	// 아래 다섯은 Init이 순서대로 부르는 UI 초기화 단계다. UE에서는 레벨 에디터 모듈과 Slate가 맡는 일이라
+	// 대응하는 UE 함수가 없는, 이 엔진 고유의 이름이다.
+	void InitLevelEditorTab();
+	void InitImGui();
+	void InitEditorRenderers();
+	void InitPanels();
+	void InitCommands();
+
 	// 이번 프레임 DeltaTime을 패널에 전달하고 에디터 단축키를 처리한다.
 	void BeginFrame(float DeltaTime);
 	// 패널 요청과 입력을 적용해 레이아웃·카메라 상태를 갱신한다.
@@ -114,6 +123,8 @@ private:
 	void TickWorldAndEditor(float DeltaTime);
 	// 한 번 캡처한 월드 결과를 재사용해 현재 레이아웃의 각 View를 렌더한다.
 	void RenderViewports();
+	// View 하나를 그린다. UE의 UEditorEngine::UpdateSingleViewportClient에 해당한다.
+	void UpdateSingleViewportClient(FEditorViewportClient* ViewClient, int32 ViewIndex);
 	// PIE View를 게임 카메라 상태와 동기화한다.
 	void UpdatePIEViewCamera();
 	void TickPIEInput(float DeltaTime);
@@ -208,8 +219,6 @@ private:
 	uint32 PIETargetHeight = 0;
 	bool bPIEWindowRendered = false;
 
-	FVector UUIDLocation;
-
 	FGamePackager Packager;
 
 	FEditorCommand Save;
@@ -223,8 +232,6 @@ private:
 	FEditorCommand StepFrame;
 	FEditorCommand Stop;
 
-	bool bIsStep = false;
-
 	bool bPlaySessionRequested = false;
 	bool bRequestEndPlayMapQueued = false;
 	bool bStepRequested = false;
@@ -237,23 +244,10 @@ private:
 	void SaveCurrentScene();
 	void SaveSceneAs();
 
-	void CreatePIESession();
-	void StopPIESession();
-	void DrawPIEWindows();
-
-
-	void UpdateInputOwner();
-	void DispatchGameInput(float DeltaTime);
-	FGameViewportClient* FindPIEGameClient(int32 PIEInstance) const;
-
-	int32 InputOwnerPIEInstance = -1;
 	bool bGameMouseCaptured = false;
 	// PIE 시작 / SIE → 게임 복귀 시 다음 입력 틱에서 자동 캡처 (UE bCaptureMouseOnLaunch)
 	bool bPendingPIEMouseCapture = false;
 	// 캡처 중 커서를 되돌려 놓는 화면 좌표
 	int32 PIECaptureCenterX = 0;
 	int32 PIECaptureCenterY = 0;
-	int32 PendingFocusedPIEInstance = -1;
-	int32 PendingWheelDelta = 0;
-
 };

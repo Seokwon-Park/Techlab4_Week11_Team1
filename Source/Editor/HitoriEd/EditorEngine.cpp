@@ -1,6 +1,7 @@
 #include "EnginePCH.h"
 
 #include "Editor/HitoriEd/EditorEngine.h"
+#include "Editor/HitoriEd/Editor.h"
 
 #include "Core/EngineStatics.h"
 #include "Core/EngineTimer.h"
@@ -67,6 +68,9 @@ namespace
 #include "Core/Misc/Paths.h"
 #include "Editor/EditorUI/EditorTitleBar.h"
 
+// 에디터 엔진을 가리키는 전역 포인터. UE의 GEditor와 같다. Init에서 채우고 PreExit에서 비운다.
+UEditorEngine* GEditor = nullptr;
+
 FEngineConfig UEditorEngine::GetConfig() const
 {
 	FEngineConfig Desc;
@@ -95,15 +99,37 @@ bool UEditorEngine::Init()
 	if (!Super::Init())
 		return false;
 
-	FWorldContext& InitialWorldContext = CreateNewWorldContext(EWorldType::Editor);
-	InitialWorldContext.SetCurrentWorld(UWorld::CreateWorld(EWorldType::Editor, true));
-	EditorWorld = InitialWorldContext.World();
+	GEditor = this;
 
+	// FEngineLoop가 소유한 창·스왑체인·렌더러를 받아 둔다.
 	MainWindow = GetEngineLoop().GetMainWindow();
 	MainWindowSC = GetEngineLoop().GetSwapchain();
 	Renderer = GetEngineLoop().GetRenderer();
-	FRenderDevice* RenderDevice = GetEngineLoop().GetRenderDevice();
 
+	// 순서에 의미가 있다. 패널은 ImGui와 렌더러를, 명령은 패널을 쓴다.
+	// InitEditor만 UE에 있는 이름이다. 나머지 다섯은 UE에서 레벨 에디터 모듈과 Slate가 맡는 일이라
+	// 대응하는 UE 함수가 없는, 이 엔진 고유의 단계다.
+	InitEditor();
+	InitLevelEditorTab();
+	InitImGui();
+	InitEditorRenderers();
+	InitPanels();
+	InitCommands();
+
+	return true;
+}
+
+// 에디터 월드와 그 월드 컨텍스트를 만든다. UE의 UEditorEngine::InitEditor가 하는 일 중 이 부분에 해당한다.
+void UEditorEngine::InitEditor()
+{
+	FWorldContext& InitialWorldContext = CreateNewWorldContext(EWorldType::Editor);
+	InitialWorldContext.SetCurrentWorld(UWorld::CreateWorld(EWorldType::Editor, true));
+	EditorWorld = InitialWorldContext.World();
+}
+
+// 에디터 탭 관리자와 레벨 에디터 탭을 만들고 메뉴 동작과 출력 로그를 연결한다.
+void UEditorEngine::InitLevelEditorTab()
+{
 	EditorManager = MakeUnique<FEditorManager>(*this);
 	LevelEditorTab = &EditorManager->GetLevelEditorTab();
 
@@ -123,6 +149,12 @@ bool UEditorEngine::Init()
 #ifdef ENGINE_DEBUG
 	FCollision::RunSelfTest();
 #endif
+}
+
+// ImGui를 초기화하고 메인 메뉴 바를 창의 제목 표시줄로 쓴다.
+void UEditorEngine::InitImGui()
+{
+	FRenderDevice* RenderDevice = GetEngineLoop().GetRenderDevice();
 
 	HTR_LOG(Info, "Initialize ImGui...");
 	ImGuiRenderer = MakeUnique<FImGuiRenderer>();
@@ -144,7 +176,11 @@ bool UEditorEngine::Init()
 				EditorTitleBar::SetLogo((ImTextureID)Logo->GetResource()->GetSRV());
 		}
 	}
+}
 
+// 그리드·기즈모·외곽선·텍스트처럼 에디터 화면에만 쓰는 렌더러를 만든다.
+void UEditorEngine::InitEditorRenderers()
+{
 	GridRenderer = MakeUnique<FGridRenderer>();
 	GridRenderer->Init(Renderer);
 
@@ -153,6 +189,32 @@ bool UEditorEngine::Init()
 
 	Gizmo = MakeUnique<FGizmo>();
 
+	// OutLine
+	OutlineRenderer = MakeUnique<FOutlineRenderer>();
+	OutlineRenderer->Init(Renderer);
+
+	SceneDepthRenderer = MakeUnique<FSceneDepthRenderer>();
+	SceneDepthRenderer->Init(Renderer);
+	CascadeFloorRenderer = MakeUnique<FCascadeFloorRenderer>();
+	CascadeFloorRenderer->Init();
+
+	Outline = MakeUnique<FOutline>();
+
+	SystemFont = UAssetManager::GetAssetByPath<UFont>("Engine/Fonts/Pretendard.json");
+
+	TextRenderer = MakeUnique<FTextRenderer>();
+	TextRenderer->Init();
+
+	UIRenderer = MakeUnique<FUIRenderer>();
+	UIRenderer->Init();
+
+	LineBatcher = MakeUnique<FLineBatcher>();
+	LineBatcher->Init(Renderer, GetActiveWorld());
+}
+
+// 레벨 에디터 탭의 패널을 만들고 패널끼리, 패널과 월드·기즈모를 연결한다.
+void UEditorEngine::InitPanels()
+{
 	DetailsPanel = LevelEditorTab->AddPanel<FDetailsPanel>();
 	DetailsPanel->SetImGuiRenderer(ImGuiRenderer.get());
 	DetailsPanel->SetShadowPreviewQuery([this](const ULightComponent* Light, FTexture2DArray*& Atlas,
@@ -180,15 +242,6 @@ bool UEditorEngine::Init()
 	ViewportsPanel = LevelEditorTab->AddPanel<FViewportsPanel>();
 	ContentDrawerPanel = LevelEditorTab->AddPanel<FContentDrawerPanel>();
 
-	// OutLine
-	OutlineRenderer = MakeUnique<FOutlineRenderer>();
-	OutlineRenderer->Init(Renderer);
-
-	SceneDepthRenderer = MakeUnique<FSceneDepthRenderer>();
-	SceneDepthRenderer->Init(Renderer);
-	CascadeFloorRenderer = MakeUnique<FCascadeFloorRenderer>();
-	CascadeFloorRenderer->Init();
-
 	SettingsPanel = LevelEditorTab->AddPanel<FSettingsPanel>();
 	SequencerPanel = LevelEditorTab->AddPanel<FSequencerPanel>();
 	OutputLogPanel->SetEditorSettings(&SettingsPanel->GetMutableSettings());
@@ -209,16 +262,6 @@ bool UEditorEngine::Init()
 
 	ContentDrawerPanel->SetBlendSpaceCreatedCallback([this](const FString& Path) { EditorManager->OpenEditor(Path); });
     ContentDrawerPanel->SetAnimBlueprintCreatedCallback([this](const FString& Path) { EditorManager->OpenEditor(Path); });
-
-	Outline = MakeUnique<FOutline>();
-
-	SystemFont = UAssetManager::GetAssetByPath<UFont>("Engine/Fonts/Pretendard.json");
-
-	TextRenderer = MakeUnique<FTextRenderer>();
-	TextRenderer->Init();
-
-	UIRenderer = MakeUnique<FUIRenderer>();
-	UIRenderer->Init();
 
 	// 화면 나눔 비율 설정 가져오기
 	ViewportSplitRatio = {
@@ -285,9 +328,6 @@ bool UEditorEngine::Init()
 		}
 	);
 
-	LineBatcher = MakeUnique<FLineBatcher>();
-	LineBatcher->Init(Renderer, GetActiveWorld());
-
 	DetailsPanel->SetWorld(GetActiveWorld());
 
 	EditorControlsPanel->SetWorld(EditorWorld);
@@ -320,7 +360,11 @@ bool UEditorEngine::Init()
 		}
 	}
 	SettingsPanel->ApplyViewportSettings();
+}
 
+// 저장·열기·Play 같은 에디터 명령과 단축키를 정의하고 툴바에 넘긴다.
+void UEditorEngine::InitCommands()
+{
 	const ImVec4 White = { 1, 1, 1, 1 };
 	const ImVec4 Green = { 0.40f, 0.80f, 0.30f, 1.0f };
 
@@ -379,8 +423,6 @@ bool UEditorEngine::Init()
 		[this]() { return PlayMode; },
 		[this](EPlayModeType Mode) { PlayMode = Mode; },
 		[this]() { return !IsPlaying(); });
-
-	return true;
 }
 
 // 프레임 시작·View 상태·월드 갱신 후 View별 오프스크린 렌더와 UI 합성을 진행한다.
@@ -395,7 +437,7 @@ void UEditorEngine::Tick(const float DeltaTime)
 	EditorCommandUI::ProcessShortcuts({ &NewScene, &OpenSceneCommand, &Save, &SaveAs, &Play, &Pause, &Resume });
 
 	if (bRequestEndPlayMapQueued) { bRequestEndPlayMapQueued = false; EndPlayMap(); }
-	if (bPlaySessionRequested) { bPlaySessionRequested = false; if (!PlayWorld) StartPlayInEditorSession(); }
+	StartQueuedPlaySessionRequest();
 	// PIE 중 OpenLevel 요청 처리. 월드 Tick 전에 해야 지운 월드를 Tick하지 않는다.
 	if (PlayWorld)
 		if (FWorldContext* PIEContext = GetWorldContextFromWorld(PlayWorld))
@@ -406,7 +448,6 @@ void UEditorEngine::Tick(const float DeltaTime)
 	TickWorldAndEditor(DeltaTime);
 	if (FAudioDevice* AudioDevice = GetMainAudioDevice())
 	{
-		UWorld* ActiveWorld = GetActiveWorld();
 		APlayerController* PC = PlayWorld ? PlayWorld->GetPlayerController() : nullptr;
 		if (PC)
 		{
@@ -426,6 +467,7 @@ void UEditorEngine::Tick(const float DeltaTime)
 	EndFrame();
 	EditorManager->LateTick();
 }
+
 
 void UEditorEngine::PreLoadMap(FWorldContext& Context)
 {
@@ -649,69 +691,10 @@ void UEditorEngine::RenderViewports()
 		}
 	}
 
-	for (int32 ViewIndex = 0; ViewIndex < AllViewportClients.Num(); ++ViewIndex) {
-		FEditorViewportClient* ViewClient = AllViewportClients[ViewIndex];
-		if (!ViewClient || !ViewClient->IsActive())
-			continue;
-
-		const FRect& ViewRect = ViewClient->GetRect();
-		if (ViewRect.Width <= 0.0f || ViewRect.Height <= 0.0f)
-			continue;
-
-		bool bIsGameView = false;
-		int32 TargetPlayerIndex = -1;
-
-		if (bIsPIE && !IsPIEInWindow() && PlayMode == EPlayModeType::InViewport &&
-			ViewIndex == PIEStartEditorViewIndex)
-		{
-			bIsGameView = true;
-			TargetPlayerIndex = 0;
-		}
-
-		// 선택된 게임 뷰포트와 나머지 에디터 뷰포트는 같은 PIE 월드를 본다.
-		UWorld* CurrentWorld = bIsPIE ? PlayWorld : EditorWorld;
-
-		FSceneView SceneView;
-		FSceneRenderOptions Options;
-		if (bIsGameView && TargetPlayerIndex >= 0)
-		{
-			FGameViewportClient* GameClient = nullptr;
-			for (int32 WorldIdx = 0; WorldIdx < WorldContextlist.Num(); ++WorldIdx)
-			{
-				if (WorldContextlist[WorldIdx].WorldType == EWorldType::PIE &&
-					WorldContextlist[WorldIdx].PIEInstance == TargetPlayerIndex &&
-					WorldContextlist[WorldIdx].GameViewport)
-				{
-					GameClient = WorldContextlist[WorldIdx].GameViewport.get();
-					BuildSceneRenderOptions(GameClient, Options);
-
-					if (WorldContextlist[WorldIdx].World())
-					{
-						CurrentWorld = WorldContextlist[WorldIdx].World();
-					}
-
-					SceneView = GameClient->CalcSceneView(ViewRect);
-
-					FSceneRenderer SceneRenderer(CurrentWorld, SceneView, GameClient->GetRenderData());
-					SceneRenderer.InitViews(Renderer, Options);
-
-					RenderGameFrame(GameClient, SceneView, Options, SceneRenderer, GameClient->IsSIEMode());
-
-					break;
-				}
-			}
-		}
-		else
-		{
-			BuildSceneRenderOptions(ViewClient, bIsGameView, Options);
-
-			SceneView = ViewClient->CalcSceneView(ViewRect);
-
-			FSceneRenderer SceneRenderer(CurrentWorld, SceneView, ViewClient->GetRenderData());
-			SceneRenderer.InitViews(Renderer, Options);
-
-			RenderFrame(ViewClient, SceneView, Options, SceneRenderer, CurrentWorld, bIsGameView);
-		}
+	// UE의 UEditorEngine::Tick처럼 View마다 UpdateSingleViewportClient를 불러 그린다.
+	for (int32 ViewIndex = 0; ViewIndex < AllViewportClients.Num(); ++ViewIndex)
+	{
+		UpdateSingleViewportClient(AllViewportClients[ViewIndex], ViewIndex);
 	}
 
 	// 별도 창(FWindow) 모드인 경우 PIE 창 타깃에 렌더링하고 스왑체인 백버퍼로 복사한다.
@@ -743,266 +726,68 @@ void UEditorEngine::RenderViewports()
 	}
 }
 
-void UEditorEngine::UpdatePIEViewCamera()
+// View 하나를 그린다. PIE를 시작한 View는 게임 뷰포트로, 나머지는 에디터 뷰포트로 그린다.
+// UE의 UEditorEngine::UpdateSingleViewportClient와 같은 자리다. UE처럼 에디터 뷰포트는 클라이언트의 Draw가 그린다.
+// 게임 뷰포트는 아직 엔진의 RenderGameFrame이 그린다.
+void UEditorEngine::UpdateSingleViewportClient(FEditorViewportClient* ViewClient, int32 ViewIndex)
 {
-	if (!PlayWorld || PIEViewIndex == InvalidViewIndex)
+	const bool bIsPIE = (PlayWorld != nullptr);
+	if (!ViewClient || !ViewClient->IsActive())
 		return;
-	FWorldContext* Context = GetPIEWorldContext();
-	if (!Context || !Context->GameViewport)
+
+	const FRect& ViewRect = ViewClient->GetRect();
+	if (ViewRect.Width <= 0.0f || ViewRect.Height <= 0.0f)
 		return;
-	FGameViewportClient& GameViewport = *Context->GameViewport;
-	if (PIEViewIndex >= 0 && PIEViewIndex < AllViewportClients.Num())
-	{
-		if (FEditorViewportClient* View = AllViewportClients[PIEViewIndex])
-		{
-			const FRect& GameRect = View->GetRect();
-			if (GameRect.Width <= 0.0f || GameRect.Height <= 0.0f) return;
-			const FSceneView GameView = GameViewport.CalcSceneView(GameRect);
-			View->SetViewLocation(GameView.ViewLocation);
-			View->SetViewRotation(GameView.ViewRotation);
-			View->SetViewFOV(GameView.FieldOfView);
-			View->SetOrthoWidth(GameView.OrthoWidth);
-			View->SetIsPerspective(GameView.bIsPerspective);
-		}
-	}
-}
 
-bool UEditorEngine::IsSimulatingInEditor() const
-{
-	for (const FWorldContext& Context : WorldContextlist)
-		if (Context.WorldType == EWorldType::PIE && Context.GameViewport)
-			return Context.GameViewport->IsSIEMode();
-	return false;
-}
+	bool bIsGameView = false;
+	int32 TargetPlayerIndex = -1;
 
-void UEditorEngine::TickPIEInput(float DeltaTime)
-{
-	FWorldContext* Context = GetPIEWorldContext();
-	if (!Context || !Context->GameViewport) return;
-	FGameViewportClient& GameViewport = *Context->GameViewport;
-	const FVector2 Mouse = ViewportsPanel->GetLocalMousePosition();
-	const int32 InputViewIndex = IsPIEInWindow() && GameViewport.IsSIEMode()
-		? PIEStartEditorViewIndex : PIEViewIndex;
-	const FRect PIEViewRect = (InputViewIndex >= 0 && InputViewIndex < AllViewportClients.Num() && AllViewportClients[InputViewIndex])
-		? AllViewportClients[InputViewIndex]->GetRect() : FRect{};
-	const bool bMouseOverPIE = Mouse.X >= PIEViewRect.X && Mouse.Y >= PIEViewRect.Y &&
-		Mouse.X < PIEViewRect.X + PIEViewRect.Width && Mouse.Y < PIEViewRect.Y + PIEViewRect.Height;
-	const int32 ActiveViewIdx = ViewportsPanel ? ViewportsPanel->GetActiveViewIndex() : -1;
-	const bool bEditorSIEFocus = IsPIEInWindow() && GameViewport.IsSIEMode() &&
-		::GetForegroundWindow() == MainWindow->GetHandle() &&
-		ActiveViewIdx == PIEStartEditorViewIndex && ViewportsPanel->IsHovered() &&
-		!ImGui::GetIO().WantTextInput && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup);
-	const bool bClickPressed =
-		FInputSystem::IsMousePressed(EMouseButton::Left) || FInputSystem::IsMousePressed(EMouseButton::Right);
-	const HWND InputWindow = IsPIEInWindow() ? PIEWindow->GetHandle() : MainWindow->GetHandle();
-	const bool bInputWindowForeground = ::GetForegroundWindow() == InputWindow;
-
-	// 마우스 캡처: 캡처 중에는 커서가 PIE 영역 밖으로 못 나가므로 hover 판정 없이 입력을 유지한다.
-	// SIE(에디터 카메라 조작)는 기존 hover 규칙을 그대로 쓴다.
-	if (bGameMouseCaptured)
+	if (bIsPIE && !IsPIEInWindow() && PlayMode == EPlayModeType::InViewport &&
+		ViewIndex == PIEStartEditorViewIndex)
 	{
-		const bool bReleaseKey = FInputSystem::IsKeyDown(EKeyCode::Shift) && FInputSystem::IsKeyPressed(EKeyCode::F1);
-		if (bReleaseKey || GameViewport.IsSIEMode() || !bInputWindowForeground)
-			EndPIEMouseCapture();
-	}
-	bool bCaptureStartedThisFrame = false;
-	if (!bGameMouseCaptured && !GameViewport.IsSIEMode() && bInputWindowForeground)
-	{
-		// 별도 PIE 창은 창이 포그라운드면 클릭 위치가 곧 PIE 영역이다
-		const bool bClickOnPIE = bClickPressed && (IsPIEInWindow() ||
-			(bMouseOverPIE && ViewportsPanel->IsHovered() &&
-			 !ImGui::GetIO().WantTextInput && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup)));
-		if (bPendingPIEMouseCapture || bClickOnPIE)
-		{
-			BeginPIEMouseCapture();
-			// 캡처를 시작한 클릭은 게임에 넘기지 않고, 이번 프레임 이동량도 버린다
-			bCaptureStartedThisFrame = bGameMouseCaptured;
-		}
+		bIsGameView = true;
+		TargetPlayerIndex = 0;
 	}
 
-	const bool bFocused = bGameMouseCaptured || (IsPIEInWindow()
-		? bInputWindowForeground || bEditorSIEFocus
-		: bInputWindowForeground &&
-		ActiveViewIdx == InputViewIndex &&
-		ViewportsPanel->IsHovered() &&
-		!ImGui::GetIO().WantTextInput && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup));
-	if (!bFocused) { GameViewport.LostFocus(); return; }
-	if (!bGameMouseCaptured && !IsPIEInWindow() && bClickPressed && !bMouseOverPIE)
-	{
-		GameViewport.LostFocus();
-		return;
-	}
+	// 선택된 게임 뷰포트와 나머지 에디터 뷰포트는 같은 PIE 월드를 본다.
+	UWorld* CurrentWorld = bIsPIE ? PlayWorld : EditorWorld;
 
-	if (FInputSystem::IsKeyPressed(EKeyCode::F8))
-		GameViewport.InputKey(nullptr, static_cast<int32>(EKeyCode::F8), true);
-	if (GameViewport.ConsumeSIERequest())
+	FSceneView SceneView;
+	FSceneRenderOptions Options;
+	if (bIsGameView && TargetPlayerIndex >= 0)
 	{
-		if (GameViewport.IsSIEMode())
+		FGameViewportClient* GameClient = nullptr;
+		for (int32 WorldIdx = 0; WorldIdx < WorldContextlist.Num(); ++WorldIdx)
 		{
-			GameViewport.EndSIEMode();
-			bPendingPIEMouseCapture = true;   // 게임으로 돌아오면 다시 잡는다
-		}
-		else
-		{
-			EndPIEMouseCapture();
-			GameViewport.BeginSIEMode();
-		}
-		OnActiveWorldChanged();
-	}
-	if (FInputSystem::IsKeyPressed(EKeyCode::Escape))
-		GameViewport.InputKey(nullptr, static_cast<int32>(EKeyCode::Escape), true);
-	if (GameViewport.ConsumeExitRequest())
-	{
-		RequestEndPlayMap();
-		return;
-	}
-	// 캡처 전(Shift+F1로 풀었거나 아직 클릭 전)에는 F8/Esc만 받고 게임 입력은 막는다 (UE와 동일)
-	if (!GameViewport.IsSIEMode() && !bGameMouseCaptured)
-	{
-		GameViewport.LostFocus();
-		return;
-	}
-	constexpr EKeyCode Keys[] = { EKeyCode::W, EKeyCode::A, EKeyCode::S, EKeyCode::D,
-		EKeyCode::Space, EKeyCode::Shift };
-	for (EKeyCode Key : Keys)
-	{
-		if (FInputSystem::IsKeyPressed(Key))
-		{
-			if (GameViewport.IsSIEMode()) GameViewport.GetKeyInputBySIEMode(static_cast<int32>(Key), true);
-			else GameViewport.InputKey(nullptr, static_cast<int32>(Key), true);
-		}
-		if (FInputSystem::IsKeyReleased(Key))
-		{
-			if (GameViewport.IsSIEMode()) GameViewport.GetKeyInputBySIEMode(static_cast<int32>(Key), false);
-			else GameViewport.InputKey(nullptr, static_cast<int32>(Key), false);
-		}
-	}
+			if (WorldContextlist[WorldIdx].WorldType == EWorldType::PIE &&
+				WorldContextlist[WorldIdx].PIEInstance == TargetPlayerIndex &&
+				WorldContextlist[WorldIdx].GameViewport)
+			{
+				GameClient = WorldContextlist[WorldIdx].GameViewport.get();
+				BuildSceneRenderOptions(GameClient, Options);
 
-	// UI 히트 테스트용 마우스 좌표 → 게임 렌더 타깃 기준
-	if (IsPIEInWindow())
-	{
-		// PIE 창은 렌더 타깃과 크기가 같고, FInputSystem 좌표가 그 창의 클라이언트 좌표다.
-		GameViewport.MouseMove(nullptr, FInputSystem::GetMouseX(), FInputSystem::GetMouseY());
-	}
-	else if (PIEViewRect.Width > 0.0f && PIEViewRect.Height > 0.0f)
-	{
-		// Mouse는 뷰포트 패널 기준, PIEViewRect는 그 안의 게임 뷰 영역이다.
-		const float U = (Mouse.X - PIEViewRect.X) / PIEViewRect.Width;
-		const float V = (Mouse.Y - PIEViewRect.Y) / PIEViewRect.Height;
-		GameViewport.MouseMove(nullptr,
-			static_cast<int32>(U * GameViewport.GetWidth()),
-			static_cast<int32>(V * GameViewport.GetHeight()));
-	}
+				if (WorldContextlist[WorldIdx].World())
+				{
+					CurrentWorld = WorldContextlist[WorldIdx].World();
+				}
 
-	constexpr EMouseButton MouseButtons[] = { EMouseButton::Left, EMouseButton::Right };
-	for (EMouseButton Button : MouseButtons)
-	{
-		const int32 Key = Button == EMouseButton::Left ? static_cast<int32>(EKeyCode::LButton) : static_cast<int32>(EKeyCode::RButton);
-		if (FInputSystem::IsMousePressed(Button) && !bCaptureStartedThisFrame)
-		{
-			if (GameViewport.IsSIEMode()) GameViewport.GetKeyInputBySIEMode(Key, true);
-			else GameViewport.InputKey(nullptr, Key, true);
+				SceneView = GameClient->CalcSceneView(ViewRect);
+
+				FSceneRenderer SceneRenderer(CurrentWorld, SceneView, GameClient->GetRenderData());
+				SceneRenderer.InitViews(Renderer, Options);
+
+				RenderGameFrame(GameClient, SceneView, Options, SceneRenderer, GameClient->IsSIEMode());
+
+				break;
+			}
 		}
-		if (FInputSystem::IsMouseReleased(Button))
-		{
-			if (GameViewport.IsSIEMode()) GameViewport.GetKeyInputBySIEMode(Key, false);
-			else GameViewport.InputKey(nullptr, Key, false);
-		}
-	}
-	float MouseX = static_cast<float>(FInputSystem::GetMouseDeltaX());
-	float MouseY = static_cast<float>(FInputSystem::GetMouseDeltaY());
-	if (bGameMouseCaptured)
-	{
-		// 캡처 중에는 WM_MOUSEMOVE 좌표 차 대신 "지난 프레임에 놓아 둔 중앙에서 얼마나 움직였나"를 쓴다.
-		// 커서가 가장자리에 닿아 이동량이 0이 되는 일이 없고, 어느 창이 메시지를 받든 상관없다.
-		POINT Cursor{};
-		if (::GetCursorPos(&Cursor))
-		{
-			MouseX = static_cast<float>(Cursor.x - PIECaptureCenterX);
-			MouseY = static_cast<float>(Cursor.y - PIECaptureCenterY);
-		}
-		if (bCaptureStartedThisFrame || !RecenterPIEMouseCapture())
-			MouseX = MouseY = 0.0f;
-	}
-	if (GameViewport.IsSIEMode())
-	{
-		GameViewport.GetAxisInputBySIEMode(EGameInputAxis::MouseX, MouseX);
-		GameViewport.GetAxisInputBySIEMode(EGameInputAxis::MouseY, MouseY);
-		// 에디터 뷰포트 카메라(UpdateViewportState)와 같은 배율
-		GameViewport.TickSIEInput(DeltaTime, 10.0f * SettingsPanel->GetSettings().CameraSpeed,
-			0.2f * SettingsPanel->GetSettings().MouseSensitivity);
 	}
 	else
 	{
-		GameViewport.InputAxis(nullptr, 0, EGameInputAxis::MouseX, MouseX, DeltaTime);
-		GameViewport.InputAxis(nullptr, 0, EGameInputAxis::MouseY, MouseY, DeltaTime);
+		BuildSceneRenderOptions(ViewClient, bIsGameView, Options);
+
+		ViewClient->Draw(Renderer, Options);
 	}
-}
-
-bool UEditorEngine::GetPIECaptureScreenRect(int32& OutLeft, int32& OutTop, int32& OutRight, int32& OutBottom) const
-{
-	if (IsPIEInWindow())
-	{
-		RECT Client{};
-		if (!::GetClientRect(PIEWindow->GetHandle(), &Client)) return false;
-		POINT TopLeft{ Client.left, Client.top };
-		POINT BottomRight{ Client.right, Client.bottom };
-		::ClientToScreen(PIEWindow->GetHandle(), &TopLeft);
-		::ClientToScreen(PIEWindow->GetHandle(), &BottomRight);
-		OutLeft = TopLeft.x; OutTop = TopLeft.y; OutRight = BottomRight.x; OutBottom = BottomRight.y;
-	}
-	else
-	{
-		if (!ViewportsPanel || PIEViewIndex < 0 || PIEViewIndex >= AllViewportClients.Num() || !AllViewportClients[PIEViewIndex])
-			return false;
-		// PIE View Rect는 Viewports 패널 내용 기준, 패널 원점은 화면 좌표
-		const FRect ViewRect = AllViewportClients[PIEViewIndex]->GetRect();
-		const FVector2 Origin = ViewportsPanel->GetContentOrigin();
-		OutLeft = static_cast<int32>(Origin.X + ViewRect.X);
-		OutTop = static_cast<int32>(Origin.Y + ViewRect.Y);
-		OutRight = static_cast<int32>(Origin.X + ViewRect.X + ViewRect.Width);
-		OutBottom = static_cast<int32>(Origin.Y + ViewRect.Y + ViewRect.Height);
-	}
-	return OutRight - OutLeft > 2 && OutBottom - OutTop > 2;
-}
-
-bool UEditorEngine::RecenterPIEMouseCapture()
-{
-	int32 Left, Top, Right, Bottom;
-	if (!GetPIECaptureScreenRect(Left, Top, Right, Bottom)) return false;
-	// 패널 이동·크기 변경을 따라가도록 매 프레임 다시 가둔다
-	const RECT Clip{ Left, Top, Right, Bottom };
-	::ClipCursor(&Clip);
-	PIECaptureCenterX = (Left + Right) / 2;
-	PIECaptureCenterY = (Top + Bottom) / 2;
-	::SetCursorPos(PIECaptureCenterX, PIECaptureCenterY);
-	return true;
-}
-
-void UEditorEngine::BeginPIEMouseCapture()
-{
-	bPendingPIEMouseCapture = false;
-	if (bGameMouseCaptured || !RecenterPIEMouseCapture()) return;
-	bGameMouseCaptured = true;
-	::ShowCursor(FALSE);
-	// 숨은 커서가 에디터 UI(툴바, 패널)를 누르거나 hover하지 않게 한다
-	ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NoMouse;
-}
-
-void UEditorEngine::EndPIEMouseCapture()
-{
-	bPendingPIEMouseCapture = false;
-	if (!bGameMouseCaptured) return;
-	bGameMouseCaptured = false;
-	::ClipCursor(nullptr);
-	::ShowCursor(TRUE);
-	ImGui::GetIO().ConfigFlags &= ~ImGuiConfigFlags_NoMouse;
-
-	// 캡처 중 SetCursorPos가 만든 이동이 풀린 직후 델타로 튀지 않게 현재 위치로 맞춘다
-	POINT Cursor{};
-	const HWND InputWindow = IsPIEInWindow() ? PIEWindow->GetHandle() : MainWindow->GetHandle();
-	if (::GetCursorPos(&Cursor) && ::ScreenToClient(InputWindow, &Cursor))
-		FInputSystem::SyncMousePosition(Cursor.x, Cursor.y);
 }
 
 // 화면을 표시하고 UI 변경 후 View 설정을 보관한다.
@@ -1348,137 +1133,6 @@ void UEditorEngine::RenderActorUUIDs(const FSceneView& SceneView)
 	}
 }
 
-// 뷰포트 하나의 씬과 에디터 요소를 렌더링한다
-void UEditorEngine::RenderFrame(FEditorViewportClient* ViewClient,
-	const FSceneView& SceneView,
-	const FSceneRenderOptions& Options,
-	FSceneRenderer& SceneRenderer,
-	UWorld* TargetWorld,
-	const bool bIsPIE)
-{
-	if (!ViewClient || !SettingsPanel) return;
-
-	FSceneViewTargets& Targets = ViewClient->GetViewTargets();
-	const bool bRendered = RenderScene(Targets, SceneView, SceneRenderer, TargetWorld, Options,
-		[this, ViewClient, &SceneView, &Targets, bIsPIE, TargetWorld](FSceneOverlayCallbacks& Overlays)
-		{
-			if (bIsPIE)
-			{
-				// PIE에서는 그리드, 기즈모 없이 충돌 도형만 그린다
-				Overlays.EditorLines = [this, &SceneView, TargetWorld]
-					{
-						LineBatcher->BeginFrame();
-						DrawSpringArms(TargetWorld, LineBatcher.get(), nullptr);
-						LineBatcher->OnRender(SceneView.ViewProjectionMatrix);
-						DrawPIEDebug(TargetWorld, SceneView.ViewProjectionMatrix);
-					};
-				return;
-			}
-			const FViewportSettings ViewportSetting{ 0, 0, Targets.SceneColor->GetWidth(),Targets.SceneColor->GetHeight(), 0.0f, 1.0f };
-			const bool bIsActiveViewport = ViewportsPanel && SceneView.ViewIndex == ViewportsPanel->GetActiveViewIndex();
-
-			const bool bDrawSelectedLight = bIsActiveViewport && Gizmo->GetTarget() &&
-				(Cast<ASpotLightActor>(Gizmo->GetTarget()->GetOwner()) ||
-					Cast<APointLightActor>(Gizmo->GetTarget()->GetOwner()) ||
-					Cast<ARectLightActor>(Gizmo->GetTarget()->GetOwner()) ||
-					Cast<ADecalActor>(Gizmo->GetTarget()->GetOwner()));
-
-			const bool bDrawCascadeBounds = SettingsPanel->GetSettings().bDrawCascadeBounds;
-			{
-				Overlays.EditorLines = [this, ViewClient, &SceneView, bDrawSelectedLight, bDrawCascadeBounds]
-					{
-						LineBatcher->BeginFrame();
-						if (bDrawCascadeBounds)
-						{
-							FSceneRenderData& Data = ViewClient->GetRenderData();
-							const FVector4 Colors[4] = {
-								FVector4(1.f, 0.2f, 0.2f, 1.f),
-								FVector4(1.f, 0.8f, 0.2f, 1.f),
-								FVector4(0.2f, 1.f, 0.4f, 1.f),
-								FVector4(0.2f, 0.6f, 1.f, 1.f)
-							};
-							const FBox ClipBox{ FVector(-1.f, -1.f, 0.f), FVector(1.f, 1.f, 1.f) };
-							// 광원의 첫 그림자 뷰(VisibleLightShadowViews)부터 cascade 순서로 들어 있다. 그림자가 없는 방향광은 건너뛴다.
-							const uint32 DirectionalOffset = Data.GetDirectionalLightOffset();
-							for (uint32 LightIndex = 0; LightIndex < Data.GetDirectionalLightCount(); ++LightIndex)
-							{
-								const uint32 VisibleIndex = DirectionalOffset + LightIndex;
-								if (VisibleIndex >= static_cast<uint32>(Data.VisibleLightShadowViews.Num())) continue;
-								const uint32 FirstCascade = Data.VisibleLightShadowViews[VisibleIndex];
-								if (FirstCascade == FSceneRenderData::InvalidShadowView) continue;
-								for (uint32 CascadeIndex = 0; CascadeIndex < Data.CascadeShadowCount; ++CascadeIndex)
-								{
-									const uint32 ShadowIndex = FirstCascade + CascadeIndex;
-									if (ShadowIndex >= static_cast<uint32>(Data.LightShadows.Num())) break;
-									LineBatcher->AddOrientedBox(ClipBox, Data.LightShadows[ShadowIndex].ViewProjection.Inverse(), Colors[CascadeIndex]);
-								}
-							}
-						}
-						if (SettingsPanel->GetSettings().bDrawBatchLine && SettingsPanel->GetSettings().bDrawBoundingBox)
-						{
-							LineBatcher->BuildVertexBuffer();
-						}
-						
-						if (bDrawSelectedLight)
-						{
-							if (ASpotLightActor* Light = Cast<ASpotLightActor>(Gizmo->GetTarget()->GetOwner()))
-								Light->GetSpotLightComponent()->DrawDebug(LineBatcher.get());
-							else if (APointLightActor* Light = Cast<APointLightActor>(Gizmo->GetTarget()->GetOwner()))
-								Light->GetPointLightComponent()->DrawDebug(LineBatcher.get());
-							else if (ARectLightActor* Light = Cast<ARectLightActor>(Gizmo->GetTarget()->GetOwner()))
-								Light->GetRectLightComponent()->DrawDebug(LineBatcher.get());
-							else if (ADecalActor* Decal = Cast<ADecalActor>(Gizmo->GetTarget()->GetOwner()))
-								Decal->GetDecalComponent()->DrawDebug(LineBatcher.get());
-						}
-
-						const AActor* SelectedActor =
-							Gizmo->GetTarget() ? Gizmo->GetTarget()->GetOwner() : nullptr;
-
-						DrawCollisionShapes(EditorWorld, LineBatcher.get(), SelectedActor);
-						DrawSpringArms(EditorWorld, LineBatcher.get(), SelectedActor);
-
-						LineBatcher->OnRender(SceneView.ViewProjectionMatrix);
-					};
-			}
-			if (SettingsPanel->GetSettings().bDrawBatchLine)
-			{
-				Overlays.EditorGrid = [this, ViewClient, &SceneView, ViewportSetting]
-					{
-						EGridPlane GridPlane = EGridPlane::XY;
-						switch (ViewClient->GetViewportType())
-						{
-						case ELevelViewportType::Front: GridPlane = EGridPlane::YZ; break;
-						case ELevelViewportType::Right: GridPlane = EGridPlane::XZ; break;
-						default: break;
-						}
-						if (SettingsPanel->GetSettings().bDrawPSGrid && SceneView.bIsPerspective)
-							GridRenderer->OnRenderPSGrid(SceneView.ViewProjectionMatrix, SceneView.ViewLocation,
-								SettingsPanel->GetSettings(), ViewportSetting);
-						else
-							GridRenderer->OnRenderBatchGrid(SceneView.ViewProjectionMatrix, SceneView.ViewLocation,
-								SceneView.ViewForward, GridPlane,
-								static_cast<float>(SettingsPanel->GetSettings().GridSpacing),
-								SceneView.bIsPerspective, ViewportSetting);
-					};
-			}
-			if (bIsActiveViewport && Outline->GetTarget())
-				Overlays.EditorOutline = [this, &SceneView, ViewportSetting]
-				{
-					OutlineRenderer->OnRender(*Outline, SceneView.ViewProjectionMatrix, ViewportSetting);
-				};
-			if (bIsActiveViewport && Gizmo->GetTarget())
-				Overlays.EditorGizmo = [this, &SceneView]
-				{
-					GizmoRenderer->OnRender(*Gizmo, SceneView.ViewProjectionMatrix,
-						SceneView.ViewLocation, !SceneView.bIsPerspective);
-				};
-			Overlays.bClearEditorDepth = true;
-			if (SettingsPanel->GetSettings().bShowUUID)
-				Overlays.EditorUUID = [this, &SceneView] { RenderActorUUIDs(SceneView); };
-		});
-	if (!bRendered) return;
-}
-
 // View Texture가 포함된 UI를 Swapchain 백버퍼에 합성한다. Present는 FEngineLoop가 한다.
 void UEditorEngine::PresentFrame()
 {
@@ -1498,10 +1152,6 @@ void UEditorEngine::PresentFrame()
 	}
 
 	RenderCommand::EndRenderPass();
-}
-
-void UEditorEngine::DrawPIEWindows()
-{
 }
 
 // ImGui를 정리한다. UObject 일괄 삭제와 공용 자원·Device 정리는 FEngineLoop가 이어서 한다.
@@ -1533,6 +1183,7 @@ void UEditorEngine::PreExit()
 	AllViewportClients.Empty();
 
 	ImGuiRenderer->Shutdown();
+	GEditor = nullptr;
 }
 
 // 선택과 Gizmo 참조를 정리한 뒤 Actor를 삭제한다.
@@ -1561,62 +1212,6 @@ void UEditorEngine::DeleteComponent(UActorComponent* Component)
 	Component->GetOwner()->DestroyComponent(Component);
 }
 
-void UEditorEngine::StartPlayInEditorSession()
-{
-	// 별도 창 모드면 패널 View는 모두 에디터 월드로 두고 창 하나에만 PIE 월드를 그린다.
-	// 창을 만들지 못하면 선택한 View에서 실행한다.
-	const bool bNewWindow = (PlayMode == EPlayModeType::InEditorFloating);
-
-	PIEStartEditorViewIndex = ViewportsPanel ? ViewportsPanel->GetActiveViewIndex() : 0;
-	if (bNewWindow && CreatePIEWindow())
-		PIEViewIndex = -2;
-	else
-		// 지금 편집 중인 View 하나만 PIE 월드를 보여준다.
-		PIEViewIndex = PIEStartEditorViewIndex;
-
-	FWorldContext& PIEContext = CreateNewWorldContext(EWorldType::PIE);
-	PIEContext.PIEInstance = 0;
-	UGameInstance* GameInstance = NewObject<UGameInstance>();
-	GameInstance->SetWorldContext(&PIEContext);
-	if (!GameInstance->InitializeForPlayInEditor(0) ||
-		!GameInstance->StartPlayInEditorGameInstance())
-	{
-		UWorld* FailedWorld = PIEContext.World();
-		DestroyWorldContext(FailedWorld);
-		PIEViewIndex = InvalidViewIndex;
-		PIEStartEditorViewIndex = InvalidViewIndex;
-		DestroyPIEWindow();
-		return;
-	}
-	PlayWorld = GameInstance->GetWorld();
-	if (!bNewWindow && PIEContext.GameViewport && ViewportsPanel)
-	{
-		ViewportsPanel->SetGameViewportClient(PIEStartEditorViewIndex, PIEContext.GameViewport.get());
-	}
-	// UE 기본값처럼 시작하자마자 마우스를 잡는다 (Shift+F1로 해제)
-	bPendingPIEMouseCapture = true;
-
-	OnActiveWorldChanged();
-}
-
-UWorld* UEditorEngine::CreatePIEWorldByDuplication(FWorldContext& PIEContext, UWorld* InEditorWorld)
-{
-	UWorld* NewPIEWorld = UWorld::GetDuplicatedWorldForPIE(InEditorWorld);
-	if (!NewPIEWorld) return nullptr;
-	const int32 StartView = PIEStartEditorViewIndex;
-	if (StartView >= 0 && StartView < AllViewportClients.Num() && AllViewportClients[StartView] && NewPIEWorld->GetMainCamera())
-	{
-		FEditorViewportClient* Source = AllViewportClients[StartView];
-		UCameraComponent* Camera = NewPIEWorld->GetMainCamera()->GetCameraComponent();
-		Camera->SetWorldLocationAndRotation(Source->GetViewLocation(), Source->GetViewRotation(), false);
-		Camera->SetFieldOfView(Source->GetViewFOV());
-		Camera->SetOrthoWidth(Source->GetOrthoWidth());
-		Camera->SetIsOrthogonal(!Source->IsPerspective());
-	}
-	PIEContext.SetCurrentWorld(NewPIEWorld);
-	return NewPIEWorld;
-}
-
 void UEditorEngine::OnActiveWorldChanged()
 {
 	ResetSceneSelection();
@@ -1642,114 +1237,6 @@ void UEditorEngine::OnActiveWorldChanged()
 	if (EditorControlsPanel) EditorControlsPanel->SetWorld(ActiveWorld);
 	if (SettingsPanel) SettingsPanel->SetWorld(ActiveWorld);
 	if (SequencerPanel) SequencerPanel->SetWorld(ActiveWorld, ActiveWorld == EditorWorld);
-}
-
-void UEditorEngine::EndPlayMap()
-{
-	if (!PlayWorld)
-		return;
-	EndPIEMouseCapture();
-	bIsPaused = false;
-	bStepRequested = false;
-
-	ResetSceneSelection();
-	if (ViewportsPanel)
-		ViewportsPanel->ClearGameViewportClient();
-	DestroyWorldContext(PlayWorld);
-	PlayWorld = nullptr;
-	PIEViewIndex = InvalidViewIndex;
-	PIEStartEditorViewIndex = InvalidViewIndex;
-	DestroyPIEWindow();
-	OnActiveWorldChanged();
-}
-
-bool UEditorEngine::CreatePIEWindow()
-{
-	constexpr int32 DefaultWidth = 1280;
-	constexpr int32 DefaultHeight = 720;
-
-	TUniquePtr<FWindow> NewWindow = MakeUnique<FWindow>();
-	if (!NewWindow->Create(::GetModuleHandleW(nullptr), DefaultWidth, DefaultHeight, L"Hitori Engine - PIE"))
-	{
-		HTR_LOG(Error, "Failed to create PIE window. Falling back to the selected viewport.");
-		return false;
-	}
-	// 닫기 버튼은 PIE만 끝내고, ImGui는 메인 창 입력만 받도록 훅을 끊는다.
-	NewWindow->SetQuitOnClose(false);
-	NewWindow->SetReceivesWndProcHook(false);
-
-	PIEWindow = std::move(NewWindow);
-	PIESwapchain = MakeUnique<FSwapchain>(GetEngineLoop().GetRenderDevice(), PIEWindow.get());
-	PIETargetWidth = 0;
-	PIETargetHeight = 0;
-	PIEWindow->Show();
-	return true;
-}
-
-void UEditorEngine::DestroyPIEWindow()
-{
-	if (!PIEWindow)
-		return;
-
-	PIETargetWidth = 0;
-	PIETargetHeight = 0;
-	bPIEWindowRendered = false;
-
-	// Swapchain이 창 핸들을 출력 대상으로 쥐고 있으므로 창보다 먼저 놓는다.
-	PIESwapchain.reset();
-	PIEWindow->Destroy();
-	PIEWindow.reset();
-
-	// PIE 창이 포커스를 갖고 있었다면 에디터로 돌려준다.
-	::SetForegroundWindow(MainWindow->GetHandle());
-}
-
-bool UEditorEngine::UpdatePIEWindowTargets()
-{
-	const uint32 Width = PIEWindow->GetWidth();
-	const uint32 Height = PIEWindow->GetHeight();
-	// 최소화 중에는 그릴 대상이 없다.
-	if (Width == 0 || Height == 0 || ::IsIconic(PIEWindow->GetHandle()))
-	{
-		return false;
-	}
-
-	if (PIEWindow->CheckResized())
-		PIESwapchain->Resize(Width, Height);
-
-	if (Width != PIETargetWidth || Height != PIETargetHeight)
-	{
-		FWorldContext* Context = GetPIEWorldContext();
-		if (!Context || !Context->GameViewport) return false;
-		Context->GameViewport->Resize(Width, Height);
-		if (!Context->GameViewport->GetViewTargets().IsValidFor(Width, Height))
-		{
-			return false;
-		}
-
-		PIETargetWidth = Width;
-		PIETargetHeight = Height;
-	}
-
-	return true;
-}
-
-void UEditorEngine::CopyPIEWindowToBackbuffer()
-{
-	if (!PIESwapchain)
-		return;
-
-	FTexture2D* Backbuffer = PIESwapchain->GetBackbuffer();
-	FWorldContext* Context = GetPIEWorldContext();
-	FTexture2D* PIEColorTarget = Context && Context->GameViewport
-		? Context->GameViewport->GetColorTarget() : nullptr;
-	if (!Backbuffer || !PIEColorTarget ||
-		Backbuffer->GetWidth() != PIETargetWidth ||
-		Backbuffer->GetHeight() != PIETargetHeight)
-		return;
-
-	RenderCommand::CopyTexture(Backbuffer, PIEColorTarget);
-	bPIEWindowRendered = true;
 }
 
 // 씬 변경으로 무효화된 에디터의 선택 참조를 모두 해제한다.

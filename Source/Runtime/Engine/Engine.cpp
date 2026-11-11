@@ -4,15 +4,7 @@
 #include "Engine/GameViewportClient.h"
 #include "Engine/Level.h"
 #include "Camera/CameraActor.h"
-#include "Components/BoxComponent.h"
-#include "Components/SphereComponent.h"
-#include "Components/CapsuleComponent.h"
 #include "Audio/AudioDevice.h"
-#include "Components/AudioComponent.h"
-#include "Components/SkeletalMeshComponent.h"
-#include "GameFramework/Actor/SkeletalMeshActor.h"
-
-#include "Tasks/Tasks.h"
 
 #include "Serialization/JsonArchive.h"
 
@@ -20,26 +12,9 @@ UEngine* GEngine = nullptr;
 
 bool UEngine::Init()
 {
-	Tasks::FTaskScheduler::Get().Initialize();
-
-	// Keep reflected shape classes linked even when no actor references them yet.
-	// Add Component and scene loading both discover these classes by registration.
-	UBoxComponent::StaticClass();
-	USphereComponent::StaticClass();
-	UCapsuleComponent::StaticClass();
-	USkeletalMeshComponent::StaticClass();
-	ASkeletalMeshActor::StaticClass();
-	UAudioComponent::StaticClass();   // Add Component 목록에 뜨도록 (다른 컴포넌트와 동일)
-
-
-	AssetManager = NewObject<UAssetManager>();
+	// 모든 엔진 모드가 공통으로 쓰는 것만 여기서 준비한다. 월드와 뷰포트는 서브클래스의 Init이 만든다.
 	InitializeAudioDevice();          // 실패해도 엔진은 계속 (UE도 장치가 없으면 Null 디바이스로 돈다)
-	/*World = FObjectFactory::ConstructObject<UWorld>();
-
-	if (!World || !World->Init()) return false;*/
-
-
- 	return true;
+	return true;
 }
 
 void UEngine::InitializeAudioDevice()

@@ -68,11 +68,14 @@ class UEngine : public UObject
 	GENERATED_BODY()
 	friend class FEngineLoop;
 public:
-	// 창을 만들기 전에 호출된다.
+	// 창을 만들기 전에, GEngine이 아니라 클래스 기본 객체(CDO)에서 호출된다.
 	virtual FEngineConfig GetConfig() const { return {}; }
 
 	// Device·Window·Swapchain·AssetManager가 준비된 뒤 호출된다.
 	virtual bool Init();
+	// Init이 끝난 뒤 게임을 시작한다. UE의 UEngine::Start와 같은 자리다.
+	// 게임 엔진은 여기서 시작 맵을 연다. 실패하면 false를 돌려주고 실행을 끝낸다.
+	virtual bool Start() { return true; }
 	// 한 프레임의 갱신과 모든 렌더 패스를 기록한다. Present는 FEngineLoop가 호출 직후에 한다.
 	virtual void Tick(float DeltaTime) = 0;
 	virtual void OnResize(uint32 Width, uint32 Height) {}
@@ -108,7 +111,6 @@ protected:
 	virtual void PreLoadMap(FWorldContext& Context) {}
 	virtual void PostLoadMap(FWorldContext& Context) {}
 
-	UAssetManager* AssetManager;
 	FAudioDevice* MainAudioDevice = nullptr;
 
 	FEngineLoop& GetEngineLoop() const { return *EngineLoop; }
@@ -120,5 +122,5 @@ private:
 	FEngineLoop* EngineLoop = nullptr;
 };
 
-// FEngineLoop::PreInit에서 설정되고 Exit에서 해제된다.
+// FEngineLoop::Init에서 설정되고 Exit에서 해제된다.
 extern UEngine* GEngine;

@@ -14,6 +14,9 @@
 #include "Math/Frustum.h"
 #include "Render/RenderCommand.h"
 #include "UI/UserWidget.h"
+#include "UI/UIRenderer.h"
+#include "Render/Renderer.h"
+#include "Render/SceneRenderer.h"
 
 FGameViewportClient::FGameViewportClient()
 {
@@ -381,6 +384,30 @@ void FGameViewportClient::TickSIEInput(float DeltaTime, float MoveSpeed, float M
 	if (SetCameraWorldPose(*CameraComponent, Camera.Location, Camera.Rotation))
 		CameraComponent->SetOrthoWidth(Camera.OrthoWidth);
 	SIEMouseDeltaX = SIEMouseDeltaY = SIEWheelDelta = 0.0f;
+}
+
+bool FGameViewportClient::Draw(FRenderer* Renderer, const FSceneRenderOptions& Options, FUIRenderer* UIRenderer)
+{
+	if (!World || !Renderer || !Width || !Height) return false;
+
+	// 카메라를 뷰·투영 행렬로 바꾼다.
+	const FRect ViewRect{ 0.0f, 0.0f, static_cast<float>(Width), static_cast<float>(Height) };
+	const FSceneView SceneView = CalcSceneView(ViewRect);
+
+	// 보이는 물체와 라이트를 모은 뒤 패스를 순서대로 실행해 ViewTargets에 그린다.
+	FSceneRenderer SceneRenderer(World, SceneView, RenderData);
+	SceneRenderer.InitViews(Renderer, Options);
+	return SceneRenderer.Render(Renderer, ViewTargets, Options,
+		[this, UIRenderer](FScenePassCallbacks& Callbacks)
+		{
+			// 게임 UI는 씬 위에 그려야 하므로 그 시점에 불릴 함수로 등록한다.
+			Callbacks.Overlays.GameUI = [this, UIRenderer]
+				{
+					if (!UIRenderer) return;
+					PaintUI(UIDrawList);
+					UIRenderer->Render(UIDrawList, Width, Height);
+				};
+		});
 }
 
 void FGameViewportClient::Resize(uint32 InWidth, uint32 InHeight)

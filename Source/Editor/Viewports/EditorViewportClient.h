@@ -16,7 +16,9 @@ class UWorld;
 class FGizmo;
 class AActor;
 class FPreviewScene;
+class FRenderer;
 struct FBoxSphereBounds;
+struct FSceneRenderOptions;
 
 
 // 뷰포트 투영 타입
@@ -110,6 +112,11 @@ public:
 	// 씬 뷰 생성
 	FSceneView CalcSceneView(const FRect& InViewRect) const;
 	FSceneView CalcSceneView() const;
+
+	// 이 뷰포트의 월드를 자기 카메라로 자기 타깃(ViewTargets)에 그리고, 그 위에 에디터 요소를 그린다.
+	// UE의 FEditorViewportClient::Draw와 같은 자리다. UE는 Draw(FViewport*, FCanvas*)이고
+	// 이 엔진은 렌더러와 옵션을 인자로 받는다. 레벨 에디터의 뷰포트에서만 부른다.
+	void Draw(FRenderer* Renderer, const FSceneRenderOptions& Options);
 
 	// 화면 역투영 레이 생성
 	FRay DeprojectScreenToWorld(const FVector2& ScreenPos) const;
