@@ -260,6 +260,8 @@ project "HitoriEditor"
 		"Source/Programs/**.h",
 		"Source/Programs/**.cpp",
 		"Source/Editor/**.rc",   -- 창·exe 아이콘
+		-- 프로세스 ANSI 코드 페이지를 UTF-8로 둔다. 한글 프로젝트 경로가 char 경로 API에서 깨지지 않게 한다.
+		"Source/Runtime/Launch/HitoriApp.manifest",
 	}
 
 	removefiles { "Source/Programs/HitoriHeaderTool/**" }
@@ -323,6 +325,7 @@ project "HitoriGame"
 		"Source/Game/**.h",
 		"Source/Game/**.cpp",
 		"Source/Game/**.rc",   -- 아이콘을 넣을 때
+		"Source/Runtime/Launch/HitoriApp.manifest",   -- 에디터와 같은 이유 (UTF-8 코드 페이지)
 	}
 
 	includedirs
