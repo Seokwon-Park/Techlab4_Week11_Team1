@@ -181,12 +181,6 @@ void UEditorEngine::InitImGui()
 // 그리드·기즈모·외곽선·텍스트처럼 에디터 화면에만 쓰는 렌더러를 만든다.
 void UEditorEngine::InitEditorRenderers()
 {
-	GridRenderer = MakeUnique<FGridRenderer>();
-	GridRenderer->Init(Renderer);
-
-	GizmoRenderer = MakeUnique<FGizmoRenderer>();
-	GizmoRenderer->Init(Renderer);
-
 	Gizmo = MakeUnique<FGizmo>();
 
 	// OutLine
@@ -208,8 +202,6 @@ void UEditorEngine::InitEditorRenderers()
 	UIRenderer = MakeUnique<FUIRenderer>();
 	UIRenderer->Init();
 
-	LineBatcher = MakeUnique<FLineBatcher>();
-	LineBatcher->Init(Renderer, GetActiveWorld());
 }
 
 // 레벨 에디터 탭의 패널을 만들고 패널끼리, 패널과 월드·기즈모를 연결한다.
@@ -1109,16 +1101,17 @@ void UEditorEngine::DrawPIEDebug(UWorld* World, const FMatrix& ViewProjection)
 	const FEditorSettings& Settings = SettingsPanel->GetSettings();
 	GShowSkeletalRootDebug = Settings.bShowRootDebug;  // 런타임 "root" 라벨 표시용
 
+	FLineBatcher* LineBatcher = World->LineBatcher.get();
 	LineBatcher->BeginFrame();
 	if (Settings.bShowCollision)
-		DrawCollisionShapes(World, LineBatcher.get(), nullptr);
+		DrawCollisionShapes(World, LineBatcher, nullptr);
 	LineBatcher->OnRender(ViewProjection);
 
 	// root는 바닥 높이라 가려지기 쉬우므로 깊이 테스트 없이 따로 그린다 (항상 위에 보임)
 	if (Settings.bShowRootDebug)
 	{
 		LineBatcher->BeginFrame();
-		DrawSkeletalRootDebug(World, LineBatcher.get());
+		DrawSkeletalRootDebug(World, LineBatcher);
 		LineBatcher->SetDepthTest(false);
 		LineBatcher->OnRender(ViewProjection);
 		LineBatcher->SetDepthTest(true);

@@ -59,7 +59,6 @@ class UEditorEngine : public UEngine
 	// UE에서는 이런 것을 클라이언트가 직접 갖거나(Widget, DrawHelper) 엔진의 public 멤버로 둔다.
 	// 이 엔진은 아직 엔진이 갖고 있어서 friend로 열어 둔다.
 	friend class FLevelEditorViewportClient;
-	friend class FAssetEditorViewportClient;
 public:
 	FEngineConfig GetConfig() const override;
 	bool Init() override;
@@ -169,10 +168,7 @@ private:
 	TUniquePtr<FEditorManager> EditorManager;
 
 	TUniquePtr<FImGuiRenderer> ImGuiRenderer;
-	TUniquePtr<FGridRenderer> GridRenderer;
-	TUniquePtr<FGizmoRenderer> GizmoRenderer;
 	TUniquePtr<FTextRenderer> TextRenderer;
-	TUniquePtr<FLineBatcher> LineBatcher;
 	TUniquePtr<FOutline> Outline;
 	TUniquePtr<FOutlineRenderer> OutlineRenderer;
 	TUniquePtr<FSceneDepthRenderer> SceneDepthRenderer;

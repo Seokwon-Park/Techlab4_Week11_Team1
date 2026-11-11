@@ -374,9 +374,10 @@ void UEditorEngine::StartPlayInEditorSession()
 					if (bIsSIEMode)
 					{
 						// SIE: 기존처럼 충돌 도형·스프링암을 항상 그린다
+						FLineBatcher* LineBatcher = GameClient->GetWorld()->LineBatcher.get();
 						LineBatcher->BeginFrame();
-						DrawCollisionShapes(GameClient->GetWorld(), LineBatcher.get(), nullptr);
-						DrawSpringArms(GameClient->GetWorld(), LineBatcher.get(), nullptr);
+						DrawCollisionShapes(GameClient->GetWorld(), LineBatcher, nullptr);
+						DrawSpringArms(GameClient->GetWorld(), LineBatcher, nullptr);
 						LineBatcher->OnRender(SceneView.ViewProjectionMatrix);
 						return;
 					}
@@ -396,8 +397,7 @@ void UEditorEngine::StartPlayInEditorSession()
 			if (Gizmo->GetTarget())
 				Overlays.SIEGizmo = [this, &SceneView]
 				{
-					GizmoRenderer->OnRender(*Gizmo, SceneView.ViewProjectionMatrix,
-						SceneView.ViewLocation, !SceneView.bIsPerspective);
+					Gizmo->Render(&SceneView);
 				};
 		};
 	}

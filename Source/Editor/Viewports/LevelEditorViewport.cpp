@@ -1,6 +1,7 @@
 #include "EnginePCH.h"
 #include "Editor/Viewports/LevelEditorViewport.h"
 #include "Editor/HitoriEd/Editor.h"
+#include "Launch/LaunchEngineLoop.h"
 #include "Render/Renderer.h"
 #include "Render/SceneRenderer.h"
 #include "Components/ShapeComponent.h"
@@ -16,6 +17,12 @@
 #include "Engine/World.h"
 
 FLevelEditorViewportClient* GCurrentLevelEditingViewportClient = nullptr;
+
+FLevelEditorViewportClient::FLevelEditorViewportClient()
+{
+	// 그리드 셰이더와 버퍼를 준비한다.
+	DrawHelper.Init(GEditor ? GEditor->GetEngineLoop().GetRenderer() : nullptr);
+}
 
 // 사라지는 뷰포트를 전역이 계속 가리키지 않게 한다. UE도 소멸자에서 같은 일을 한다.
 FLevelEditorViewportClient::~FLevelEditorViewportClient()
@@ -77,14 +84,13 @@ void FLevelEditorViewportClient::Draw(const FSceneView* View, FScenePassCallback
 	if (!GEditor || !GEditor->SettingsPanel) return;
 	const FSceneView& SceneView = *View;
 
-	// 에디터 도구는 엔진(GEditor)이 한 벌만 갖고 있고 네 뷰포트가 같이 쓴다.
+	// 디버그 선은 이 뷰포트가 보는 월드의 LineBatcher로 그린다.
+	// 나머지 에디터 도구는 엔진(GEditor)이 한 벌만 갖고 있고 네 뷰포트가 같이 쓴다.
 	const FEditorSettings& Settings = GEditor->SettingsPanel->GetSettings();
 	UWorld* EditorWorld = GEditor->GetEditorWorldContext().World();
-	FLineBatcher* LineBatcher = GEditor->LineBatcher.get();
+	FLineBatcher* LineBatcher = GetWorld()->LineBatcher.get();
 	FGizmo* Gizmo = GEditor->Gizmo.get();
 	FOutline* Outline = GEditor->Outline.get();
-	FGridRenderer* GridRenderer = GEditor->GridRenderer.get();
-	FGizmoRenderer* GizmoRenderer = GEditor->GizmoRenderer.get();
 	FOutlineRenderer* OutlineRenderer = GEditor->OutlineRenderer.get();
 	FSceneDepthRenderer* SceneDepthRenderer = GEditor->SceneDepthRenderer.get();
 	FCascadeFloorRenderer* CascadeFloorRenderer = GEditor->CascadeFloorRenderer.get();
@@ -171,7 +177,7 @@ void FLevelEditorViewportClient::Draw(const FSceneView* View, FScenePassCallback
 	}
 	if (Settings.bDrawBatchLine)
 	{
-		Callbacks.Overlays.EditorGrid = [this, &SceneView, &Settings, GridRenderer, ViewportSetting]
+		Callbacks.Overlays.EditorGrid = [this, &SceneView, &Settings, ViewportSetting]
 			{
 				EGridPlane GridPlane = EGridPlane::XY;
 				switch (ViewportType)
@@ -181,10 +187,10 @@ void FLevelEditorViewportClient::Draw(const FSceneView* View, FScenePassCallback
 				default: break;
 				}
 				if (Settings.bDrawPSGrid && SceneView.bIsPerspective)
-					GridRenderer->OnRenderPSGrid(SceneView.ViewProjectionMatrix, SceneView.ViewLocation,
+					DrawHelper.OnRenderPSGrid(SceneView.ViewProjectionMatrix, SceneView.ViewLocation,
 						Settings, ViewportSetting);
 				else
-					GridRenderer->OnRenderBatchGrid(SceneView.ViewProjectionMatrix, SceneView.ViewLocation,
+					DrawHelper.OnRenderBatchGrid(SceneView.ViewProjectionMatrix, SceneView.ViewLocation,
 						SceneView.ViewForward, GridPlane,
 						static_cast<float>(Settings.GridSpacing),
 						SceneView.bIsPerspective, ViewportSetting);
@@ -196,10 +202,9 @@ void FLevelEditorViewportClient::Draw(const FSceneView* View, FScenePassCallback
 			OutlineRenderer->OnRender(*Outline, SceneView.ViewProjectionMatrix, ViewportSetting);
 		};
 	if (bIsActiveViewport && Gizmo->GetTarget())
-		Callbacks.Overlays.EditorGizmo = [&SceneView, Gizmo, GizmoRenderer]
+		Callbacks.Overlays.EditorGizmo = [&SceneView, Gizmo]
 		{
-			GizmoRenderer->OnRender(*Gizmo, SceneView.ViewProjectionMatrix,
-				SceneView.ViewLocation, !SceneView.bIsPerspective);
+			Gizmo->Render(&SceneView);
 		};
 	Callbacks.Overlays.bClearEditorDepth = true;
 	if (Settings.bShowUUID)

@@ -3,7 +3,6 @@
 #include "Editor/AssetEditor/AssetEditorTab.h"
 #include "Editor/AssetEditor/EditorManager.h"
 #include "Editor/HitoriEd/EditorEngine.h"
-#include "Editor/HitoriEd/Editor.h"
 #include "Engine/World.h"
 #include "Render/Renderer.h"
 #include "Render/SceneRenderer.h"
@@ -168,18 +167,12 @@ FAssetEditorViewportClient::FAssetEditorViewportClient(FAssetEditor& InAssetEdit
 // 미리보기 씬 위에 에디터가 주는 선과 기즈모를 올린다. 씬은 기반 클래스의 Draw가 그린다.
 void FAssetEditorViewportClient::Draw(const FSceneView* View, FScenePassCallbacks& Callbacks)
 {
-	if (!GEditor)
-	{
-		return;
-	}
-
-	// 선과 기즈모를 그리는 도구는 엔진(GEditor)이 갖고 있는 것을 같이 쓴다.
-	FLineBatcher* LineBatcher = GEditor->LineBatcher.get();
-	FGizmoRenderer* GizmoRenderer = GEditor->GizmoRenderer.get();
+	// 선은 미리보기 월드의 LineBatcher로 그리고, 기즈모는 에디터가 가진 기즈모가 스스로 그린다.
+	FLineBatcher* LineBatcher = GetWorld()->LineBatcher.get();
 
 	// TODO: 지금은 EditorGizmo 슬롯에 들어있지만
 	// 추후 AssetEditor 전용 Gizmo 슬롯을 만들어서 그쪽으로 옮기는 게 좋을 듯
-	Callbacks.Overlays.EditorGizmo = [this, View, LineBatcher, GizmoRenderer]
+	Callbacks.Overlays.EditorGizmo = [this, View, LineBatcher]
 	{
 		LineBatcher->BeginFrame();
 		AssetEditor.OnRenderLine(*LineBatcher);
@@ -187,8 +180,7 @@ void FAssetEditorViewportClient::Draw(const FSceneView* View, FScenePassCallback
 
 		if (const FGizmo* PreviewGizmo = AssetEditor.GetPreviewGizmo())
 		{
-			GizmoRenderer->OnRender(*PreviewGizmo, View->ViewProjectionMatrix,
-				View->ViewLocation, !View->bIsPerspective);
+			PreviewGizmo->Render(View);
 		}
 	};
 }

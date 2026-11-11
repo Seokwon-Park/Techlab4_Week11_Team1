@@ -19,6 +19,7 @@
 #include "World.generated.h"
 
 class ULevel;
+class FLineBatcher;
 class UBillboardComponent;
 class APawn;
 class APlayerController;
@@ -35,6 +36,11 @@ public:
 	virtual ~UWorld();
 
 	bool Init();
+
+	// 이 월드의 디버그 선(충돌 도형, 라이트 범위, 본 등)을 모아 그리는 도구. Init에서 만든다.
+	// UE의 UWorld::LineBatcher와 같은 자리이고 UE에서도 public 멤버다.
+	// UE는 선을 쌓아 두면 씬과 함께 그려지지만, 이 엔진은 쓰는 쪽이 BeginFrame, Add..., OnRender 순서로 직접 그린다.
+	TUniquePtr<FLineBatcher> LineBatcher;
 	/*UPrimitiveComponent* SpawnPrimitive(FClass* Class);*/
 	AActor* SpawnActor(UClass* Class, FName InName = NAME_None, const FTransform* Transform = nullptr);
 	
