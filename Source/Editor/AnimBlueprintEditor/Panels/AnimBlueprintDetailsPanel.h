@@ -21,6 +21,7 @@ private:
     void DrawAssetSelector(FString& AssetPath, bool bBlendSpace);
     void RefreshAssetList(bool bBlendSpace);
     void DrawFloatInput(const char* Label, FAnimBlueprintFloatInput& Input, bool bAlpha);
+    void DrawClassDefaults();
     void DrawVariables();
     void DrawPreviewVariables();
     void DrawTransitionDetails(FAnimBlueprintTransition& Transition);

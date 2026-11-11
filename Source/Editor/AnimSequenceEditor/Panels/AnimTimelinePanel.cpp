@@ -195,7 +195,7 @@ void FAnimTimelinePanel::DrawTransport()
     ImGui::EndDisabled();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
     {
-        ImGui::SetTooltip("Save notifies to the .anim.bin (Ctrl+S)");
+        ImGui::SetTooltip("Save notifies and root motion settings to the .anim.bin (Ctrl+S)");
     }
 
     ImGui::SameLine();

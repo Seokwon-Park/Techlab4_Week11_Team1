@@ -14,7 +14,7 @@
 namespace
 {
 	constexpr uint32 AnimSequenceMagic = 0x4D494E41; // ANIM
-	constexpr uint32 AnimSequenceVersion = 4;        // 2: 미리보기 메시 경로 추가, 3: Notify 섹션 추가 (트랙 뒤), 4: 루트 모션 설정 추가 (미리보기 경로 뒤)
+	constexpr uint32 AnimSequenceVersion = 5;        // 2: 미리보기 메시 경로, 3: Notify, 4: 루트 모션 설정, 5: Root Lock 기준
 	constexpr int64 BytesPerBoneKey = 10 * sizeof(float);
 
 	void SerializeName(FArchive& Ar, FString& Name)
@@ -112,6 +112,19 @@ void UAnimSequence::Serialize(FArchive& Ar)
 	{
 		Ar << bRootMotion << bRootLock;
 	}
+	// 이전 버전은 기존 동작인 첫 프레임 고정을 유지한다.
+	uint8 RootLockMode = bLoading
+		? static_cast<uint8>(ERootMotionRootLock::AnimFirstFrame)
+		: static_cast<uint8>(RootMotionRootLock);
+	if (Version >= 5)
+	{
+		Ar << RootLockMode;
+	}
+	if (Ar.IsError() || RootLockMode > static_cast<uint8>(ERootMotionRootLock::Zero))
+	{
+		Ar.SetError();
+		return;
+	}
 	Ar << Rate.Numerator << Rate.Denominator << Length << TrackCount << KeyCount;
 	if (Ar.IsError() || Rate.Numerator <= 0 || Rate.Denominator <= 0
 		|| !std::isfinite(Length) || Length < 0.0f || TrackCount <= 0 || KeyCount <= 0
@@ -178,6 +191,7 @@ void UAnimSequence::Serialize(FArchive& Ar)
         SetPreviewMeshPath(std::move(PreviewPath));
         bEnableRootMotion = bRootMotion != 0;
         bForceRootLock = bRootLock != 0;
+        RootMotionRootLock = static_cast<ERootMotionRootLock>(RootLockMode);
         // v2 이하 파일은 빈 목록이 들어가, 다시 읽을 때 이전 Notify가 남지 않는다
         ReplaceNotifies(std::move(LoadedTracks_Notify), std::move(LoadedNotifies));
     }
@@ -390,7 +404,7 @@ void UAnimSequence::GetAnimationPose(float Time, FCompactPose& OutPose, const TA
         });
     }
 
-	// root 고정 (Unreal ResetRootBoneForRootMotion, RootLock = AnimFirstFrame)
+	// 선택한 기준으로 포즈의 root 위치·회전을 고정한다.
 	// - Enable Root Motion: 이동은 ExtractRootMotion으로 Actor에 넘겼으므로 포즈에서는 뺀다
 	// - Force Root Lock    : Actor로 넘기지 않아도 root를 묶어 제자리 재생한다 (RM 클립을 in-place처럼 사용)
 	if (!GDebugSkipRootLock && ((bExtractRootMotion && bEnableRootMotion) || bForceRootLock))
@@ -405,9 +419,21 @@ void UAnimSequence::GetAnimationPose(float Time, FCompactPose& OutPose, const TA
 		{
 			if (RefSkeleton[Index].Name == RootTrack->Name)
 			{
-				const FTransform FirstKey = SampleTrack(RootTrack->InternalTrack, 0.0);
-				OutPose[Index].Location = FirstKey.Location;   // 위치 고정 → 이동 중복 제거
-				OutPose[Index].Rotation = FirstKey.Rotation;   // 회전 고정 → 회전 중복 제거 (Turn 클립)
+				FTransform LockTransform;
+				switch (RootMotionRootLock)
+				{
+				case ERootMotionRootLock::RefPose:
+					LockTransform = RefSkeleton[Index].LocalBindPose;
+					break;
+				case ERootMotionRootLock::AnimFirstFrame:
+					LockTransform = SampleTrack(RootTrack->InternalTrack, 0.0);
+					break;
+				case ERootMotionRootLock::Zero:
+					LockTransform = FTransform::Identity;
+					break;
+				}
+				OutPose[Index].Location = LockTransform.Location;
+				OutPose[Index].Rotation = LockTransform.Rotation;
 				break;                                          // Scale은 애니메이션 값 그대로
 			}
 		}

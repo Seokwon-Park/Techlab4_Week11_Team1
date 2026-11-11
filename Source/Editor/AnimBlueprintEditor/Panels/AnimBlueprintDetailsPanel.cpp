@@ -118,6 +118,8 @@ void FAnimBlueprintDetailsPanel::DrawContent()
     }
 
     ImGui::Separator();
+    DrawClassDefaults();
+    ImGui::Separator();
     DrawVariables();
     ImGui::Separator();
     DrawPreviewVariables();
@@ -261,6 +263,24 @@ void FAnimBlueprintDetailsPanel::DrawFloatInput(const char* Label, FAnimBlueprin
     }
 
     ImGui::PopID();
+}
+
+void FAnimBlueprintDetailsPanel::DrawClassDefaults()
+{
+    // Unreal: AnimBP 에디터 툴바 Class Defaults > Details > Root Motion > Root Motion Mode
+    if (!ImGui::CollapsingHeader("Class Defaults", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        return;
+    }
+
+    ImGui::SeparatorText("Root Motion");
+    static const char* const ModeNames[] = { "No Root Motion Extraction", "Ignore Root Motion", "Root Motion From Everything" };
+    int Mode = static_cast<int>(Editor.GetRootMotionMode());
+    if (ImGui::Combo("Root Motion Mode", &Mode, ModeNames, IM_ARRAYSIZE(ModeNames)))
+    {
+        Editor.SetRootMotionMode(static_cast<ERootMotionMode>(Mode));
+        Editor.RequestApplyPreview();
+    }
 }
 
 void FAnimBlueprintDetailsPanel::DrawVariables()

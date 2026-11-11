@@ -215,9 +215,9 @@ bool UCharacterMovementComponent::ApplyRootMotion(float DeltaTime)
 	const FVector Move(Delta.Location.X, Delta.Location.Y, 0.0f);
 	Velocity = Move * (1.0f / DeltaTime);   // 애니메이션 등에서 속도를 읽을 수 있게 남긴다
 
-	// 회전은 현재 회전 앞에 곱해 누적하고, 캐릭터는 수직을 유지하도록 Yaw만 쓴다
+	// Root Motion의 전체 회전을 현재 회전 앞에 곱해 누적한다 (Pitch, Yaw, Roll).
 	const FQuat NewQuat = (Delta.Rotation * FQuat(UpdatedComponent->GetWorldRotation())).Normalized();
-	const FRotator NewRotation(0.0f, NewQuat.ToFRotator().Yaw, 0.0f);
+	const FRotator NewRotation = NewQuat.ToFRotator();
 
 	if (Move.SizeSquared() > SMALL_NUMBER)
 		SafeMoveWithSlide(Move, NewRotation);   // Sweep: 벽에 막힌다

@@ -757,6 +757,7 @@ bool AnimBlueprintCompiler::Build(const FAnimBlueprintData& Data, USkeletalMeshC
         return false;
     }
 
+    Instance->SetRootMotionMode(Data.RootMotionMode);   // AnimBP Class Defaults 값
     OutInstance = std::move(Instance);
     OutNodeIndices = std::move(NodeIndices);
     OutError.clear();

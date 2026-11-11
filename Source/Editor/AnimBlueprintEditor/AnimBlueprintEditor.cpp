@@ -111,6 +111,61 @@ void FAnimBlueprintEditor::TickBeforeWorld(float DeltaTime)
         bApplyPreviewRequested = false;
         ApplyPreview();
     }
+
+    ApplyPreviewRootMotion();
+}
+
+void FAnimBlueprintEditor::ApplyPreviewRootMotion()
+{
+    if (!MeshComponent)
+    {
+        return;
+    }
+
+    if (!bHasPreviewBase)
+    {
+        PreviewBaseTransform = MeshComponent->GetTransform();
+        bHasPreviewBase = true;
+    }
+
+    // 1. 지난 Tick까지 쌓인 이동량(월드 공간)을 가져간다. 모드가 NoRootMotionExtraction / IgnoreRootMotion이면 없다
+    if (!MeshComponent->HasPendingRootMotion())
+    {
+        return;
+    }
+    const FTransform Delta = MeshComponent->ConsumeRootMotion();
+
+    // 2. 미리보기 메시를 그만큼 옮긴다
+    FTransform Moved = MeshComponent->GetTransform();
+    Moved.Location = Moved.Location + Delta.Location;
+    Moved.Rotation = (Delta.Rotation * Moved.Rotation).Normalized();
+
+    // 3. 처음 위치에서 너무 멀어지면 되돌린다 (Unreal은 바닥 범위를 넘으면 되돌린다)
+    //    메시 단위(cm/m)에 상관없게 메시 키의 3배로 잡는다
+    const FBox Bounds = MeshComponent->CalcBounds();
+    const float MeshHeight = Bounds.Max.Z - Bounds.Min.Z;
+    const float MaxPreviewDistance = (MeshHeight > 0.0f ? MeshHeight : 1.0f) * 3.0f;
+    const FVector FromBase = Moved.Location - PreviewBaseTransform.Location;
+    if (FromBase.X * FromBase.X + FromBase.Y * FromBase.Y > MaxPreviewDistance * MaxPreviewDistance)
+    {
+        Moved = PreviewBaseTransform;
+    }
+    MeshComponent->SetTransform(Moved);
+}
+
+void FAnimBlueprintEditor::ResetPreviewRootMotion()
+{
+    if (!MeshComponent)
+    {
+        return;
+    }
+
+    // 쌓여 있던 이동량은 버리고 처음 위치로 돌린다
+    MeshComponent->ConsumeRootMotion();
+    if (bHasPreviewBase)
+    {
+        MeshComponent->SetTransform(PreviewBaseTransform);
+    }
 }
 
 bool FAnimBlueprintEditor::SetPreviewError(int32 NodeId, const FString& Message)
@@ -146,6 +201,7 @@ bool FAnimBlueprintEditor::ApplyPreview()
     AppliedVariables = BlueprintData.Variables;
 
     MeshComponent->RefreshAnimationPose();
+    ResetPreviewRootMotion();   // 재생이 처음부터 다시 시작되므로 위치도 처음으로
     PreviewMessage = "Preview applied. Playback restarted from the beginning.";
 
     return true;

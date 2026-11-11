@@ -1,7 +1,5 @@
 #include "EnginePCH.h"
 #include "GameFramework/Actor/RootMotionTestCharacter.h"
-#include "Animation/AnimSequence.h"
-#include "Asset/AssetManager.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/TextRenderComponent.h"
@@ -9,8 +7,6 @@
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
 #include <cmath>
-#include "Render/SkeletalMesh.h"
-#include "UObject/Casts.h"
 
 ARootMotionTestCharacter::ARootMotionTestCharacter()
 {
@@ -21,12 +17,12 @@ ARootMotionTestCharacter::ARootMotionTestCharacter()
 	SkeletalMeshComponent->SetRelativeLocationAndRotation(FVector(0.0f, 0.0f, -0.97f), FRotator(0.0f, -180.0f, 0.0f));
 	SkeletalMeshComponent->SetRelativeScale3D(FVector(0.01f, 0.01f, 0.01f));
 
-	// 두 캐릭터를 구분하는 머리 위 라벨. 캡슐 꼭대기보다 조금 위
+	// 캐릭터를 구분하는 머리 위 라벨 (Root Motion Mode 이름). 캡슐 꼭대기보다 조금 위
 	LabelComponent = CreateDefaultSubobject<UTextRenderComponent>("LabelComponent");
 	LabelComponent->SetupAttachment(CapsuleComponent);
 	LabelComponent->SetRelativeLocation(FVector(0.0f, 0.0f, 1.4f));
 	LabelComponent->SetTextSize(0.3f);
-	LabelComponent->SetText("Root Motion");
+	LabelComponent->SetText("No AnimBP");
 
 	// "root" 라벨. 위치는 Tick에서 root 본을 따라간다 (구체·선은 Settings > Debug Draw (PIE) > Show Root)
 	RootLabelComponent = CreateDefaultSubobject<UTextRenderComponent>("RootLabelComponent");
@@ -39,6 +35,7 @@ ARootMotionTestCharacter::ARootMotionTestCharacter()
 void ARootMotionTestCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
+	UpdateModeLabel();
 
 	// "root" 라벨: Settings > Debug Draw (PIE) > Show Root일 때만 보이고, root 본 위치(조금 위)를 따라간다
 	const int32 RootIndex = SkeletalMeshComponent->GetRootMotionBoneIndex();
@@ -81,44 +78,22 @@ void ARootMotionTestCharacter::Tick(float DeltaTime)
 	FaceCamera(RootLabelComponent);
 }
 
-void ARootMotionTestCharacter::BeginPlay()
+void ARootMotionTestCharacter::UpdateModeLabel()
 {
-	Super::BeginPlay();
-	// 라벨은 설정 조합의 결과를 보여준다 (GetAnimationPose의 root 고정 조건과 같다)
-	const char* ModeName = "Root Motion ON";
-	switch (RootMotionMode)
+	// AnimBP는 SkeletalMeshComponent가 로드하므로, 생긴 AnimInstance의 모드를 읽어 라벨에 쓴다 (AnimBP 파일 이름과 같다)
+	const UAnimInstance* AnimInstance = SkeletalMeshComponent->GetAnimInstance();
+	const int32 Mode = AnimInstance ? static_cast<int32>(AnimInstance->GetRootMotionMode()) : -1;
+	if (Mode == ShownMode)
 	{
-	case ERootMotionMode::NoRootMotionExtraction: ModeName = "Root Motion OFF"; break;
-	case ERootMotionMode::IgnoreRootMotion:       ModeName = "Root Lock (Ignore)"; break;
-	default: break;
-	}
-	LabelComponent->SetText(ModeName);
-
-	// 씬에 메시가 저장돼 있으면 그대로 쓰고, 없을 때만 MeshPath로 불러온다
-	FString Error;
-	if (!SkeletalMeshComponent->GetSkeletalMesh())
-	{
-		USkeletalMesh* Mesh = Cast<USkeletalMesh>(UAssetManager::LoadFbxMesh(MeshPath, Error));
-		if (!Mesh)
-		{
-			HTR_LOG(Error, "RootMotionTest: mesh load failed: {} ({})", MeshPath, Error);
-			return;
-		}
-		SkeletalMeshComponent->SetSkeletalMesh(Mesh);
-	}
-
-	// 뷰어와 같은 캐시 객체를 쓰므로, 뷰어에서 바꾼 Enable Root Motion / Force Root Lock이 그대로 적용된다
-	Sequence = UAssetManager::LoadAnimSequence(AnimationPath);
-	if (!Sequence)
-	{
-		HTR_LOG(Error, "RootMotionTest: animation load failed: {}", AnimationPath);
 		return;
 	}
+	ShownMode = Mode;
 
-	SkeletalMeshComponent->PlayAnimation(Sequence, true);
-	if (UAnimInstance* AnimInstance = SkeletalMeshComponent->GetAnimInstance())
+	switch (Mode)
 	{
-		AnimInstance->SetRootMotionMode(RootMotionMode);   // 캐릭터별 설정 (언리얼도 런타임엔 이렇게 바꾼다)
+	case static_cast<int32>(ERootMotionMode::NoRootMotionExtraction):   LabelComponent->SetText("NoRootMotionExtraction"); break;
+	case static_cast<int32>(ERootMotionMode::IgnoreRootMotion):         LabelComponent->SetText("IgnoreRootMotion"); break;
+	case static_cast<int32>(ERootMotionMode::RootMotionFromEverything): LabelComponent->SetText("RootMotionFromEverything"); break;
+	default:                                                            LabelComponent->SetText("No AnimBP"); break;
 	}
-	HTR_LOG(Info, "RootMotionTest: {} plays {} ({})", GetName(), Sequence->GetClipName(), ModeName);
 }

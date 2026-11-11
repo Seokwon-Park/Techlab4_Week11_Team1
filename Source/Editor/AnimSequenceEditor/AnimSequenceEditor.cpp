@@ -60,6 +60,7 @@ bool FAnimSequenceEditor::Save()
 
     bNotifiesDirty = false;
     Sequence->CaptureNotifySnapshot(SavedSnapshot);   // 실행 취소로 이 상태에 돌아오면 변경 없음
+    SavedRootMotionSettings = CaptureRootMotionSettings();
     SaveMessage = "Saved.";
     HTR_LOG(Info, "AnimSequence saved: {}", GetAssetPath());
     return true;
@@ -191,7 +192,7 @@ float FAnimSequenceEditor::GetNotifyFlash(const FGuid& Guid) const
 
 bool FAnimSequenceEditor::ConfirmClose()
 {
-    if (!bNotifiesDirty || bCloseConfirmed)
+    if (!IsDirty() || bCloseConfirmed)
     {
         return true;
     }
@@ -258,8 +259,26 @@ void FAnimSequenceEditor::ResetNotifyHistory()
     RedoStack.Empty();
     if (Sequence) Sequence->CaptureNotifySnapshot(CommittedSnapshot);
     SavedSnapshot = CommittedSnapshot;
+    SavedRootMotionSettings = CaptureRootMotionSettings();   // 열기·되돌리기 직후 값이 저장된 값
     bUndoCommitPending = false;
     bNotifiesDirty = false;
+}
+
+FAnimSequenceEditor::FRootMotionSettings FAnimSequenceEditor::CaptureRootMotionSettings() const
+{
+    FRootMotionSettings Settings;
+    if (Sequence)
+    {
+        Settings.bEnableRootMotion = Sequence->GetEnableRootMotion();
+        Settings.bForceRootLock = Sequence->GetForceRootLock();
+        Settings.RootLock = static_cast<uint8>(Sequence->GetRootMotionRootLock());
+    }
+    return Settings;
+}
+
+bool FAnimSequenceEditor::HasUnsavedRootMotionChanges() const
+{
+    return !(CaptureRootMotionSettings() == SavedRootMotionSettings);
 }
 
 void FAnimSequenceEditor::CommitNotifyUndo(bool bInteractionActive)
@@ -458,6 +477,34 @@ void FAnimSequenceEditor::TickBeforeWorld(float DeltaTime)
         MeshComponent->SetBoneSpaceTransforms(PlaybackPose);
         bPoseDirty = false;
     }
+
+    ApplyPreviewRootMotion();
+}
+
+void FAnimSequenceEditor::ApplyPreviewRootMotion()
+{
+    if (!bHasPreviewBase)
+    {
+        PreviewBaseTransform = MeshComponent->GetTransform();
+        bHasPreviewBase = true;
+    }
+
+    // 1. 기준 위치로 되돌린다 (루트 모션이 꺼져 있으면 여기서 끝 → 제자리)
+    MeshComponent->SetTransform(PreviewBaseTransform);
+    if (!Sequence->GetEnableRootMotion() || CurrentTime <= 0.0f)
+    {
+        return;
+    }
+
+    // 2. 0초 → 현재 시간 동안 root가 움직인 양 (root 부모 공간). 루프하면 CurrentTime이 0 근처로 돌아가 자연히 처음 위치가 된다
+    const FTransform LocalDelta = Sequence->ExtractRootMotion(0.0f, CurrentTime, false);
+
+    // 3. 월드 공간으로 바꿔 메시 컴포넌트를 옮긴다 (게임에서 CharacterMovement가 캡슐을 옮기는 것과 같은 값)
+    const FTransform WorldDelta = MeshComponent->ConvertRootMotionToWorld(LocalDelta);
+    FTransform Moved = PreviewBaseTransform;
+    Moved.Location = PreviewBaseTransform.Location + WorldDelta.Location;
+    Moved.Rotation = (WorldDelta.Rotation * PreviewBaseTransform.Rotation).Normalized();
+    MeshComponent->SetTransform(Moved);
 }
 
 int32 FAnimSequenceEditor::FindRootBoneIndex() const
