@@ -23,6 +23,15 @@ UAnimSequenceBase::~UAnimSequenceBase()
     }
 }
 
+void UAnimSequenceBase::OnNotifyObjectDestroyed(const UObject* NotifyObject)
+{
+    for (FAnimNotifyEvent& Event : AnimNotifies)
+    {
+        if (Event.Notify == NotifyObject) Event.Notify = nullptr;
+        if (Event.NotifyStateClass == NotifyObject) Event.NotifyStateClass = nullptr;
+    }
+}
+
 const FAnimNotifyEvent* UAnimSequenceBase::FindNotify(const FGuid& NotifyGuid) const
 {
     const int32 Index = FindNotifyIndex(NotifyGuid);

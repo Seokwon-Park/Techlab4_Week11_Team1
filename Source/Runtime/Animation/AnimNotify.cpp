@@ -4,6 +4,14 @@
 #include "Engine/GameplayStatics.h"
 #include "Asset/AssetManager.h"
 #include "Engine/Classes/Sound/SoundWave.h"
+#include "AnimSequenceBase.h"
+
+// 엔진 종료 때 DestroyAllObjectsExceptEngine이 UObject를 하나씩 지우므로
+// Notify가 시퀀스보다 먼저 지워질 수 있다. 시퀀스가 지운 포인터를 다시 지우지 않게 알린다
+UAnimNotify::~UAnimNotify()
+{
+	if (UAnimSequenceBase* Sequence = Cast<UAnimSequenceBase>(GetOuter())) Sequence->OnNotifyObjectDestroyed(this);
+}
 
 void UAnimNotify_PlaySound::Notify(USkeletalMeshComponent* MeshComp, const UAnimSequenceBase* Animation, const FAnimNotifyEventReference& EventReference)
 {

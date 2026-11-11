@@ -25,6 +25,10 @@ public:
     int32 GetNumFrames() const;
     UAnimSequence* GetSequence() const { return Sequence; }
 
+    // Asset Browser에서 더블클릭한 애니메이션을 연다 (Unreal처럼 새 탭 없이 이 뷰어에서 바꾼다).
+    // 다른 탭에 이미 열려 있으면 그 탭으로 간다. 저장하지 않은 변경이 있거나 미리보기 메시와 맞지 않으면 바꾸지 않는다.
+    void OpenFromAssetBrowser(const FString& InAssetPath);
+
     // Notify 선택 (타임라인과 디테일 패널이 공유). 배열 Index는 정렬마다 바뀌므로 Guid로 가리킨다.
     const FGuid& GetSelectedNotify() const { return SelectedNotify; }
     void SelectNotify(const FGuid& Guid) { SelectedNotify = Guid; }

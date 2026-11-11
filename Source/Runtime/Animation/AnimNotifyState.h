@@ -13,6 +13,9 @@ class UAnimNotifyState : public UObject
 {
 	GENERATED_BODY()
 public:
+	// 소유 시퀀스의 Notify 목록에서 자신을 지운다 (엔진 종료 때 시퀀스가 다시 delete하지 않게)
+	virtual ~UAnimNotifyState() override;
+
 	virtual void NotifyBegin(USkeletalMeshComponent* MeshComp, const UAnimSequenceBase* Animation, float TotalDuration, const FAnimNotifyEventReference& EventReference){}
 	virtual void NotifyTick(USkeletalMeshComponent* MeshComp, const UAnimSequenceBase* Animation, float FrameDeltaTime, const FAnimNotifyEventReference& EventReference){}
 	virtual void NotifyEnd(USkeletalMeshComponent* MeshComp, const UAnimSequenceBase* Animation, const FAnimNotifyEventReference& EventReference){}

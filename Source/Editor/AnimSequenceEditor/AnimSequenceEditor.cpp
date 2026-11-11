@@ -8,6 +8,7 @@
 #include "Animation/AnimNotifyQueue.h"
 #include "Asset/AssetManager.h"
 #include "Asset/AssetUtils.h"
+#include "Editor/AssetEditor/EditorManager.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Render/SkeletalMesh.h"
 #include "Render/LineBatcher.h"
@@ -353,6 +354,53 @@ void FAnimSequenceEditor::ShutdownResources()
     bPlaying = false;
     EndPreviewNotifyStates();   // 메시가 남아 있을 때 닫는다
     FSkeletalPreviewEditor::ShutdownResources();
+}
+
+void FAnimSequenceEditor::OpenFromAssetBrowser(const FString& InAssetPath)
+{
+    if (InAssetPath == GetAssetPath() || !Mesh)
+    {
+        return;
+    }
+
+    if (FAssetEditor* Other = EditorManager.FindEditor(InAssetPath))
+    {
+        Other->Activate();
+        return;
+    }
+
+    if (IsDirty())
+    {
+        SaveMessage = "Save or revert before opening another animation.";
+        return;
+    }
+
+    UAnimSequence* NewSequence = UAssetManager::LoadAnimSequence(InAssetPath);
+    if (!NewSequence || !NewSequence->GetDataModel())
+    {
+        SaveMessage = "Cannot load " + InAssetPath;
+        return;
+    }
+
+    // 진행 중인 State는 지금 시퀀스 기준으로 닫고 바꾼다. 미리보기 메시는 그대로 쓰므로 트랙이 맞아야 한다.
+    EndPreviewNotifyStates();
+    UAnimSequence* Previous = Sequence;
+    Sequence = NewSequence;
+    if (!IsCompatible(*Mesh))
+    {
+        Sequence = Previous;
+        SaveMessage = "Tracks do not match the preview mesh: " + InAssetPath;
+        return;
+    }
+
+    SetAssetPath(InAssetPath);
+    CurrentTime = 0.0f;
+    bPlaying = true;
+    bPoseDirty = true;
+    ClearNotifySelection();
+    RecentFired.Empty();
+    ResetNotifyHistory();
+    SaveMessage.clear();
 }
 
 TUniquePtr<IEditorTab> FAnimSequenceEditor::CreateTab()

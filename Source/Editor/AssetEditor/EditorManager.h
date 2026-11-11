@@ -43,11 +43,12 @@ public:
 
 	void OpenAnimBlueprintPreview(const FString& PreviewMeshPath);
 
+	// 이 경로를 연 에디터. 없으면 nullptr.
+	FAssetEditor* FindEditor(const FString& Path) const;
+
 private:
 	// 에디터를 생성합니다. 이미 열려 있는 에디터가 있으면 활성화합니다.
 	void CreateEditor(const FString& AssetPath);
-
-	FAssetEditor* FindEditor(const FString& Path) const;
 
 	UEditorEngine& EditorEngine;
 	FEditorTabContainer TabContainer;

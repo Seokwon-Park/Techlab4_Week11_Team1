@@ -4,6 +4,7 @@
 #include "Editor/SkeletalPreviewEditor/SkeletalPreviewViewportPanel.h"
 #include "Panels/AnimTimelinePanel.h"
 #include "Panels/AnimSequenceDetailsPanel.h"
+#include "Panels/AnimBrowserPanels.h"
 
 FAnimSequenceEditorTab::FAnimSequenceEditorTab(FAnimSequenceEditor& InEditor)
     : FDockedAssetEditorTab(InEditor, "AnimSequenceDockSpace", "AnimSequencePanelClass")
@@ -12,6 +13,8 @@ FAnimSequenceEditorTab::FAnimSequenceEditorTab(FAnimSequenceEditor& InEditor)
     RegisterPanel(MakeUnique<FSkeletalPreviewViewportPanel>(InEditor));
     RegisterPanel(MakeUnique<FAnimTimelinePanel>(InEditor));
     RegisterPanel(MakeUnique<FAnimSequenceDetailsPanel>(InEditor));
+    RegisterPanel(MakeUnique<FAnimSkeletonTreePanel>(InEditor));
+    RegisterPanel(MakeUnique<FAnimAssetBrowserPanel>(InEditor));
 }
 
 void FAnimSequenceEditorTab::BeforeRender()
@@ -56,13 +59,18 @@ void FAnimSequenceEditorTab::BuildDefaultLayout(ImGuiID InDockSpaceId, const ImV
     ImGui::DockBuilderAddNode(InDockSpaceId, ImGuiDockNodeFlags_DockSpace);
     ImGui::DockBuilderSetNodeSize(InDockSpaceId, Size);
 
+    // Unreal 애니메이션 뷰어 배치: 왼쪽 Skeleton Tree, 가운데 뷰포트와 타임라인, 오른쪽 위 Details, 오른쪽 아래 Asset Browser
     ImGuiID ViewportId = InDockSpaceId;
-    const ImGuiID DetailsId = ImGui::DockBuilderSplitNode(ViewportId, ImGuiDir_Right, 0.24f, nullptr, &ViewportId);
+    const ImGuiID SkeletonId = ImGui::DockBuilderSplitNode(ViewportId, ImGuiDir_Left, 0.18f, nullptr, &ViewportId);
+    ImGuiID DetailsId = ImGui::DockBuilderSplitNode(ViewportId, ImGuiDir_Right, 0.28f, nullptr, &ViewportId);
+    const ImGuiID BrowserId = ImGui::DockBuilderSplitNode(DetailsId, ImGuiDir_Down, 0.45f, nullptr, &DetailsId);
     const ImGuiID TimelineId = ImGui::DockBuilderSplitNode(ViewportId, ImGuiDir_Down, 0.25f, nullptr, &ViewportId);
 
     ImGui::DockBuilderDockWindow(Panels[0]->GetWindowName(), ViewportId);
     ImGui::DockBuilderDockWindow(Panels[1]->GetWindowName(), TimelineId);
     ImGui::DockBuilderDockWindow(Panels[2]->GetWindowName(), DetailsId);
+    ImGui::DockBuilderDockWindow(Panels[3]->GetWindowName(), SkeletonId);
+    ImGui::DockBuilderDockWindow(Panels[4]->GetWindowName(), BrowserId);
     ImGui::DockBuilderFinish(InDockSpaceId);
 }
 

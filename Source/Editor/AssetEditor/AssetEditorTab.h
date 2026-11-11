@@ -30,6 +30,9 @@ public:
 
 private:
 	FAssetEditor& Editor;
-	FString TabName;
-	FString DirtyTabName;
+	FString TabId;
+	// GetTabName이 경로가 바뀌었을 때 다시 만든다
+	mutable FString NamedPath;
+	mutable FString TabName;
+	mutable FString DirtyTabName;
 };

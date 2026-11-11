@@ -106,6 +106,10 @@ public:
 
 	void SortNotifies();
 
+	// Notify 객체의 소멸자가 부른다. 목록에 남은 포인터를 nullptr로 바꿔 두 번 delete되지 않게 한다.
+	// 항목 자체는 지우지 않으므로 순회 중(RemoveNotifyAt, 소멸자)에 불려도 배열이 바뀌지 않는다.
+	void OnNotifyObjectDestroyed(const UObject* NotifyObject);
+
 private:
 	FGuid AddNotifyEvent(float Time, float Duration, FAnimNotifyEvent& NewEvent);
 	float ClampNotifyTime(float Time) const;

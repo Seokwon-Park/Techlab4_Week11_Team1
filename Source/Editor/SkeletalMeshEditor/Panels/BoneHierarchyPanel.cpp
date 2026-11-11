@@ -11,8 +11,12 @@ FBoneHierarchyPanel::FBoneHierarchyPanel(FSkeletalMeshEditor& InEditor)
 
 void FBoneHierarchyPanel::DrawContent()
 {
-	USkeletalMesh* Mesh = Editor.GetMesh();
-	if (!Mesh)
+	DrawTree(Editor);
+}
+
+void FBoneHierarchyPanel::DrawTree(FSkeletalPreviewEditor& InEditor)
+{
+	if (!InEditor.GetMesh())
 	{
 		return;
 	}
@@ -21,9 +25,9 @@ void FBoneHierarchyPanel::DrawContent()
 	{
 		ImGui::PushStyleVar(ImGuiStyleVar_IndentSpacing, 12.0f);
 
-		for (int32 RootBoneIndex : Editor.GetRootBoneIndices())
+		for (int32 RootBoneIndex : InEditor.GetRootBoneIndices())
 		{
-			DrawBoneHierarchy(RootBoneIndex);
+			DrawBoneHierarchy(InEditor, RootBoneIndex);
 		}
 
 		ImGui::PopStyleVar();
@@ -32,14 +36,14 @@ void FBoneHierarchyPanel::DrawContent()
 	ImGui::EndChild();
 }
 
-void FBoneHierarchyPanel::DrawBoneHierarchy(int32 BoneIndex)
+void FBoneHierarchyPanel::DrawBoneHierarchy(FSkeletalPreviewEditor& InEditor, int32 BoneIndex)
 {
 	ImGuiTreeNodeFlags Flag =
 		ImGuiTreeNodeFlags_DefaultOpen |
 		ImGuiTreeNodeFlags_OpenOnArrow |
 		ImGuiTreeNodeFlags_SpanAvailWidth;
 
-	const TArray<FEditorBoneItem>& BoneItems = Editor.GetBoneItems();
+	const TArray<FEditorBoneItem>& BoneItems = InEditor.GetBoneItems();
 
 	int32 ChildBoneCount = BoneItems[BoneIndex].ChildBoneIndices.Num();
 	if (ChildBoneCount == 0)
@@ -47,7 +51,7 @@ void FBoneHierarchyPanel::DrawBoneHierarchy(int32 BoneIndex)
 		Flag |= ImGuiTreeNodeFlags_Leaf;
 	}
 
-	if (Editor.GetSelectedBoneIndex() == BoneIndex)
+	if (InEditor.GetSelectedBoneIndex() == BoneIndex)
 	{
 		Flag |= ImGuiTreeNodeFlags_Selected;
 	}
@@ -62,14 +66,14 @@ void FBoneHierarchyPanel::DrawBoneHierarchy(int32 BoneIndex)
 
 	if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen())
 	{
-		Editor.SelectBone(BoneIndex);
+		InEditor.SelectBone(BoneIndex);
 	}
 
 	if (bOpen)
 	{
 		for (int32 ChildIndex : BoneItems[BoneIndex].ChildBoneIndices)
 		{
-			DrawBoneHierarchy(ChildIndex);
+			DrawBoneHierarchy(InEditor, ChildIndex);
 		}
 
 		ImGui::TreePop();

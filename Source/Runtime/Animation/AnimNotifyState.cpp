@@ -2,6 +2,13 @@
 #include "AnimNotifyState.h"
 #include "AnimInstance.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "AnimSequenceBase.h"
+
+// UAnimNotify::~UAnimNotify와 같은 이유로 시퀀스에 알린다
+UAnimNotifyState::~UAnimNotifyState()
+{
+	if (UAnimSequenceBase* Sequence = Cast<UAnimSequenceBase>(GetOuter())) Sequence->OnNotifyObjectDestroyed(this);
+}
 
 namespace
 {
