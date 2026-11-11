@@ -15,8 +15,11 @@ class UWidget;
 class UGameInstance;
 class UEngine;
 class UCameraComponent;
+class FRenderer;
+class FUIRenderer;
 
 struct FWorldContext;
+struct FSceneRenderOptions;
 
 // 게임 뷰포트 클라이언트 클래스
 class FGameViewportClient : public FViewportClient
@@ -47,6 +50,12 @@ public:
 
 	// 게임 카메라 시점 계산
 	FSceneView CalcSceneView(const FRect& InViewRect);
+
+	// 이 뷰포트의 월드를 자기 카메라로 자기 타깃(ViewTargets)에 그린다. UE의 UGameViewportClient::Draw와 같은 자리다.
+	// UE는 Draw(FViewport*, FCanvas*)이고 설정은 클라이언트가 갖지만, 이 엔진은 렌더러와 옵션을 인자로 받는다.
+	// UIRenderer는 게임 UI를 그리는 데 쓴다. UE의 FCanvas에 해당하며 nullptr이면 UI를 그리지 않는다.
+	// 씬을 그렸으면 true를 돌려준다.
+	bool Draw(FRenderer* Renderer, const FSceneRenderOptions& Options, FUIRenderer* UIRenderer);
 
 	// 렌더 타깃 크기 관리
 	virtual void Resize(FViewport* Viewport, uint32 NewWidth, uint32 NewHeight) override { Resize(NewWidth, NewHeight); }
@@ -130,4 +139,6 @@ private:
 	uint32 Height = 0;
 	FSceneViewTargets ViewTargets;
 	FSceneRenderData RenderData;
+	// Draw가 게임 UI를 그릴 때 채우는 목록. 매 프레임 다시 채운다.
+	FUIDrawList UIDrawList;
 };
