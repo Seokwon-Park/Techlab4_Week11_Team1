@@ -26,8 +26,6 @@ struct FSceneOverlayCallbacks
 	std::function<void()> EditorGrid;
 	std::function<void()> EditorOutline;
 	std::function<void()> EditorGizmo;
-	std::function<void()> SIEOutline;
-	std::function<void()> SIEGizmo;
 	bool bClearEditorDepth = false;
 	std::function<void()> EditorUUID;
 	std::function<void()> GameUI;

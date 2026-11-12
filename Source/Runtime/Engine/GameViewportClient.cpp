@@ -9,7 +9,6 @@
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
 #include "Camera/PlayerCameraManager.h"
-#include "Camera/ViewportCameraMovement.h"
 #include <cmath>
 #include "Math/Frustum.h"
 #include "Render/RenderCommand.h"
@@ -49,14 +48,6 @@ bool FGameViewportClient::InputKey(FViewport* Viewport, int32 Key, bool bDown)
 		return true;
 	}
 
-	if (bDown && Key == static_cast<int32>(EKeyCode::F8))
-	{
-		bSIEModeRequested = true;
-		return true;
-	}
-
-	if (bSIEMode && Key == static_cast<int32>(EKeyCode::LButton)) return true;
-
 	if (World)
 	{
 		if (APlayerController* PC = World->GetPlayerController())
@@ -86,8 +77,6 @@ bool FGameViewportClient::InputAxis(FViewport* Viewport, int32 ControllerId, EGa
 
 void FGameViewportClient::LostFocus()
 {
-	std::fill(std::begin(bSIEKeyDown), std::end(bSIEKeyDown), false);
-	SIEMouseDeltaX = SIEMouseDeltaY = SIEWheelDelta = 0.0f;
 	if (World)
 	{
 		if (APlayerController* PC = World->GetPlayerController())
@@ -142,47 +131,18 @@ UCameraComponent* FGameViewportClient::FindPlayerCamera() const
 void FGameViewportClient::SetWorld(UWorld* InWorld)
 {
 	if (World == InWorld) return;
-	EndSIEMode();
 	LostFocus();
 	RenderData.ResetScene();
 	CameraComponent = nullptr;
-	bExitRequested = bSIEModeRequested = false;
+	bExitRequested = false;
 	World = InWorld;
-}
-
-namespace
-{
-	bool SetCameraWorldPose(UCameraComponent& Camera, const FVector& Location, const FRotator& Rotation)
-	{
-		FTransform Relative = Camera.GetTransform();
-		if (const USceneComponent* Parent = Camera.GetAttachParent())
-		{
-			const FMatrix ParentWorld = Parent->GetWorldMatrix();
-			const float Determinant = ParentWorld.Determinant();
-			if (!std::isfinite(Determinant) || Determinant == 0.0f)
-				return false;
-			Relative.Location = ParentWorld.Inverse().TransformPosition(Location);
-			if (!std::isfinite(Relative.Location.X) || !std::isfinite(Relative.Location.Y) ||
-				!std::isfinite(Relative.Location.Z)) return false;
-			Relative.Rotation = (Parent->GetWorldRotation().Quaternion().Inverse() *
-				Rotation.Quaternion()).Normalized();
-		}
-		else
-		{
-			// 부모가 없으면 입력 오일러 값을 그대로 보존한다
-			Camera.SetRelativeLocationAndRotation(Location, Rotation);
-			return true;
-		}
-		Camera.SetTransform(Relative);
-		return true;
-	}
 }
 
 FSceneView FGameViewportClient::CalcSceneView(const FRect& InViewRect)
 {
 	FSceneView OutView;
 	OutView.ViewIndex = 0;
-	OutView.bGameView = !bSIEMode;
+	OutView.bGameView = true;
 	OutView.ViewRect = InViewRect;
 
 	Resize(
@@ -200,7 +160,7 @@ FSceneView FGameViewportClient::CalcSceneView(const FRect& InViewRect)
 			CameraComponent = World->GetMainCamera()->GetCameraComponent();
 	}
 
-	if (!bSIEMode && World)
+	if (World)
 	{
 		APlayerController* PC = World->GetPlayerController();
 		APlayerCameraManager* PCM = PC ? PC->GetCameraManager() : nullptr;
@@ -303,89 +263,6 @@ void FGameViewportClient::SetCameraComponent(UCameraComponent* InCameraComponent
 	CameraComponent = InCameraComponent;
 }
 
-bool FGameViewportClient::BeginSIEMode()
-{
-	if (bSIEMode)
-		return true;
-	if (!World || !World->GetMainCamera())
-		return false;
-
-	if (!CameraComponent) CameraComponent = FindPlayerCamera();
-	if (!CameraComponent) return false;
-
-	UCameraComponent* MainCamera = World->GetMainCamera()->GetCameraComponent();
-	if (!MainCamera || MainCamera == CameraComponent) return false;
-	if (!SetCameraWorldPose(*MainCamera, CameraComponent->GetWorldLocation(),
-		CameraComponent->GetWorldRotation())) return false;
-
-	MainCamera->SetFieldOfView(CameraComponent->GetFieldOfView());
-	MainCamera->SetNearZ(CameraComponent->GetNearZ());
-	MainCamera->SetFarZ(CameraComponent->GetFarZ());
-	MainCamera->SetIsOrthogonal(CameraComponent->GetIsOrthogonal());
-	MainCamera->SetOrthoWidth(CameraComponent->GetOrthoWidth());
-	bPreviousMainCameraExternalInputManaged = MainCamera->IsExternalInputManaged();
-	MainCamera->SetExternalInputManaged(true);
-	CameraComponent = MainCamera;
-	bSIEMode = true;
-	LostFocus();
-	return true;
-}
-
-void FGameViewportClient::EndSIEMode()
-{
-	if (!bSIEMode)
-		return;
-	if (World && World->GetMainCamera())
-		if (UCameraComponent* MainCamera = World->GetMainCamera()->GetCameraComponent())
-			MainCamera->SetExternalInputManaged(bPreviousMainCameraExternalInputManaged);
-	CameraComponent = FindPlayerCamera();
-	bSIEMode = false;
-	LostFocus();
-}
-
-void FGameViewportClient::GetKeyInputBySIEMode(int32 Key, bool bDown)
-{
-	if (bSIEMode && Key >= 0 && Key < 256)
-		bSIEKeyDown[Key] = bDown;
-}
-
-void FGameViewportClient::GetAxisInputBySIEMode(EGameInputAxis Key, float Delta)
-{
-	if (!bSIEMode)
-		return;
-	switch (Key)
-	{
-	case EGameInputAxis::MouseX: SIEMouseDeltaX += Delta; break;
-	case EGameInputAxis::MouseY: SIEMouseDeltaY += Delta; break;
-	case EGameInputAxis::MouseWheel: SIEWheelDelta += Delta; break;
-	}
-}
-
-void FGameViewportClient::TickSIEInput(float DeltaTime, float MoveSpeed, float MouseSensitivity)
-{
-	if (!bSIEMode || !CameraComponent)
-		return;
-	FViewportCameraInput Input;
-	Input.bCaptured = bSIEKeyDown[static_cast<int32>(EKeyCode::RButton)];
-	Input.bAllowWheel = true;
-	Input.MouseX = SIEMouseDeltaX;
-	Input.MouseY = SIEMouseDeltaY;
-	Input.Wheel = SIEWheelDelta;
-	Input.bForward = bSIEKeyDown[static_cast<int32>(EKeyCode::W)];
-	Input.bBackward = bSIEKeyDown[static_cast<int32>(EKeyCode::S)];
-	Input.bRight = bSIEKeyDown[static_cast<int32>(EKeyCode::D)];
-	Input.bLeft = bSIEKeyDown[static_cast<int32>(EKeyCode::A)];
-	Input.bUp = bSIEKeyDown[static_cast<int32>(EKeyCode::E)];
-	Input.bDown = bSIEKeyDown[static_cast<int32>(EKeyCode::Q)];
-	FViewportCameraState Camera{CameraComponent->GetWorldLocation(),
-		CameraComponent->GetWorldRotation(), CameraComponent->GetOrthoWidth(),
-		Width > 0 ? static_cast<float>(Width) : 800.0f, !CameraComponent->GetIsOrthogonal()};
-	ApplyViewportCameraMovement(Camera, Input, DeltaTime, MoveSpeed, MouseSensitivity);
-	if (SetCameraWorldPose(*CameraComponent, Camera.Location, Camera.Rotation))
-		CameraComponent->SetOrthoWidth(Camera.OrthoWidth);
-	SIEMouseDeltaX = SIEMouseDeltaY = SIEWheelDelta = 0.0f;
-}
-
 bool FGameViewportClient::Draw(FRenderer* Renderer, FUIRenderer* UIRenderer)
 {
 	if (!World || !Renderer || !Width || !Height) return false;
@@ -438,10 +315,8 @@ void FGameViewportClient::Reset()
 	ClearViewportWidgets();
 
 	RenderData.ResetScene();
-	EndSIEMode();
 	LostFocus();
 	bExitRequested = false;
-	bSIEModeRequested = false;
 	World = nullptr;
 	GameInstance = nullptr;
 	Engine = nullptr;

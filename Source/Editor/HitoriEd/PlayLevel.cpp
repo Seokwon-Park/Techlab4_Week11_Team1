@@ -126,24 +126,17 @@ void UEditorEngine::TickPIEInput(float DeltaTime)
 	if (!Context || !Context->GameViewport) return;
 	FGameViewportClient& GameViewport = *Context->GameViewport;
 	const FVector2 Mouse = ViewportsPanel->GetLocalMousePosition();
-	const int32 InputViewIndex = IsPIEInWindow() && bIsSimulatingInEditor
-		? PIEStartEditorViewIndex : PIEViewIndex;
-	const FRect PIEViewRect = (InputViewIndex >= 0 && InputViewIndex < AllViewportClients.Num() && AllViewportClients[InputViewIndex])
-		? AllViewportClients[InputViewIndex]->GetRect() : FRect{};
+	const FRect PIEViewRect = (PIEViewIndex >= 0 && PIEViewIndex < AllViewportClients.Num() && AllViewportClients[PIEViewIndex])
+		? AllViewportClients[PIEViewIndex]->GetRect() : FRect{};
 	const bool bMouseOverPIE = Mouse.X >= PIEViewRect.X && Mouse.Y >= PIEViewRect.Y &&
 		Mouse.X < PIEViewRect.X + PIEViewRect.Width && Mouse.Y < PIEViewRect.Y + PIEViewRect.Height;
 	const int32 ActiveViewIdx = ViewportsPanel ? ViewportsPanel->GetActiveViewIndex() : -1;
-	const bool bEditorSIEFocus = IsPIEInWindow() && bIsSimulatingInEditor &&
-		::GetForegroundWindow() == MainWindow->GetHandle() &&
-		ActiveViewIdx == PIEStartEditorViewIndex && ViewportsPanel->IsHovered() &&
-		!ImGui::GetIO().WantTextInput && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup);
 	const bool bClickPressed =
 		FInputSystem::IsMousePressed(EMouseButton::Left) || FInputSystem::IsMousePressed(EMouseButton::Right);
 	const HWND InputWindow = IsPIEInWindow() ? PIEWindow->GetHandle() : MainWindow->GetHandle();
 	const bool bInputWindowForeground = ::GetForegroundWindow() == InputWindow;
 
 	// 마우스 캡처: 캡처 중에는 커서가 PIE 영역 밖으로 못 나가므로 hover 판정 없이 입력을 유지한다.
-	// SIE(에디터 카메라 조작)는 기존 hover 규칙을 그대로 쓴다.
 	if (bGameMouseCaptured)
 	{
 		const bool bReleaseKey = FInputSystem::IsKeyDown(EKeyCode::Shift) && FInputSystem::IsKeyPressed(EKeyCode::F1);
@@ -166,9 +159,9 @@ void UEditorEngine::TickPIEInput(float DeltaTime)
 	}
 
 	const bool bFocused = bGameMouseCaptured || (IsPIEInWindow()
-		? bInputWindowForeground || bEditorSIEFocus
+		? bInputWindowForeground
 		: bInputWindowForeground &&
-		ActiveViewIdx == InputViewIndex &&
+		ActiveViewIdx == PIEViewIndex &&
 		ViewportsPanel->IsHovered() &&
 		!ImGui::GetIO().WantTextInput && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup));
 	if (!bFocused) { GameViewport.LostFocus(); return; }
@@ -199,15 +192,9 @@ void UEditorEngine::TickPIEInput(float DeltaTime)
 	for (EKeyCode Key : Keys)
 	{
 		if (FInputSystem::IsKeyPressed(Key))
-		{
-			if (GameViewport.IsSIEMode()) GameViewport.GetKeyInputBySIEMode(static_cast<int32>(Key), true);
-			else GameViewport.InputKey(nullptr, static_cast<int32>(Key), true);
-		}
+			GameViewport.InputKey(nullptr, static_cast<int32>(Key), true);
 		if (FInputSystem::IsKeyReleased(Key))
-		{
-			if (GameViewport.IsSIEMode()) GameViewport.GetKeyInputBySIEMode(static_cast<int32>(Key), false);
-			else GameViewport.InputKey(nullptr, static_cast<int32>(Key), false);
-		}
+			GameViewport.InputKey(nullptr, static_cast<int32>(Key), false);
 	}
 
 	// UI 히트 테스트용 마우스 좌표 → 게임 렌더 타깃 기준
@@ -231,15 +218,9 @@ void UEditorEngine::TickPIEInput(float DeltaTime)
 	{
 		const int32 Key = Button == EMouseButton::Left ? static_cast<int32>(EKeyCode::LButton) : static_cast<int32>(EKeyCode::RButton);
 		if (FInputSystem::IsMousePressed(Button) && !bCaptureStartedThisFrame)
-		{
-			if (GameViewport.IsSIEMode()) GameViewport.GetKeyInputBySIEMode(Key, true);
-			else GameViewport.InputKey(nullptr, Key, true);
-		}
+			GameViewport.InputKey(nullptr, Key, true);
 		if (FInputSystem::IsMouseReleased(Button))
-		{
-			if (GameViewport.IsSIEMode()) GameViewport.GetKeyInputBySIEMode(Key, false);
-			else GameViewport.InputKey(nullptr, Key, false);
-		}
+			GameViewport.InputKey(nullptr, Key, false);
 	}
 	float MouseX = static_cast<float>(FInputSystem::GetMouseDeltaX());
 	float MouseY = static_cast<float>(FInputSystem::GetMouseDeltaY());
@@ -256,19 +237,8 @@ void UEditorEngine::TickPIEInput(float DeltaTime)
 		if (bCaptureStartedThisFrame || !RecenterPIEMouseCapture())
 			MouseX = MouseY = 0.0f;
 	}
-	if (GameViewport.IsSIEMode())
-	{
-		GameViewport.GetAxisInputBySIEMode(EGameInputAxis::MouseX, MouseX);
-		GameViewport.GetAxisInputBySIEMode(EGameInputAxis::MouseY, MouseY);
-		// 에디터 뷰포트 카메라(UpdateViewportState)와 같은 배율
-		GameViewport.TickSIEInput(DeltaTime, 10.0f * SettingsPanel->GetSettings().CameraSpeed,
-			0.2f * SettingsPanel->GetSettings().MouseSensitivity);
-	}
-	else
-	{
-		GameViewport.InputAxis(nullptr, 0, EGameInputAxis::MouseX, MouseX, DeltaTime);
-		GameViewport.InputAxis(nullptr, 0, EGameInputAxis::MouseY, MouseY, DeltaTime);
-	}
+	GameViewport.InputAxis(nullptr, 0, EGameInputAxis::MouseX, MouseX, DeltaTime);
+	GameViewport.InputAxis(nullptr, 0, EGameInputAxis::MouseY, MouseY, DeltaTime);
 }
 
 bool UEditorEngine::GetPIECaptureScreenRect(int32& OutLeft, int32& OutTop, int32& OutRight, int32& OutBottom) const
@@ -378,42 +348,16 @@ void UEditorEngine::StartPlayInEditorSession()
 	}
 	PlayWorld = GameInstance->GetWorld();
 
-	// PIE 게임 화면은 게임 뷰포트 클라이언트의 Draw가 그린다. 그 위에 에디터가 올릴 디버그 요소를 여기서 등록해 둔다.
-	// Draw가 패스를 등록할 때마다 이 함수를 부른다.
+	// PIE 게임 화면은 게임 뷰포트 클라이언트의 Draw가 그린다. 그 위에 에디터가 올릴 디버그 표시를 여기서 등록해 둔다.
+	// Draw가 패스를 등록할 때마다 이 함수를 부른다. SIE 화면은 레벨 에디터 뷰포트가 그리므로 여기를 거치지 않는다.
 	if (FGameViewportClient* GameClient = PIEContext.GameViewport.get())
 	{
 		GameClient->DebugDrawDelegate = [this, GameClient](const FSceneView& SceneView, FSceneOverlayCallbacks& Overlays)
 		{
-			const bool bIsSIEMode = GameClient->IsSIEMode();
-			Overlays.EditorLines = [this, &SceneView, GameClient, bIsSIEMode]
+			// Settings > Debug Draw (PIE)
+			Overlays.EditorLines = [this, &SceneView, GameClient]
 				{
-					if (bIsSIEMode)
-					{
-						// SIE: 기존처럼 충돌 도형·스프링암을 항상 그린다
-						FLineBatcher* LineBatcher = GameClient->GetWorld()->LineBatcher.get();
-						LineBatcher->BeginFrame();
-						DrawCollisionShapes(GameClient->GetWorld(), LineBatcher, nullptr);
-						DrawSpringArms(GameClient->GetWorld(), LineBatcher, nullptr);
-						LineBatcher->OnRender(SceneView.ViewProjectionMatrix);
-						return;
-					}
-					// PIE 게임 화면: Settings > Debug Draw (PIE)
 					DrawPIEDebug(GameClient->GetWorld(), SceneView.ViewProjectionMatrix);
-				};
-
-			if (!bIsSIEMode) return;
-			const FSceneViewTargets& Targets = GameClient->GetViewTargets();
-			const FViewportSettings ViewportSetting{ 0, 0, Targets.SceneColor->GetWidth(),
-				Targets.SceneColor->GetHeight(), 0.0f, 1.0f };
-			if (Outline->GetTarget())
-				Overlays.SIEOutline = [this, &SceneView, ViewportSetting]
-				{
-					Outline->Render(&SceneView, ViewportSetting);
-				};
-			if (Gizmo->GetTarget())
-				Overlays.SIEGizmo = [this, &SceneView]
-				{
-					Gizmo->Render(&SceneView);
 				};
 		};
 	}
