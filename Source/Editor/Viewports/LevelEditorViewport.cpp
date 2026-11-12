@@ -96,7 +96,6 @@ void FLevelEditorViewportClient::Draw(const FSceneView* View, FScenePassCallback
 	// 디버그 선은 이 뷰포트가 보는 월드의 LineBatcher로 그린다.
 	// 무엇이 선택됐는지(Gizmo, Outline)와 에디터 설정은 에디터 전체가 공유하므로 엔진(GEditor)에서 읽는다.
 	const FEditorSettings& Settings = *GEditor->GetEditorSettings();
-	UWorld* EditorWorld = GEditor->GetEditorWorldContext().World();
 	FLineBatcher* LineBatcher = GetWorld()->LineBatcher.get();
 	FGizmo* Gizmo = GEditor->GetGizmo();
 	FOutline* Outline = GEditor->GetOutline();
@@ -125,7 +124,7 @@ void FLevelEditorViewportClient::Draw(const FSceneView* View, FScenePassCallback
 
 	const bool bDrawCascadeBounds = Settings.bDrawCascadeBounds;
 	{
-		Callbacks.Overlays.EditorLines = [this, &SceneView, &Settings, LineBatcher, Gizmo, EditorWorld, bDrawSelectedLight, bDrawCascadeBounds]
+		Callbacks.Overlays.EditorLines = [this, &SceneView, &Settings, LineBatcher, Gizmo, bDrawSelectedLight, bDrawCascadeBounds]
 			{
 				LineBatcher->BeginFrame();
 				if (bDrawCascadeBounds)
@@ -174,8 +173,9 @@ void FLevelEditorViewportClient::Draw(const FSceneView* View, FScenePassCallback
 				const AActor* SelectedActor =
 					Gizmo->GetTarget() ? Gizmo->GetTarget()->GetOwner() : nullptr;
 
-				DrawCollisionShapes(EditorWorld, LineBatcher, SelectedActor);
-				DrawSpringArms(EditorWorld, LineBatcher, SelectedActor);
+				// 이 뷰포트가 보고 있는 월드의 것을 그린다. PIE와 SIE 중에는 PIE 월드다.
+				DrawCollisionShapes(GetWorld(), LineBatcher, SelectedActor);
+				DrawSpringArms(GetWorld(), LineBatcher, SelectedActor);
 
 				LineBatcher->OnRender(SceneView.ViewProjectionMatrix);
 			};

@@ -86,6 +86,10 @@ public:
 
 	void EndPlayMap();
 
+	// PIE(게임을 조작)와 SIE(에디터처럼 둘러보고 선택)를 오간다. F8이 부른다.
+	// UE의 UEditorEngine::ToggleBetweenPIEandSIE와 같은 자리다.
+	void ToggleBetweenPIEandSIE();
+
 	// 아래 셋은 에디터 전체가 공유하는 상태를 읽는 접근자다. 레벨 뷰포트 클라이언트가 그릴 때 쓴다.
 	// UE도 선택과 설정은 에디터 전역이 갖고 뷰포트 클라이언트가 읽어 간다(GEditor->GetSelectedActors(),
 	// GetDefault<ULevelEditorViewportSettings>()). 다만 이 세 함수의 이름은 UE에 없는, 이 엔진 고유의 이름이다.
@@ -128,8 +132,6 @@ private:
 	void UpdateViewportState(float DeltaTime);
 	// 월드를 정확히 한 번 Tick·Capture한 뒤 에디터 상호작용을 갱신한다.
 	void TickWorldAndEditor(float DeltaTime);
-	// 한 번 캡처한 월드 결과를 재사용해 현재 레이아웃의 각 View를 렌더한다.
-	void RenderViewports();
 	// View 하나를 그린다. UE의 UEditorEngine::UpdateSingleViewportClient에 해당한다.
 	void UpdateSingleViewportClient(FEditorViewportClient* ViewClient, int32 ViewIndex);
 	// PIE View를 게임 카메라 상태와 동기화한다.
@@ -163,7 +165,7 @@ private:
 
 	// PIE 중이고 일시정지가 아닌 View는 Gizmo·Picking 등 에디터 상호작용을 하지 않는다.
 	bool IsPlayingView(int32 ViewIndex) const { return PlayWorld && ViewIndex == PIEViewIndex && !bIsPaused && !IsSimulatingInEditor(); }
-	bool IsSimulatingInEditor() const;
+	bool IsSimulatingInEditor() const { return bIsSimulatingInEditor; }
 
 	// FEngineLoop 소유. OnInit에서 받아 둔다.
 	FWindow* MainWindow = nullptr;
@@ -226,6 +228,9 @@ private:
 	bool bRequestEndPlayMapQueued = false;
 	bool bStepRequested = false;
 	bool bIsPaused = false;
+	// PIE 중 SIE 상태인지. UE의 UEditorEngine::bIsSimulatingInEditor와 같다.
+	// ToggleBetweenPIEandSIE가 바꾸고, PIE가 끝나거나 PIE 월드가 교체되면 false로 돌아간다.
+	bool bIsSimulatingInEditor = false;
 
 	void ResetSceneSelection();
 

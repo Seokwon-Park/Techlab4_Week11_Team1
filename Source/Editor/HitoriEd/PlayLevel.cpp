@@ -75,7 +75,11 @@ void UEditorEngine::UpdatePIEViewCamera()
 			if (GameRect.Width <= 0.0f || GameRect.Height <= 0.0f) return;
 			const FSceneView GameView = GameViewport.CalcSceneView(GameRect);
 			View->SetViewLocation(GameView.ViewLocation);
-			View->SetViewRotation(GameView.ViewRotation);
+			// 에디터 카메라는 Roll 없이 Pitch와 Yaw만으로 움직인다. 게임 카메라의 회전값에는 부모의 회전이나
+			// 카메라 효과로 Roll이 섞여 있을 수 있어서, 보는 방향만 가져와 Pitch와 Yaw로 다시 만든다.
+			FRotator ViewRotation;
+			ViewRotation.LookDirection(GameView.ViewForward);
+			View->SetViewRotation(ViewRotation);
 			View->SetViewFOV(GameView.FieldOfView);
 			View->SetOrthoWidth(GameView.OrthoWidth);
 			View->SetIsPerspective(GameView.bIsPerspective);
@@ -83,12 +87,37 @@ void UEditorEngine::UpdatePIEViewCamera()
 	}
 }
 
-bool UEditorEngine::IsSimulatingInEditor() const
+// PIE와 SIE 사이를 오간다. UE처럼 게임 화면과 레벨 에디터 뷰포트가 자리를 바꾼다.
+// SIE에서는 PIE 월드를 레벨 에디터 뷰포트 클라이언트가 그리고, 카메라 이동과 선택도 편집할 때와 같다.
+void UEditorEngine::ToggleBetweenPIEandSIE()
 {
-	for (const FWorldContext& Context : WorldContextlist)
-		if (Context.WorldType == EWorldType::PIE && Context.GameViewport)
-			return Context.GameViewport->IsSIEMode();
-	return false;
+	// UE처럼 레벨 에디터 뷰포트 안에서 도는 PIE만 전환할 수 있다. 별도 창 PIE에는 바꿔 끼울 뷰포트가 없다.
+	if (!PlayWorld || IsPIEInWindow()) return;
+	FWorldContext* Context = GetPIEWorldContext();
+	if (!Context || !Context->GameViewport) return;
+	FGameViewportClient& GameViewport = *Context->GameViewport;
+
+	if (bIsSimulatingInEditor)
+	{
+		// 게임으로 돌아간다. 뷰포트 패널이 다시 게임 화면을 보여 주게 한다.
+		if (ViewportsPanel)
+			ViewportsPanel->SetGameViewportClient(PIEStartEditorViewIndex, &GameViewport);
+		bIsSimulatingInEditor = false;
+		bPendingPIEMouseCapture = true;   // 게임으로 돌아오면 다시 잡는다
+	}
+	else
+	{
+		EndPIEMouseCapture();
+		// 누르고 있던 게임 입력을 지운다.
+		GameViewport.LostFocus();
+		// 에디터 카메라를 플레이어가 보던 위치로 옮겨, 보던 화면 그대로 SIE가 시작되게 한다.
+		UpdatePIEViewCamera();
+		// 뷰포트 패널이 게임 화면 대신 에디터 뷰포트의 화면을 보여 주게 한다.
+		if (ViewportsPanel)
+			ViewportsPanel->ClearGameViewportClient();
+		bIsSimulatingInEditor = true;
+	}
+	OnActiveWorldChanged();
 }
 
 void UEditorEngine::TickPIEInput(float DeltaTime)
@@ -97,14 +126,14 @@ void UEditorEngine::TickPIEInput(float DeltaTime)
 	if (!Context || !Context->GameViewport) return;
 	FGameViewportClient& GameViewport = *Context->GameViewport;
 	const FVector2 Mouse = ViewportsPanel->GetLocalMousePosition();
-	const int32 InputViewIndex = IsPIEInWindow() && GameViewport.IsSIEMode()
+	const int32 InputViewIndex = IsPIEInWindow() && bIsSimulatingInEditor
 		? PIEStartEditorViewIndex : PIEViewIndex;
 	const FRect PIEViewRect = (InputViewIndex >= 0 && InputViewIndex < AllViewportClients.Num() && AllViewportClients[InputViewIndex])
 		? AllViewportClients[InputViewIndex]->GetRect() : FRect{};
 	const bool bMouseOverPIE = Mouse.X >= PIEViewRect.X && Mouse.Y >= PIEViewRect.Y &&
 		Mouse.X < PIEViewRect.X + PIEViewRect.Width && Mouse.Y < PIEViewRect.Y + PIEViewRect.Height;
 	const int32 ActiveViewIdx = ViewportsPanel ? ViewportsPanel->GetActiveViewIndex() : -1;
-	const bool bEditorSIEFocus = IsPIEInWindow() && GameViewport.IsSIEMode() &&
+	const bool bEditorSIEFocus = IsPIEInWindow() && bIsSimulatingInEditor &&
 		::GetForegroundWindow() == MainWindow->GetHandle() &&
 		ActiveViewIdx == PIEStartEditorViewIndex && ViewportsPanel->IsHovered() &&
 		!ImGui::GetIO().WantTextInput && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup);
@@ -118,11 +147,11 @@ void UEditorEngine::TickPIEInput(float DeltaTime)
 	if (bGameMouseCaptured)
 	{
 		const bool bReleaseKey = FInputSystem::IsKeyDown(EKeyCode::Shift) && FInputSystem::IsKeyPressed(EKeyCode::F1);
-		if (bReleaseKey || GameViewport.IsSIEMode() || !bInputWindowForeground)
+		if (bReleaseKey || bIsSimulatingInEditor || !bInputWindowForeground)
 			EndPIEMouseCapture();
 	}
 	bool bCaptureStartedThisFrame = false;
-	if (!bGameMouseCaptured && !GameViewport.IsSIEMode() && bInputWindowForeground)
+	if (!bGameMouseCaptured && !bIsSimulatingInEditor && bInputWindowForeground)
 	{
 		// 별도 PIE 창은 창이 포그라운드면 클릭 위치가 곧 PIE 영역이다
 		const bool bClickOnPIE = bClickPressed && (IsPIEInWindow() ||
@@ -150,21 +179,7 @@ void UEditorEngine::TickPIEInput(float DeltaTime)
 	}
 
 	if (FInputSystem::IsKeyPressed(EKeyCode::F8))
-		GameViewport.InputKey(nullptr, static_cast<int32>(EKeyCode::F8), true);
-	if (GameViewport.ConsumeSIERequest())
-	{
-		if (GameViewport.IsSIEMode())
-		{
-			GameViewport.EndSIEMode();
-			bPendingPIEMouseCapture = true;   // 게임으로 돌아오면 다시 잡는다
-		}
-		else
-		{
-			EndPIEMouseCapture();
-			GameViewport.BeginSIEMode();
-		}
-		OnActiveWorldChanged();
-	}
+		ToggleBetweenPIEandSIE();
 	if (FInputSystem::IsKeyPressed(EKeyCode::Escape))
 		GameViewport.InputKey(nullptr, static_cast<int32>(EKeyCode::Escape), true);
 	if (GameViewport.ConsumeExitRequest())
@@ -172,8 +187,9 @@ void UEditorEngine::TickPIEInput(float DeltaTime)
 		RequestEndPlayMap();
 		return;
 	}
-	// 캡처 전(Shift+F1로 풀었거나 아직 클릭 전)에는 F8/Esc만 받고 게임 입력은 막는다 (UE와 동일)
-	if (!GameViewport.IsSIEMode() && !bGameMouseCaptured)
+	// SIE에서는 게임에 입력을 넘기지 않는다. 카메라 이동과 선택은 에디터 뷰포트가 처리한다.
+	// 캡처 전(Shift+F1로 풀었거나 아직 클릭 전)에도 F8/Esc만 받고 게임 입력은 막는다 (UE와 동일)
+	if (bIsSimulatingInEditor || !bGameMouseCaptured)
 	{
 		GameViewport.LostFocus();
 		return;
@@ -437,6 +453,7 @@ void UEditorEngine::EndPlayMap()
 	EndPIEMouseCapture();
 	bIsPaused = false;
 	bStepRequested = false;
+	bIsSimulatingInEditor = false;
 
 	ResetSceneSelection();
 	if (ViewportsPanel)

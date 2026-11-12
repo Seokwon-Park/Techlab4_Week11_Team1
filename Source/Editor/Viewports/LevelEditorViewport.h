@@ -40,5 +40,5 @@ private:
 
 // 지금 편집 중인(활성) 레벨 뷰포트. 선택 외곽선과 기즈모는 이 뷰포트에만 그린다.
 // UE의 GCurrentLevelEditingViewportClient와 같다. UE는 뷰포트가 포커스를 받을 때 바꾸고,
-// 이 엔진은 UEditorEngine::RenderViewports가 그리기 전에 뷰포트 패널의 활성 인덱스로 맞춘다.
+// 이 엔진은 UEditorEngine::Tick이 뷰포트를 그리기 전에 뷰포트 패널의 활성 인덱스로 맞춘다.
 extern FLevelEditorViewportClient* GCurrentLevelEditingViewportClient;

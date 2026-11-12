@@ -440,7 +440,82 @@ void UEditorEngine::Tick(const float DeltaTime)
 		}
 		AudioDevice->Update(!bIsPaused);
 	}
-	RenderViewports();
+
+	// 뷰포트를 그린다. UE의 UEditorEngine::Tick도 이 자리에서 뷰포트를 돌며 UpdateSingleViewportClient를 부른다.
+	// 먼저 그림자 미리보기 상태를 지우고, 이번 프레임에 미리 볼 라이트와 PIE 화면의 표시 설정을 넘겨 둔다.
+	const bool bIsPIE = (PlayWorld != nullptr);
+	const ULightComponent* PreviewLight = DetailsPanel ? DetailsPanel->GetSelectedLight() : nullptr;
+	// Invalidate skipped views too: never expose a previous frame's atlas range.
+	for (FEditorViewportClient* Client : AllViewportClients)
+	{
+		if (!Client) continue;
+		Client->GetRenderData().PreviewLight = PreviewLight;
+		Client->GetRenderData().PreviewShadowRange = {};
+	}
+	if (bIsPIE)
+	{
+		if (FWorldContext* Context = GetPIEWorldContext())
+		{
+			if (Context->GameViewport)
+			{
+				Context->GameViewport->GetRenderData().PreviewLight = PreviewLight;
+				Context->GameViewport->GetRenderData().PreviewShadowRange = {};
+
+				// PIE 게임 화면은 에디터 설정 창의 값으로 그린다. 게임 뷰포트는 에디터를 모르므로 여기서 넘겨 준다.
+				if (SettingsPanel)
+				{
+					const FEditorSettings& S = SettingsPanel->GetSettings();
+					FSceneRenderOptions& ShowFlags = Context->GameViewport->EngineShowFlags;
+					ShowFlags.bEnableFXAA = S.bEnableFXAA;
+					ShowFlags.bCacheShadows = S.bCacheShadows;
+					ShowFlags.PcfMode = S.PcfMode;
+					ShowFlags.RenderingPath = S.RenderingPath;
+					ShowFlags.LightingModel = S.LightingModel;
+					ShowFlags.LightCullingMode = S.LightCullingMode;
+					ShowFlags.DirectionalShadowMapSize = S.GetDirectionalShadowMapSize();
+					ShowFlags.PointShadowMapSize = S.GetPointShadowMapSize();
+					ShowFlags.SpotShadowMapSize = S.GetSpotShadowMapSize();
+					ShowFlags.bGammaCorrection = S.bGammaCorrection;
+					ShowFlags.DisplayGamma = S.DisplayGamma;
+					ShowFlags.bShowVignette = S.bShowVignette;
+					ShowFlags.bShowCameraOverlay = S.bShowCameraOverlay;
+					ShowFlags.bShowSkeletalMesh = S.bShowSkeletalMesh;
+				}
+			}
+		}
+	}
+
+	// 지금 편집 중인 뷰포트를 전역에 알려 둔다. 선택 외곽선과 기즈모는 그 뷰포트의 Draw만 그린다.
+	GCurrentLevelEditingViewportClient = ViewportsPanel
+		? ViewportsPanel->GetViewportClient(ViewportsPanel->GetActiveViewIndex())
+		: nullptr;
+
+	// View마다 UpdateSingleViewportClient를 불러 그린다.
+	for (int32 ViewIndex = 0; ViewIndex < AllViewportClients.Num(); ++ViewIndex)
+	{
+		UpdateSingleViewportClient(AllViewportClients[ViewIndex], ViewIndex);
+	}
+
+	// 별도 창(FWindow) 모드인 경우 PIE 창 타깃에 렌더링하고 스왑체인 백버퍼로 복사한다.
+	bPIEWindowRendered = false;
+	if (bIsPIE && IsPIEInWindow() && UpdatePIEWindowTargets())
+	{
+		FWorldContext* Context = GetPIEWorldContext();
+		if (Context && Context->GameViewport && Context->World())
+		{
+			FGameViewportClient* GameClient = Context->GameViewport.get();
+			const uint32 Width = GameClient->GetWidth();
+			const uint32 Height = GameClient->GetHeight();
+			if (Width > 0 && Height > 0)
+			{
+				GameClient->Draw(Renderer, UIRenderer.get());
+
+				CopyPIEWindowToBackbuffer();
+			}
+		}
+	}
+
+	// 열려 있는 에셋 에디터의 미리보기를 그린다.
 	EditorManager->RenderPreview();
 	EndFrame();
 	EditorManager->LateTick();
@@ -450,7 +525,12 @@ void UEditorEngine::Tick(const float DeltaTime)
 void UEditorEngine::PreLoadMap(FWorldContext& Context)
 {
 	if (Context.WorldType == EWorldType::PIE)
+	{
 		ResetSceneSelection();
+		// 월드가 바뀌면 SIE를 끝내고 게임 화면으로 돌아간다.
+		if (bIsSimulatingInEditor)
+			ToggleBetweenPIEandSIE();
+	}
 }
 
 void UEditorEngine::PostLoadMap(FWorldContext& Context)
@@ -571,11 +651,11 @@ void UEditorEngine::UpdateViewportState(const float DeltaTime)
 	const float MoveSpeed = 10.0f * SettingsPanel->GetSettings().CameraSpeed;
 	const float MouseSens = 0.2f * SettingsPanel->GetSettings().MouseSensitivity;
 
-	// PIE 게임 뷰(SIE에서는 SIE 입력을 받는 뷰)의 카메라는 GameViewport가 소유한다.
+	// PIE 게임 화면을 보여 주는 뷰의 카메라는 게임이 소유한다.
 	// 여기서 에디터 카메라까지 움직이면 같은 마우스 입력이 두 번 적용된다.
+	// SIE에서는 그 뷰도 에디터 뷰포트로 돌아와 있으므로 다른 뷰처럼 에디터 카메라를 움직인다.
 	const bool bSimulating = IsSimulatingInEditor();
-	const int32 GameOwnedViewIndex = !PlayWorld ? InvalidViewIndex
-		: (IsPIEInWindow() && bSimulating ? PIEStartEditorViewIndex : PIEViewIndex);
+	const int32 GameOwnedViewIndex = (PlayWorld && !bSimulating) ? PIEViewIndex : InvalidViewIndex;
 
 	for (int32 i = 0; i < 4; ++i)
 	{
@@ -588,8 +668,7 @@ void UEditorEngine::UpdateViewportState(const float DeltaTime)
 	}
 
 	// 활성 뷰포트 시점 동기화
-	// SIE 중 PlayWorld의 MainCamera는 SIE 카메라라서 TickSIEInput만 움직인다.
-	// 여기서 에디터 카메라 포즈로 덮어쓰면 매 프레임 두 값이 번갈아 보여 화면이 떨린다.
+	// SIE 중에는 PlayWorld의 MainCamera를 건드리지 않는다. 게임으로 돌아갔을 때 게임 카메라가 그대로 있어야 한다.
 	const int32 ActiveIndex = ViewportsPanel->GetActiveViewIndex();
 	if (FEditorViewportClient* ActiveClient = bSimulating ? nullptr : ViewportsPanel->GetViewportClient(ActiveIndex))
 	{
@@ -639,90 +718,10 @@ void UEditorEngine::TickWorldAndEditor(const float DeltaTime)
 		SCOPE_CYCLE_COUNTER(STAT_EditorTick);
 		EditorManager->Tick(DeltaTime);
 	}
-	// SIE 화면은 게임 뷰포트의 SIE 카메라로 그려진다. 피킹과 기즈모 조작은 에디터 뷰포트 클라이언트의
-	// 카메라로 Ray를 만들므로, 그 전에 PIE View의 카메라를 SIE 카메라에 맞춘다.
-	if (IsSimulatingInEditor())
-		UpdatePIEViewCamera();
 	UpdateGizmoAndPicking();
 	EditorWorld->GetScene().UpdateAllTransforms();
 	if (PlayWorld && bIsPaused)
 		PlayWorld->GetScene().UpdateAllTransforms();
-}
-
-// 활성 View별 렌더를 수행한다.
-void UEditorEngine::RenderViewports()
-{
-	const bool bIsPIE = (PlayWorld != nullptr);
-	const ULightComponent* PreviewLight = DetailsPanel ? DetailsPanel->GetSelectedLight() : nullptr;
-	// Invalidate skipped views too: never expose a previous frame's atlas range.
-	for (FEditorViewportClient* Client : AllViewportClients)
-	{
-		if (!Client) continue;
-		Client->GetRenderData().PreviewLight = PreviewLight;
-		Client->GetRenderData().PreviewShadowRange = {};
-	}
-	if (bIsPIE)
-	{
-		if (FWorldContext* Context = GetPIEWorldContext())
-		{
-			if (Context->GameViewport)
-			{
-				Context->GameViewport->GetRenderData().PreviewLight = PreviewLight;
-				Context->GameViewport->GetRenderData().PreviewShadowRange = {};
-
-				// PIE 게임 화면은 에디터 설정 창의 값으로 그린다. 게임 뷰포트는 에디터를 모르므로 여기서 넘겨 준다.
-				if (SettingsPanel)
-				{
-					const FEditorSettings& S = SettingsPanel->GetSettings();
-					FSceneRenderOptions& ShowFlags = Context->GameViewport->EngineShowFlags;
-					ShowFlags.bEnableFXAA = S.bEnableFXAA;
-					ShowFlags.bCacheShadows = S.bCacheShadows;
-					ShowFlags.PcfMode = S.PcfMode;
-					ShowFlags.RenderingPath = S.RenderingPath;
-					ShowFlags.LightingModel = S.LightingModel;
-					ShowFlags.LightCullingMode = S.LightCullingMode;
-					ShowFlags.DirectionalShadowMapSize = S.GetDirectionalShadowMapSize();
-					ShowFlags.PointShadowMapSize = S.GetPointShadowMapSize();
-					ShowFlags.SpotShadowMapSize = S.GetSpotShadowMapSize();
-					ShowFlags.bGammaCorrection = S.bGammaCorrection;
-					ShowFlags.DisplayGamma = S.DisplayGamma;
-					ShowFlags.bShowVignette = S.bShowVignette;
-					ShowFlags.bShowCameraOverlay = S.bShowCameraOverlay;
-					ShowFlags.bShowSkeletalMesh = S.bShowSkeletalMesh;
-				}
-			}
-		}
-	}
-
-	// 지금 편집 중인 뷰포트를 전역에 알려 둔다. 선택 외곽선과 기즈모는 그 뷰포트의 Draw만 그린다.
-	GCurrentLevelEditingViewportClient = ViewportsPanel
-		? ViewportsPanel->GetViewportClient(ViewportsPanel->GetActiveViewIndex())
-		: nullptr;
-
-	// UE의 UEditorEngine::Tick처럼 View마다 UpdateSingleViewportClient를 불러 그린다.
-	for (int32 ViewIndex = 0; ViewIndex < AllViewportClients.Num(); ++ViewIndex)
-	{
-		UpdateSingleViewportClient(AllViewportClients[ViewIndex], ViewIndex);
-	}
-
-	// 별도 창(FWindow) 모드인 경우 PIE 창 타깃에 렌더링하고 스왑체인 백버퍼로 복사한다.
-	bPIEWindowRendered = false;
-	if (bIsPIE && IsPIEInWindow() && UpdatePIEWindowTargets())
-	{
-		FWorldContext* Context = GetPIEWorldContext();
-		if (Context && Context->GameViewport && Context->World())
-		{
-			FGameViewportClient* GameClient = Context->GameViewport.get();
-			const uint32 Width = GameClient->GetWidth();
-			const uint32 Height = GameClient->GetHeight();
-			if (Width > 0 && Height > 0)
-			{
-				GameClient->Draw(Renderer, UIRenderer.get());
-
-				CopyPIEWindowToBackbuffer();
-			}
-		}
-	}
 }
 
 // View 하나를 그린다. PIE를 시작한 View는 게임 뷰포트로, 나머지는 에디터 뷰포트로 그린다.
@@ -740,7 +739,8 @@ void UEditorEngine::UpdateSingleViewportClient(FEditorViewportClient* ViewClient
 	bool bIsGameView = false;
 	int32 TargetPlayerIndex = -1;
 
-	if (bIsPIE && !IsPIEInWindow() && PlayMode == EPlayModeType::InViewport &&
+	// SIE에서는 이 View도 에디터 뷰포트로 그린다. UE도 Simulate 화면은 레벨 에디터 뷰포트 클라이언트가 그린다.
+	if (bIsPIE && !bIsSimulatingInEditor && !IsPIEInWindow() && PlayMode == EPlayModeType::InViewport &&
 		ViewIndex == PIEStartEditorViewIndex)
 	{
 		bIsGameView = true;
