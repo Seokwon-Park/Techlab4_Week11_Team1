@@ -65,8 +65,6 @@ public:
 	void UpdateGizmoAndPicking();
 	// PIE 게임 화면 위에 Settings > Debug Draw (PIE)에서 켠 디버그 표시를 그린다.
 	void DrawPIEDebug(UWorld* World, const FMatrix& ViewProjection);
-	// 네 View 결과와 ImGui를 메인 Swapchain 백버퍼에 합성한다. Present는 FEngineLoop가 한다.
-	void PresentFrame();
 	// 위젯 에디터가 미리보기 텍스처를 그릴 때 쓴다. 초기화 전에는 nullptr이다.
 	FUIRenderer* GetUIRenderer() const { return UIRenderer.get(); }
 	void DeleteActor(AActor* Actor);
@@ -126,12 +124,6 @@ private:
 	void InitPanels();
 	void InitCommands();
 
-	// 이번 프레임 DeltaTime을 패널에 전달하고 에디터 단축키를 처리한다.
-	void BeginFrame(float DeltaTime);
-	// 패널 요청과 입력을 적용해 레이아웃·카메라 상태를 갱신한다.
-	void UpdateViewportState(float DeltaTime);
-	// 월드를 정확히 한 번 Tick·Capture한 뒤 에디터 상호작용을 갱신한다.
-	void TickWorldAndEditor(float DeltaTime);
 	// View 하나를 그린다. UE의 UEditorEngine::UpdateSingleViewportClient에 해당한다.
 	void UpdateSingleViewportClient(FEditorViewportClient* ViewClient, int32 ViewIndex);
 	// PIE View를 게임 카메라 상태와 동기화한다.
@@ -152,11 +144,9 @@ private:
 	void DestroyPIEWindow();
 	// 창 크기에 맞춰 Swapchain과 오프스크린 타깃을 다시 만든다. 그릴 수 없으면 false다.
 	bool UpdatePIEWindowTargets();
-	// PIE 창의 오프스크린 결과를 백버퍼로 복사한다. Present는 EndFrame에서 한다.
+	// PIE 창의 오프스크린 결과를 백버퍼로 복사한다. Present는 Tick의 끝에서 한다.
 	void CopyPIEWindowToBackbuffer();
 	bool IsPIEInWindow() const { return PIEWindow != nullptr; }
-	// 화면 합성과 View 설정 보관으로 프레임을 마무리한다.
-	void EndFrame();
 
 
 

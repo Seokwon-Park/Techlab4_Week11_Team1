@@ -421,9 +421,184 @@ void UEditorEngine::Tick(const float DeltaTime)
 		if (FWorldContext* PIEContext = GetWorldContextFromWorld(PlayWorld))
 			TickWorldTravel(*PIEContext);
 
-	BeginFrame(DeltaTime);
-	UpdateViewportState(DeltaTime);
-	TickWorldAndEditor(DeltaTime);
+	// 패키징 진행, 통계 표시, 패널에 넘길 DeltaTime을 갱신하고 Delete 키를 처리한다.
+	Packager.Tick();
+	FStatOverlay::Tick(DeltaTime);
+	EditorControlsPanel->FEditorControlsPanel::DeltaTime = DeltaTime;
+
+	if (!ImGui::GetIO().WantTextInput && FInputSystem::IsKeyPressed(EKeyCode::Delete))
+		DeleteActor(OutlinerPanel->GetSelectedActor());
+
+	// 뷰포트 레이아웃과 에디터 카메라를 갱신한다. 패널의 요청(레이아웃 변경, 분할선 드래그)을 적용하고,
+	// 어느 View 위에 마우스가 있는지 찾아 활성 View를 정한 뒤 View마다 카메라 입력을 처리한다.
+	{
+		SCOPE_CYCLE_COUNTER(STAT_ViewportUpdate);
+
+		const FVector2 ViewportSize = ViewportsPanel->GetContentSize();
+		const FVector2 LocalMousePosition = ViewportsPanel->GetLocalMousePosition();
+
+		ELayoutMode RequestedLayout{};
+		int32 RequestedSingleViewIndex = SingleViewportIndex;
+
+		if (ViewportsPanel->ConsumeLayoutRequest(RequestedLayout, RequestedSingleViewIndex))
+		{
+			if (RequestedLayout == ELayoutMode::Single)
+				SingleViewportIndex = RequestedSingleViewIndex;
+			ViewportLayoutMode = RequestedLayout;
+
+			FEditorSettings& Settings = SettingsPanel->GetMutableSettings();
+			Settings.bMultipleViewportsSingle = RequestedLayout == ELayoutMode::Single;
+			Settings.MultipleViewportsSingleViewIndex = RequestedSingleViewIndex;
+		}
+
+		const float HorizontalDrag = ViewportsPanel->ConsumeHorizontalDrag();
+		const float VerticalDrag = ViewportsPanel->ConsumeVerticalDrag();
+		if (HorizontalDrag != 0.0f)
+			ViewportSplitRatio = ApplySplitterDrag(ViewportSplitRatio, EDragAxis::Horizontal, HorizontalDrag, ViewportSize, 0.1f);
+		if (VerticalDrag != 0.0f)
+			ViewportSplitRatio = ApplySplitterDrag(ViewportSplitRatio, EDragAxis::Vertical, VerticalDrag, ViewportSize, 0.1f);
+		if (HorizontalDrag != 0.0f || VerticalDrag != 0.0f)
+		{
+			SettingsPanel->GetMutableSettings().MultipleViewportsHorizontal = ViewportSplitRatio.Horizontal;
+			SettingsPanel->GetMutableSettings().MultipleViewportsVertical = ViewportSplitRatio.Vertical;
+		}
+
+		FRect ViewRects[4]{};
+		if (ViewportLayoutMode == ELayoutMode::Single)
+		{
+			for (int32 i = 0; i < 4; ++i)
+			{
+				ViewRects[i] = (i == SingleViewportIndex)
+					? FRect{ 0.0f, 0.0f, ViewportSize.X, ViewportSize.Y }
+				: FRect{};
+			}
+		}
+		else
+		{
+			ComputeViewRects(ViewportSplitRatio, ViewportSize, ViewRects);
+		}
+
+		for (int32 i = 0; i < 4; ++i)
+		{
+			const bool bSlotActive = (ViewportLayoutMode == ELayoutMode::Single)
+				? (i == SingleViewportIndex)
+				: true;
+			ViewportsPanel->SetView(i, ViewRects[i], bSlotActive);
+		}
+
+		// 마우스 호버 감지
+		int32 HoveredViewIndex = -1;
+		if (ViewportsPanel->IsHovered())
+		{
+			for (int32 i = 0; i < 4; ++i)
+			{
+				if (ViewRects[i].Width > 0.0f && ViewRects[i].Height > 0.0f &&
+					LocalMousePosition.X >= ViewRects[i].X &&
+					LocalMousePosition.X < ViewRects[i].X + ViewRects[i].Width &&
+					LocalMousePosition.Y >= ViewRects[i].Y &&
+					LocalMousePosition.Y < ViewRects[i].Y + ViewRects[i].Height)
+				{
+					HoveredViewIndex = i;
+					break;
+				}
+			}
+		}
+
+		// 마우스 캡처 및 활성 뷰 결정
+		static int32 CapturedViewportIndex = -1;
+		if (FInputSystem::IsMouseReleased(EMouseButton::Right))
+		{
+			CapturedViewportIndex = -1;
+		}
+		if (FInputSystem::IsMousePressed(EMouseButton::Right) && HoveredViewIndex != -1)
+		{
+			CapturedViewportIndex = HoveredViewIndex;
+			ImGui::SetWindowFocus("Viewports");
+		}
+		if (CapturedViewportIndex != -1)
+		{
+			ViewportsPanel->SetActiveViewIndex(CapturedViewportIndex);
+		}
+		else if (FInputSystem::IsMousePressed(EMouseButton::Left) && HoveredViewIndex != -1)
+		{
+			ViewportsPanel->SetActiveViewIndex(HoveredViewIndex);
+		}
+
+		const int32 WheelDelta = FInputSystem::GetWheelDelta();
+		const float MoveSpeed = 10.0f * SettingsPanel->GetSettings().CameraSpeed;
+		const float MouseSens = 0.2f * SettingsPanel->GetSettings().MouseSensitivity;
+
+		// PIE 게임 화면을 보여 주는 뷰의 카메라는 게임이 소유한다.
+		// 여기서 에디터 카메라까지 움직이면 같은 마우스 입력이 두 번 적용된다.
+		// SIE에서는 그 뷰도 에디터 뷰포트로 돌아와 있으므로 다른 뷰처럼 에디터 카메라를 움직인다.
+		const bool bSimulating = IsSimulatingInEditor();
+		const int32 GameOwnedViewIndex = (PlayWorld && !bSimulating) ? PIEViewIndex : InvalidViewIndex;
+
+		for (int32 i = 0; i < 4; ++i)
+		{
+			FEditorViewportClient* Client = ViewportsPanel->GetViewportClient(i);
+			if (!Client || !Client->IsActive() || i == GameOwnedViewIndex)
+				continue;
+
+			Client->TickInput(DeltaTime, i == CapturedViewportIndex,
+				i == HoveredViewIndex, WheelDelta, MoveSpeed, MouseSens);
+		}
+
+		// 활성 뷰포트 시점 동기화
+		// SIE 중에는 PlayWorld의 MainCamera를 건드리지 않는다. 게임으로 돌아갔을 때 게임 카메라가 그대로 있어야 한다.
+		const int32 ActiveIndex = ViewportsPanel->GetActiveViewIndex();
+		if (FEditorViewportClient* ActiveClient = bSimulating ? nullptr : ViewportsPanel->GetViewportClient(ActiveIndex))
+		{
+			if (ACameraActor* MainCam = GetActiveWorld()->GetMainCamera())
+			{
+				if (UCameraComponent* CamCom = MainCam->GetCameraComponent())
+				{
+					CamCom->SetRelativeLocation(ActiveClient->GetViewLocation());
+					CamCom->SetRelativeRotation(ActiveClient->GetViewRotation());
+					CamCom->SetFieldOfView(ActiveClient->GetViewFOV());
+					CamCom->SetOrthoWidth(ActiveClient->GetOrthoWidth());
+					CamCom->SetIsOrthogonal(!ActiveClient->IsPerspective());
+				}
+			}
+		}
+	}
+
+	// 월드를 Tick한다. PIE 중이면 게임 입력을 먼저 넘긴다. 이어서 에셋 에디터 Tick, 피킹과 기즈모 조작을 처리한다.
+	// 게임 입력 처리
+	if (PlayWorld)
+	{
+		TickPIEInput(DeltaTime);
+	}
+
+	{
+		SCOPE_CYCLE_COUNTER(STAT_WorldTick);
+		if (bStepRequested && bIsPaused)
+		{
+			GetActiveWorld()->SetPaused(false);
+			GetActiveWorld()->Tick(1.0f / 60.0f);
+			GetActiveWorld()->SetPaused(true);
+			bStepRequested = false;
+		}
+		else if (!bIsPaused)
+			GetActiveWorld()->Tick(DeltaTime);
+
+	}
+	if (PlayWorld && !bIsPaused)
+	{
+		FWorldContext* Context = GetWorldContextFromWorld(PlayWorld);
+		if (Context && Context->GameViewport)
+			Context->GameViewport->TickUI(DeltaTime);
+	}
+	{
+		SCOPE_CYCLE_COUNTER(STAT_EditorTick);
+		EditorManager->Tick(DeltaTime);
+	}
+	UpdateGizmoAndPicking();
+	EditorWorld->GetScene().UpdateAllTransforms();
+	if (PlayWorld && bIsPaused)
+		PlayWorld->GetScene().UpdateAllTransforms();
+
+	// 오디오 리스너 위치를 넘기고 오디오 장치를 갱신한다.
 	if (FAudioDevice* AudioDevice = GetMainAudioDevice())
 	{
 		APlayerController* PC = PlayWorld ? PlayWorld->GetPlayerController() : nullptr;
@@ -517,7 +692,33 @@ void UEditorEngine::Tick(const float DeltaTime)
 
 	// 열려 있는 에셋 에디터의 미리보기를 그린다.
 	EditorManager->RenderPreview();
-	EndFrame();
+
+	// 네 View의 결과 텍스처와 ImGui를 메인 창의 백버퍼에 합성한다. Present는 FEngineLoop가 한다.
+	// Swapchain 렌더링
+	RenderCommand::BeginRenderPass(MainWindowSC->GetBackbuffer(), nullptr,
+		MainWindow ? MainWindow->GetWidth() : 0,
+		MainWindow ? MainWindow->GetHeight() : 0);
+
+	{
+		SCOPE_CYCLE_COUNTER(STAT_ImGui);
+
+		ImGuiRenderer->Begin();
+
+		EditorManager->DrawEditorUI();
+
+		ImGuiRenderer->End();
+	}
+
+	RenderCommand::EndRenderPass();
+
+	// 메인 Swapchain은 FEngineLoop가 VSync 설정대로 Present하므로 PIE 창은 기다리지 않고 올린다.
+	if (bPIEWindowRendered && PIESwapchain)
+		PIESwapchain->SwapBuffers(0);
+	// UI 변경 후 설정을 복사해 종료 시 카메라 수명에 의존하지 않는다.
+	SettingsPanel->CaptureViewportSettings();
+	// 프로파일러 반영
+	FStatRegistry::EndFrame();
+
 	EditorManager->LateTick();
 }
 
@@ -539,189 +740,6 @@ void UEditorEngine::PostLoadMap(FWorldContext& Context)
 	// GameViewport 객체는 그대로라 ViewportsPanel 연결은 다시 하지 않아도 된다.
 	PlayWorld = Context.World();
 	OnActiveWorldChanged();
-}
-
-// DeltaTime을 패널에 전달하고 에디터 단축키를 처리한다.
-void UEditorEngine::BeginFrame(const float DeltaTime)
-{
-	Packager.Tick();
-	FStatOverlay::Tick(DeltaTime);
-	EditorControlsPanel->FEditorControlsPanel::DeltaTime = DeltaTime;
-
-	if (!ImGui::GetIO().WantTextInput && FInputSystem::IsKeyPressed(EKeyCode::Delete))
-		DeleteActor(OutlinerPanel->GetSelectedActor());
-}
-
-// 패널 요청과 입력을 뷰포트 클라이언트에 전달해 레이아웃과 카메라 상태를 갱신한다.
-void UEditorEngine::UpdateViewportState(const float DeltaTime)
-{
-	SCOPE_CYCLE_COUNTER(STAT_ViewportUpdate);
-
-	const FVector2 ViewportSize = ViewportsPanel->GetContentSize();
-	const FVector2 LocalMousePosition = ViewportsPanel->GetLocalMousePosition();
-
-	ELayoutMode RequestedLayout{};
-	int32 RequestedSingleViewIndex = SingleViewportIndex;
-
-	if (ViewportsPanel->ConsumeLayoutRequest(RequestedLayout, RequestedSingleViewIndex))
-	{
-		if (RequestedLayout == ELayoutMode::Single)
-			SingleViewportIndex = RequestedSingleViewIndex;
-		ViewportLayoutMode = RequestedLayout;
-
-		FEditorSettings& Settings = SettingsPanel->GetMutableSettings();
-		Settings.bMultipleViewportsSingle = RequestedLayout == ELayoutMode::Single;
-		Settings.MultipleViewportsSingleViewIndex = RequestedSingleViewIndex;
-	}
-
-	const float HorizontalDrag = ViewportsPanel->ConsumeHorizontalDrag();
-	const float VerticalDrag = ViewportsPanel->ConsumeVerticalDrag();
-	if (HorizontalDrag != 0.0f)
-		ViewportSplitRatio = ApplySplitterDrag(ViewportSplitRatio, EDragAxis::Horizontal, HorizontalDrag, ViewportSize, 0.1f);
-	if (VerticalDrag != 0.0f)
-		ViewportSplitRatio = ApplySplitterDrag(ViewportSplitRatio, EDragAxis::Vertical, VerticalDrag, ViewportSize, 0.1f);
-	if (HorizontalDrag != 0.0f || VerticalDrag != 0.0f)
-	{
-		SettingsPanel->GetMutableSettings().MultipleViewportsHorizontal = ViewportSplitRatio.Horizontal;
-		SettingsPanel->GetMutableSettings().MultipleViewportsVertical = ViewportSplitRatio.Vertical;
-	}
-
-	FRect ViewRects[4]{};
-	if (ViewportLayoutMode == ELayoutMode::Single)
-	{
-		for (int32 i = 0; i < 4; ++i)
-		{
-			ViewRects[i] = (i == SingleViewportIndex)
-				? FRect{ 0.0f, 0.0f, ViewportSize.X, ViewportSize.Y }
-			: FRect{};
-		}
-	}
-	else
-	{
-		ComputeViewRects(ViewportSplitRatio, ViewportSize, ViewRects);
-	}
-
-	for (int32 i = 0; i < 4; ++i)
-	{
-		const bool bSlotActive = (ViewportLayoutMode == ELayoutMode::Single)
-			? (i == SingleViewportIndex)
-			: true;
-		ViewportsPanel->SetView(i, ViewRects[i], bSlotActive);
-	}
-
-	// 마우스 호버 감지
-	int32 HoveredViewIndex = -1;
-	if (ViewportsPanel->IsHovered())
-	{
-		for (int32 i = 0; i < 4; ++i)
-		{
-			if (ViewRects[i].Width > 0.0f && ViewRects[i].Height > 0.0f &&
-				LocalMousePosition.X >= ViewRects[i].X &&
-				LocalMousePosition.X < ViewRects[i].X + ViewRects[i].Width &&
-				LocalMousePosition.Y >= ViewRects[i].Y &&
-				LocalMousePosition.Y < ViewRects[i].Y + ViewRects[i].Height)
-			{
-				HoveredViewIndex = i;
-				break;
-			}
-		}
-	}
-
-	// 마우스 캡처 및 활성 뷰 결정
-	static int32 CapturedViewportIndex = -1;
-	if (FInputSystem::IsMouseReleased(EMouseButton::Right))
-	{
-		CapturedViewportIndex = -1;
-	}
-	if (FInputSystem::IsMousePressed(EMouseButton::Right) && HoveredViewIndex != -1)
-	{
-		CapturedViewportIndex = HoveredViewIndex;
-		ImGui::SetWindowFocus("Viewports");
-	}
-	if (CapturedViewportIndex != -1)
-	{
-		ViewportsPanel->SetActiveViewIndex(CapturedViewportIndex);
-	}
-	else if (FInputSystem::IsMousePressed(EMouseButton::Left) && HoveredViewIndex != -1)
-	{
-		ViewportsPanel->SetActiveViewIndex(HoveredViewIndex);
-	}
-
-	const int32 WheelDelta = FInputSystem::GetWheelDelta();
-	const float MoveSpeed = 10.0f * SettingsPanel->GetSettings().CameraSpeed;
-	const float MouseSens = 0.2f * SettingsPanel->GetSettings().MouseSensitivity;
-
-	// PIE 게임 화면을 보여 주는 뷰의 카메라는 게임이 소유한다.
-	// 여기서 에디터 카메라까지 움직이면 같은 마우스 입력이 두 번 적용된다.
-	// SIE에서는 그 뷰도 에디터 뷰포트로 돌아와 있으므로 다른 뷰처럼 에디터 카메라를 움직인다.
-	const bool bSimulating = IsSimulatingInEditor();
-	const int32 GameOwnedViewIndex = (PlayWorld && !bSimulating) ? PIEViewIndex : InvalidViewIndex;
-
-	for (int32 i = 0; i < 4; ++i)
-	{
-		FEditorViewportClient* Client = ViewportsPanel->GetViewportClient(i);
-		if (!Client || !Client->IsActive() || i == GameOwnedViewIndex)
-			continue;
-
-		Client->TickInput(DeltaTime, i == CapturedViewportIndex,
-			i == HoveredViewIndex, WheelDelta, MoveSpeed, MouseSens);
-	}
-
-	// 활성 뷰포트 시점 동기화
-	// SIE 중에는 PlayWorld의 MainCamera를 건드리지 않는다. 게임으로 돌아갔을 때 게임 카메라가 그대로 있어야 한다.
-	const int32 ActiveIndex = ViewportsPanel->GetActiveViewIndex();
-	if (FEditorViewportClient* ActiveClient = bSimulating ? nullptr : ViewportsPanel->GetViewportClient(ActiveIndex))
-	{
-		if (ACameraActor* MainCam = GetActiveWorld()->GetMainCamera())
-		{
-			if (UCameraComponent* CamCom = MainCam->GetCameraComponent())
-			{
-				CamCom->SetRelativeLocation(ActiveClient->GetViewLocation());
-				CamCom->SetRelativeRotation(ActiveClient->GetViewRotation());
-				CamCom->SetFieldOfView(ActiveClient->GetViewFOV());
-				CamCom->SetOrthoWidth(ActiveClient->GetOrthoWidth());
-				CamCom->SetIsOrthogonal(!ActiveClient->IsPerspective());
-			}
-		}
-	}
-}
-
-// 월드를 한 번 Tick·Capture한 뒤 에디터와 피킹을 갱신한다.
-void UEditorEngine::TickWorldAndEditor(const float DeltaTime)
-{
-	// 게임 입력 처리
-	if (PlayWorld)
-	{
-		TickPIEInput(DeltaTime);
-	}
-
-	{
-		SCOPE_CYCLE_COUNTER(STAT_WorldTick);
-		if (bStepRequested && bIsPaused)
-		{
-			GetActiveWorld()->SetPaused(false);
-			GetActiveWorld()->Tick(1.0f / 60.0f);
-			GetActiveWorld()->SetPaused(true);
-			bStepRequested = false;
-		}
-		else if (!bIsPaused)
-			GetActiveWorld()->Tick(DeltaTime);
-
-	}
-	if (PlayWorld && !bIsPaused)
-	{
-		FWorldContext* Context = GetWorldContextFromWorld(PlayWorld);
-		if (Context && Context->GameViewport)
-			Context->GameViewport->TickUI(DeltaTime);
-	}
-	{
-		SCOPE_CYCLE_COUNTER(STAT_EditorTick);
-		EditorManager->Tick(DeltaTime);
-	}
-	UpdateGizmoAndPicking();
-	EditorWorld->GetScene().UpdateAllTransforms();
-	if (PlayWorld && bIsPaused)
-		PlayWorld->GetScene().UpdateAllTransforms();
 }
 
 // View 하나를 그린다. PIE를 시작한 View는 게임 뷰포트로, 나머지는 에디터 뷰포트로 그린다.
@@ -771,19 +789,6 @@ void UEditorEngine::UpdateSingleViewportClient(FEditorViewportClient* ViewClient
 	{
 		ViewClient->Draw(Renderer);
 	}
-}
-
-// 화면을 표시하고 UI 변경 후 View 설정을 보관한다.
-void UEditorEngine::EndFrame()
-{
-	PresentFrame();
-	// 메인 Swapchain은 FEngineLoop가 VSync 설정대로 Present하므로 PIE 창은 기다리지 않고 올린다.
-	if (bPIEWindowRendered && PIESwapchain)
-		PIESwapchain->SwapBuffers(0);
-	// UI 변경 후 설정을 복사해 종료 시 카메라 수명에 의존하지 않는다.
-	SettingsPanel->CaptureViewportSettings();
-	// 프로파일러 반영
-	FStatRegistry::EndFrame();
 }
 
 FWorldContext& UEditorEngine::GetEditorWorldContext()
@@ -871,27 +876,6 @@ void UEditorEngine::UpdateGizmoAndPicking()
 //	}
 //	return false;
 //}
-
-// View Texture가 포함된 UI를 Swapchain 백버퍼에 합성한다. Present는 FEngineLoop가 한다.
-void UEditorEngine::PresentFrame()
-{
-	// Swapchain 렌더링
-	RenderCommand::BeginRenderPass(MainWindowSC->GetBackbuffer(), nullptr,
-		MainWindow ? MainWindow->GetWidth() : 0,
-		MainWindow ? MainWindow->GetHeight() : 0);
-
-	{
-		SCOPE_CYCLE_COUNTER(STAT_ImGui);
-
-		ImGuiRenderer->Begin();
-
-		EditorManager->DrawEditorUI();
-
-		ImGuiRenderer->End();
-	}
-
-	RenderCommand::EndRenderPass();
-}
 
 // ImGui를 정리한다. UObject 일괄 삭제와 공용 자원·Device 정리는 FEngineLoop가 이어서 한다.
 void UEditorEngine::PreExit()
