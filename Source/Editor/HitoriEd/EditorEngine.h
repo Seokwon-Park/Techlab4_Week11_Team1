@@ -63,14 +63,8 @@ public:
 
 	// Active View의 입력과 Picking 결과만 Gizmo 및 선택 상태에 반영한다.
 	void UpdateGizmoAndPicking();
-	// 뷰포트 하나의 씬과 에디터 요소를 렌더링한다.
-	void RenderFrame(FEditorViewportClient* ViewClient, const FSceneView& SceneView, const FSceneRenderOptions& RenderOptions, FSceneRenderer& SceneRenderer, UWorld* TargetWorld, const bool bIsPIE);
-	// 게임 뷰포트 화면을 렌더링한다.
+	// PIE 게임 화면 위에 Settings > Debug Draw (PIE)에서 켠 디버그 표시를 그린다.
 	void DrawPIEDebug(UWorld* World, const FMatrix& ViewProjection);
-	void RenderGameFrame(FGameViewportClient* GameClient, const FSceneView& SceneView, const FSceneRenderOptions& RenderOptions, FSceneRenderer& SceneRenderer, bool bIsSIEMode = false);
-	// 네 View 결과와 ImGui를 메인 Swapchain 백버퍼에 합성한다. Present는 FEngineLoop가 한다.
-	void PresentFrame();
-	void RenderAssetEditor(FAssetEditor& AssetEditor);
 	// 위젯 에디터가 미리보기 텍스처를 그릴 때 쓴다. 초기화 전에는 nullptr이다.
 	FUIRenderer* GetUIRenderer() const { return UIRenderer.get(); }
 	void DeleteActor(AActor* Actor);
@@ -80,6 +74,8 @@ public:
 	inline void RequestPlaySession() { bPlaySessionRequested = true; }
 	inline void RequestEndPlayMap() { bRequestEndPlayMapQueued = true; bIsPaused = false; }
 
+	// 대기 중인 Play 요청이 있으면 PIE를 시작한다. Tick이 프레임 시작에 부른다.
+	void StartQueuedPlaySessionRequest();
 	//실제 PIE 를 실행
 	void StartPlayInEditorSession();
 	UWorld* CreatePIEWorldByDuplication(FWorldContext& PIEContext, UWorld* InEditorWorld);
@@ -87,6 +83,23 @@ public:
 	void OnActiveWorldChanged();
 
 	void EndPlayMap();
+
+	// PIE(게임을 조작)와 SIE(에디터처럼 둘러보고 선택)를 오간다. F8이 부른다.
+	// UE의 UEditorEngine::ToggleBetweenPIEandSIE와 같은 자리다.
+	void ToggleBetweenPIEandSIE();
+
+	// 아래 셋은 에디터 전체가 공유하는 상태를 읽는 접근자다. 레벨 뷰포트 클라이언트가 그릴 때 쓴다.
+	// UE도 선택과 설정은 에디터 전역이 갖고 뷰포트 클라이언트가 읽어 간다(GEditor->GetSelectedActors(),
+	// GetDefault<ULevelEditorViewportSettings>()). 다만 이 세 함수의 이름은 UE에 없는, 이 엔진 고유의 이름이다.
+	// 설정 패널이 아직 없으면 nullptr이다.
+	const FEditorSettings* GetEditorSettings() const { return SettingsPanel ? &SettingsPanel->GetSettings() : nullptr; }
+	// 지금 선택된 컴포넌트와 조작 모드를 가진 기즈모
+	FGizmo* GetGizmo() const { return Gizmo.get(); }
+	// 지금 선택된 메시의 외곽선
+	FOutline* GetOutline() const { return Outline.get(); }
+
+	// 에디터 월드가 들어 있는 월드 컨텍스트. UE에서도 public이라 GEditor->GetEditorWorldContext().World()로 에디터 월드를 얻는다.
+	FWorldContext& GetEditorWorldContext();
 
 	bool IsPlaying() const { return PlayWorld != nullptr; }
 	EPIEState GetPIEState() const
@@ -96,24 +109,23 @@ public:
 		return IsSimulatingInEditor() ? EPIEState::Simulating : EPIEState::Playing;
 	}
 
-	////FEditorDelegates::PrePIEEnded / EndPIE.Broadcast()
-	//void TeardownPlaySession(const FWorldContext& PIEContext);            // 액터 EndPlay, 월드 정리(CleanupWorld)
-	//void RestoreEditorWorld(UWorld* EditorWorld);            // GWorld를 에디터 월드로 복구
-	//void DestroyWorldContext(UWorld* PlayWorld);
-
 protected:
 	void PreLoadMap(FWorldContext& Context) override;
 	void PostLoadMap(FWorldContext& Context) override;
 
 private:
-	// 이번 프레임 DeltaTime을 패널에 전달하고 에디터 단축키를 처리한다.
-	void BeginFrame(float DeltaTime);
-	// 패널 요청과 입력을 적용해 레이아웃·카메라 상태를 갱신한다.
-	void UpdateViewportState(float DeltaTime);
-	// 월드를 정확히 한 번 Tick·Capture한 뒤 에디터 상호작용을 갱신한다.
-	void TickWorldAndEditor(float DeltaTime);
-	// 한 번 캡처한 월드 결과를 재사용해 현재 레이아웃의 각 View를 렌더한다.
-	void RenderViewports();
+	// 에디터 월드와 그 월드 컨텍스트를 만든다. UE의 UEditorEngine::InitEditor에 해당한다.
+	void InitEditor();
+	// 아래 다섯은 Init이 순서대로 부르는 UI 초기화 단계다. UE에서는 레벨 에디터 모듈과 Slate가 맡는 일이라
+	// 대응하는 UE 함수가 없는, 이 엔진 고유의 이름이다.
+	void InitLevelEditorTab();
+	void InitImGui();
+	void InitEditorRenderers();
+	void InitPanels();
+	void InitCommands();
+
+	// View 하나를 그린다. UE의 UEditorEngine::UpdateSingleViewportClient에 해당한다.
+	void UpdateSingleViewportClient(FEditorViewportClient* ViewClient, int32 ViewIndex);
 	// PIE View를 게임 카메라 상태와 동기화한다.
 	void UpdatePIEViewCamera();
 	void TickPIEInput(float DeltaTime);
@@ -132,27 +144,18 @@ private:
 	void DestroyPIEWindow();
 	// 창 크기에 맞춰 Swapchain과 오프스크린 타깃을 다시 만든다. 그릴 수 없으면 false다.
 	bool UpdatePIEWindowTargets();
-	// PIE 창의 오프스크린 결과를 백버퍼로 복사한다. Present는 EndFrame에서 한다.
+	// PIE 창의 오프스크린 결과를 백버퍼로 복사한다. Present는 Tick의 끝에서 한다.
 	void CopyPIEWindowToBackbuffer();
 	bool IsPIEInWindow() const { return PIEWindow != nullptr; }
-	// 화면 합성과 View 설정 보관으로 프레임을 마무리한다.
-	void EndFrame();
 
-	void BuildSceneRenderOptions(FGameViewportClient* ViewClient, FSceneRenderOptions& Options);
-	void BuildSceneRenderOptions(FEditorViewportClient* ViewClient, bool IsPIE, FSceneRenderOptions& Options);
 
-	bool RenderScene(FSceneViewTargets& Targets, const FSceneView& SceneView,
-		FSceneRenderer& SceneRenderer, UWorld* TargetWorld, const FSceneRenderOptions& Options,
-		const std::function<void(FSceneOverlayCallbacks&)>& BuildOverlays);
-	void RenderActorUUIDs(const FSceneView& View);
 
-	FWorldContext& GetEditorWorldContext();
 	FWorldContext* GetPIEWorldContext(int32 WorldPIEInstance = 0);
 	UWorld* GetActiveWorld() const { return PlayWorld ? PlayWorld : EditorWorld; }
 
 	// PIE 중이고 일시정지가 아닌 View는 Gizmo·Picking 등 에디터 상호작용을 하지 않는다.
 	bool IsPlayingView(int32 ViewIndex) const { return PlayWorld && ViewIndex == PIEViewIndex && !bIsPaused && !IsSimulatingInEditor(); }
-	bool IsSimulatingInEditor() const;
+	bool IsSimulatingInEditor() const { return bIsSimulatingInEditor; }
 
 	// FEngineLoop 소유. OnInit에서 받아 둔다.
 	FWindow* MainWindow = nullptr;
@@ -162,20 +165,10 @@ private:
 	TUniquePtr<FEditorManager> EditorManager;
 
 	TUniquePtr<FImGuiRenderer> ImGuiRenderer;
-	TUniquePtr<FGridRenderer> GridRenderer;
-	TUniquePtr<FGizmoRenderer> GizmoRenderer;
-	TUniquePtr<FTextRenderer> TextRenderer;
-	TUniquePtr<FLineBatcher> LineBatcher;
 	TUniquePtr<FOutline> Outline;
-	TUniquePtr<FOutlineRenderer> OutlineRenderer;
-	TUniquePtr<FSceneDepthRenderer> SceneDepthRenderer;
-	TUniquePtr<FCascadeFloorRenderer> CascadeFloorRenderer;
 	TUniquePtr<FUIRenderer> UIRenderer;
 	TUniquePtr<FGizmo> Gizmo;
 
-	FUIDrawList UIDrawList;
-
-	UFont* SystemFont;
 
 	FLevelEditorTab* LevelEditorTab = nullptr;
 	FOutputLogPanel* OutputLogPanel = nullptr;
@@ -208,8 +201,6 @@ private:
 	uint32 PIETargetHeight = 0;
 	bool bPIEWindowRendered = false;
 
-	FVector UUIDLocation;
-
 	FGamePackager Packager;
 
 	FEditorCommand Save;
@@ -223,12 +214,13 @@ private:
 	FEditorCommand StepFrame;
 	FEditorCommand Stop;
 
-	bool bIsStep = false;
-
 	bool bPlaySessionRequested = false;
 	bool bRequestEndPlayMapQueued = false;
 	bool bStepRequested = false;
 	bool bIsPaused = false;
+	// PIE 중 SIE 상태인지. UE의 UEditorEngine::bIsSimulatingInEditor와 같다.
+	// ToggleBetweenPIEandSIE가 바꾸고, PIE가 끝나거나 PIE 월드가 교체되면 false로 돌아간다.
+	bool bIsSimulatingInEditor = false;
 
 	void ResetSceneSelection();
 
@@ -237,23 +229,10 @@ private:
 	void SaveCurrentScene();
 	void SaveSceneAs();
 
-	void CreatePIESession();
-	void StopPIESession();
-	void DrawPIEWindows();
-
-
-	void UpdateInputOwner();
-	void DispatchGameInput(float DeltaTime);
-	FGameViewportClient* FindPIEGameClient(int32 PIEInstance) const;
-
-	int32 InputOwnerPIEInstance = -1;
 	bool bGameMouseCaptured = false;
 	// PIE 시작 / SIE → 게임 복귀 시 다음 입력 틱에서 자동 캡처 (UE bCaptureMouseOnLaunch)
 	bool bPendingPIEMouseCapture = false;
 	// 캡처 중 커서를 되돌려 놓는 화면 좌표
 	int32 PIECaptureCenterX = 0;
 	int32 PIECaptureCenterY = 0;
-	int32 PendingFocusedPIEInstance = -1;
-	int32 PendingWheelDelta = 0;
-
 };

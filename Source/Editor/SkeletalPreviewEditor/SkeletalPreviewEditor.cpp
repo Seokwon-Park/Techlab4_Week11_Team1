@@ -1,7 +1,8 @@
 #include "EnginePCH.h"
 #include "Editor/SkeletalPreviewEditor/SkeletalPreviewEditor.h"
 #include "Editor/Viewports/EditorViewportClient.h"   
-#include "Editor/HitoriEd/EditorEngine.h"            
+#include "Editor/HitoriEd/EditorEngine.h"
+#include "Launch/LaunchEngineLoop.h"            
 #include "Components/SkeletalMeshComponent.h"        
 #include "Render/SkeletalMesh.h"                     
 #include "Render/LineBatcher.h"                      
@@ -221,8 +222,8 @@ void FSkeletalPreviewEditor::OnRenderPreview()
 		bInitialFocusPending = false;
 	}
 
-	// EditorEngine에 ViewportClient를 전달하여 렌더링
-	EditorEngine.RenderAssetEditor(*this);
+	// 뷰포트 클라이언트에게 그리게 한다.
+	ViewportClient->Draw(EditorEngine.GetEngineLoop().GetRenderer());
 }
 
 void FSkeletalPreviewEditor::UpdateBonePicking()

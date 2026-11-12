@@ -1,5 +1,7 @@
 #include "EnginePCH.h"
 #include "Editor/Gizmo/Gizmo.h"
+#include "Editor/Gizmo/GizmoRenderer.h"
+#include "Render/SceneView.h"
 #include "Camera/CameraComponent.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/Actor/LightActorBase.h"
@@ -17,6 +19,21 @@ static const int AXIS_SCREEN = 6;   // 3축 자유 이동
 
 static const float AxisLength = 1.5f;
 static const float HitPixels = 12.0f;
+
+// 그리는 도구를 만들고 축 메시, 셰이더, 상수 버퍼를 준비한다. FGizmoRenderer::Init의 렌더러 인자는 쓰이지 않는다.
+FGizmo::FGizmo()
+{
+	Renderer = MakeUnique<FGizmoRenderer>();
+	Renderer->Init(nullptr);
+}
+
+// FGizmoRenderer가 완전한 타입인 이 파일에서 소멸자를 정의해야 TUniquePtr가 지울 수 있다.
+FGizmo::~FGizmo() = default;
+
+void FGizmo::Render(const FSceneView* View) const
+{
+	Renderer->OnRender(*this, View->ViewProjectionMatrix, View->ViewLocation, !View->bIsPerspective);
+}
 
 // 입력 View의 카메라 조건으로 축 선택과 드래그를 갱신한다.
 void FGizmo::Update(const FRay& MouseRay, const FVector2& MousePos, const FMatrix& ViewProj, int ScreenW, int ScreenH, bool bMouseDown, const FVector& CameraLocation, const bool bCameraOrthographic)

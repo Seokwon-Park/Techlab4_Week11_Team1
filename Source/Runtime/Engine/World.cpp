@@ -1,4 +1,5 @@
 #include "EnginePCH.h"
+#include "Render/LineBatcher.h"
 #include "World.h"
 #include "Level.h"
 
@@ -92,6 +93,10 @@ bool UWorld::Init()
 
 	//카메라 생성
 	CreateMainCamera();
+
+	// 디버그 선 도구를 만든다. FLineBatcher::Init의 렌더러 인자는 쓰이지 않는다.
+	LineBatcher = MakeUnique<FLineBatcher>();
+	LineBatcher->Init(nullptr, this);
 
 	return true;
 }

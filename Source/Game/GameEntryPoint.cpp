@@ -1,6 +1,7 @@
 #include "EnginePCH.h"
 
 #include "Launch/EntryPoint.h"
+#include "Core/Misc/Paths.h"
 #include "Engine/GameEngine.h"
 
 UClass* GetEngineClass()

@@ -10,6 +10,8 @@
 #include "Render/RenderCommand.h"
 #include "Editor/AssetEditor/FPreviewScene.h"
 #include "Math/BoxSphereBounds.h"
+#include "Render/Renderer.h"
+#include "Render/SceneRenderer.h"
 
 FEditorViewportClient::FEditorViewportClient() {}
 
@@ -212,6 +214,33 @@ FSceneView FEditorViewportClient::CalcSceneView(const FRect &InViewRect) const {
 FSceneView FEditorViewportClient::CalcSceneView() const {
   return CalcSceneView(
       FRect(0.0f, 0.0f, static_cast<float>(Width), static_cast<float>(Height)));
+}
+
+// 이 뷰포트의 월드를 자기 카메라로 자기 타깃에 그린다. 레벨 에디터와 에셋 에디터가 같이 쓰는 순서다.
+void FEditorViewportClient::Draw(FRenderer* Renderer)
+{
+	UWorld* TargetWorld = GetWorld();
+	if (!TargetWorld || !Renderer) return;
+
+	// 카메라를 뷰·투영 행렬로 바꾼다.
+	const FSceneView SceneView = CalcSceneView();
+
+	// 보이는 물체와 라이트를 모은다.
+	FSceneRenderer SceneRenderer(TargetWorld, SceneView, RenderData);
+	SceneRenderer.InitViews(Renderer, EngineShowFlags);
+
+	// 패스를 순서대로 실행해 ViewTargets에 그린다. 씬 위에 올릴 에디터 요소는
+	// 두 번째 Draw가 등록하고, 등록한 함수는 Render 안에서 불린다.
+	SceneRenderer.Render(Renderer, ViewTargets, EngineShowFlags,
+		[this, &SceneView](FScenePassCallbacks& Callbacks)
+		{
+			Draw(&SceneView, Callbacks);
+		});
+}
+
+// 기본 뷰포트는 씬 위에 아무것도 올리지 않는다.
+void FEditorViewportClient::Draw(const FSceneView* View, FScenePassCallbacks& Callbacks)
+{
 }
 
 // 뷰포트 크기 변경 및 타깃 생성

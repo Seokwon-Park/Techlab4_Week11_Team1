@@ -6,6 +6,8 @@
 #include "Components/LocalLightComponent.h"
 
 class UCameraComponent;
+class FGizmoRenderer;
+struct FSceneView;
 
 enum class EGizmoMode
 {
@@ -23,6 +25,13 @@ enum class EGizmoSpace
 class FGizmo   // 상태 + 로직
 {
 public:
+	FGizmo();
+	~FGizmo();
+
+	// 이 기즈모를 View의 카메라 기준으로 그린다. 씬 위에 올리는 패스 안에서 부른다.
+	// UE의 FWidget::Render와 같은 자리다. UE는 Render(View, PDI, ViewportClient)이고 이 엔진은 View만 받는다.
+	void Render(const FSceneView* View) const;
+
 	// Gizmo 대상 설정
 	void SetTarget(USceneComponent* InTarget, bool InbUseActorBounds = false)
 	{ 
@@ -99,4 +108,7 @@ private:
 	float DragStartRadius = 0.0f;
 	bool ApplyScaleToLight(float Factor);
 	ULocalLightComponent* GetTargetLight() const;
+
+	// 축 메시와 셰이더로 실제 그리기를 맡는 도구. 기즈모마다 하나씩 갖는다.
+	TUniquePtr<FGizmoRenderer> Renderer;
 };

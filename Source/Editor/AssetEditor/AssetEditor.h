@@ -3,8 +3,8 @@
 #include "Core/EngineString.h"
 #include "Core/Types.h"
 #include "Editor/AssetEditor/FPreviewScene.h"
+#include "Editor/Viewports/EditorViewportClient.h"
 
-class FEditorViewportClient;
 class FGizmo;
 
 class FAssetEditor
@@ -84,4 +84,22 @@ private:
 	bool bInitialized = false;
 	bool bShutdown = false;
 	bool bCloseRequested = false;
+};
+
+// 에셋 에디터 미리보기 뷰포트의 클라이언트. 미리보기 씬을 그리고 그 위에 에디터가 주는 선과 기즈모를 올린다.
+// UE는 에셋 에디터마다 FEditorViewportClient를 상속한 클라이언트를 둔다(FStaticMeshEditorViewportClient,
+// FAnimationViewportClient). 이 엔진은 에셋 에디터들이 같은 방식으로 그리므로 하나를 같이 쓴다.
+// 그래서 이 클래스 이름은 UE에 없는, 이 엔진 고유의 이름이다.
+class FAssetEditorViewportClient : public FEditorViewportClient
+{
+public:
+	FAssetEditorViewportClient(FAssetEditor& InAssetEditor, FPreviewScene& InPreviewScene);
+
+	// 씬을 그리는 Draw는 기반 클래스의 것을 그대로 쓴다.
+	using FEditorViewportClient::Draw;
+	void Draw(const FSceneView* View, FScenePassCallbacks& Callbacks) override;
+
+private:
+	// 이 클라이언트를 만든 에디터. 클라이언트보다 오래 산다.
+	FAssetEditor& AssetEditor;
 };

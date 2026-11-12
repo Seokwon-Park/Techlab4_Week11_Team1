@@ -3,6 +3,7 @@
 #include "StaticMeshEditorTab.h"
 #include "Components/StaticMeshComponent.h"
 #include "Editor/HitoriEd/EditorEngine.h"
+#include "Launch/LaunchEngineLoop.h"
 #include "Engine/World.h"
 #include "Math/BoxSphereBounds.h"
 #include "Render/Mesh.h"
@@ -170,8 +171,8 @@ void FStaticMeshEditor::OnRenderPreview()
 		bInitialFocusPending = false;
 	}
 
-	// EditorEngine에 ViewportClient를 전달하여 렌더링
-	EditorEngine.RenderAssetEditor(*this);
+	// 뷰포트 클라이언트에게 그리게 한다.
+	ViewportClient->Draw(EditorEngine.GetEngineLoop().GetRenderer());
 }
 
 void FStaticMeshEditor::ShutdownResources()

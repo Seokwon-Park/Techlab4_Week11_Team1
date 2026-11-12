@@ -8,6 +8,7 @@
 #include "Render/SceneViewTargets.h"
 #include "Render/SceneView.h"
 #include "Render/SceneRenderData.h"
+#include "Render/SceneRenderOptions.h"
 #include "Render/Texture2D.h"
 
 #include <functional>
@@ -16,7 +17,9 @@ class UWorld;
 class FGizmo;
 class AActor;
 class FPreviewScene;
+class FRenderer;
 struct FBoxSphereBounds;
+struct FScenePassCallbacks;
 
 
 // 뷰포트 투영 타입
@@ -111,6 +114,18 @@ public:
 	FSceneView CalcSceneView(const FRect& InViewRect) const;
 	FSceneView CalcSceneView() const;
 
+	// 이 뷰포트의 월드를 자기 카메라로 자기 타깃(ViewTargets)에 그린다. 엔진과 에셋 에디터가 부르는 입구다.
+	// UE의 FEditorViewportClient::Draw(FViewport*, FCanvas*)와 같은 자리이고,
+	// 이 엔진은 렌더러를 인자로 받는다. 무엇을 어떻게 보여 줄지는 자기 EngineShowFlags에서 읽는다.
+	// 씬을 그리는 도중에 아래의 두 번째 Draw를 부른다.
+	virtual void Draw(FRenderer* Renderer);
+
+	// 씬 위에 올릴 에디터 요소(선, 그리드, 기즈모 등)를 등록한다. 기본 구현은 아무것도 올리지 않는다.
+	// 레벨 에디터와 에셋 에디터의 클라이언트가 이 함수만 재정의한다.
+	// UE의 FEditorViewportClient::Draw(const FSceneView*, FPrimitiveDrawInterface*)와 같은 자리다.
+	// UE는 PDI로 바로 그리지만, 이 엔진은 그릴 시점에 불릴 함수를 Callbacks에 채운다.
+	virtual void Draw(const FSceneView* View, FScenePassCallbacks& Callbacks);
+
 	// 화면 역투영 레이 생성
 	FRay DeprojectScreenToWorld(const FVector2& ScreenPos) const;
 
@@ -161,6 +176,10 @@ protected:
 	uint32 Height = 0;
 	FSceneViewTargets ViewTargets;
 	FSceneRenderData RenderData;
+	// 이 뷰포트가 무엇을 어떻게 보여 줄지 정하는 설정. Draw가 이 값으로 씬을 그린다.
+	// UE의 FEditorViewportClient::EngineShowFlags와 같은 자리다. UE의 FEngineShowFlags는 표시 여부만 담지만
+	// 이 엔진의 FSceneRenderOptions는 그림자 해상도, 렌더링 경로 같은 품질 설정도 같이 담는다.
+	FSceneRenderOptions EngineShowFlags;
 
 	FVector ViewLocation = FVector(0.0f, 0.0f, 0.0f);
 	FRotator ViewRotation = FRotator(0.0f, 0.0f, 0.0f);
